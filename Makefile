@@ -6,7 +6,7 @@ RUFF := $(UV) run ruff
 MYPY := $(UV) run mypy
 
 install:
-	$(UV) sync
+	$(UV) sync --all-packages
 
 sync:
 	$(UV) sync
