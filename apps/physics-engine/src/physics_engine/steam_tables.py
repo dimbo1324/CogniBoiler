@@ -16,7 +16,60 @@ IAPWS-IF97 covers:
     Region 5: high-temperature steam
 """
 
+# ─── Monkey-patch: fix iapws _Region3 for numpy 2.x / Python 3.14 ────────────
+#
+# Root cause: inside iapws _Region3, scipy.optimize.fsolve passes the density
+# argument `rho` as a 1-D numpy array (e.g. array([569.6...])), but the
+# function then calls math.log(d) where d = rho / rhoc.  In numpy < 2.0
+# math.log silently accepted 0-d and 1-element 1-D arrays; in numpy 2.x it
+# raises "only 0-dimensional arrays can be converted to Python scalars".
+#
+# Fix: wrap _Region3 to ensure rho and T are always plain Python floats before
+# delegating to the original implementation.  This is safe because _Region3 is
+# a pure function that only takes scalar arguments.
+# ─────────────────────────────────────────────────────────────────────────────
+from typing import Any, cast
+
+import iapws.iapws97 as _iapws97  # noqa: E402
+import numpy as np
 from iapws import IAPWS97
+
+# iapws has no stubs — attribute resolves to Any, no annotation needed
+_orig_region3 = _iapws97._Region3  # noqa: SLF001
+
+
+# N802 fix: function name lowercase
+# N803 fix: argument name lowercase (t instead of T)
+def _patched_region3(rho: object, t: object) -> dict[str, Any]:
+    """Scalar-safe wrapper around iapws._Region3."""
+    # N806 fix: local variable lowercase (t_f instead of T)
+    rho_f: float
+    t_f: float
+    # isinstance narrows rho to np.ndarray → .flat[0] is safe
+    if isinstance(rho, np.ndarray):
+        rho_f = float(rho.flat[0])
+    else:
+        # cast(Any, ...) lets float() accept an arbitrary object
+        rho_f = float(cast(Any, rho))
+    if isinstance(t, np.ndarray):
+        t_f = float(t.flat[0])
+    else:
+        t_f = float(cast(Any, t))
+    # cast fixes "Returning Any from function declared to return dict[str, Any]"
+    return cast(dict[str, Any], _orig_region3(rho_f, t_f))
+
+
+# no type: ignore needed — iapws module resolves to Any, assignment is accepted
+_iapws97._Region3 = _patched_region3  # noqa: SLF001
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _to_float(value: object) -> float:
+    """Ensure value is a plain Python float before passing to iapws."""
+    if isinstance(value, np.generic | np.ndarray):
+        return float(value)
+    return float(cast(Any, value))
 
 
 def _mpa(pressure_pa: float) -> float:
@@ -38,6 +91,7 @@ def saturation_pressure(temp_k: float) -> float:
 
     Valid range: 273.15 K to 647.096 K (critical point).
     """
+    temp_k = _to_float(temp_k)
     temp_k = max(273.16, min(temp_k, 647.0))
     state = IAPWS97(T=temp_k, x=0.0)  # x=0: saturated liquid
     return _pa(state.P)
@@ -49,6 +103,7 @@ def saturation_temp(pressure_pa: float) -> float:
 
     Valid range: 611.7 Pa to 22.064 MPa (critical pressure).
     """
+    pressure_pa = _to_float(pressure_pa)
     pressure_pa = max(611.7, min(pressure_pa, 22.064e6))
     state = IAPWS97(P=_mpa(pressure_pa), x=0.0)
     return float(state.T)
@@ -63,6 +118,11 @@ def water_density(temp_k: float, pressure_pa: float) -> float:
 
     Falls back to saturated liquid if state is two-phase.
     """
+    temp_k = _to_float(temp_k)
+    pressure_pa = _to_float(pressure_pa)
+    # Clamp to liquid region — avoid supercritical (Region 3)
+    temp_k = min(temp_k, 623.0)
+
     try:
         state = IAPWS97(T=temp_k, P=_mpa(pressure_pa))
         if state.phase in ("Liquid", "Subcooled liquid", "Compressed liquid"):
@@ -78,6 +138,11 @@ def water_specific_heat(temp_k: float, pressure_pa: float) -> float:
     """
     Specific heat capacity of liquid water Cp [J/(kg·K)] at given T and P.
     """
+    temp_k = _to_float(temp_k)
+    pressure_pa = _to_float(pressure_pa)
+    # Clamp to liquid region — avoid supercritical (Region 3)
+    temp_k = min(temp_k, 623.0)
+
     try:
         state = IAPWS97(T=temp_k, P=_mpa(pressure_pa))
         cp = state.cp
@@ -92,6 +157,11 @@ def water_enthalpy(temp_k: float, pressure_pa: float) -> float:
     """
     Specific enthalpy of liquid water [J/kg] at given T and P.
     """
+    temp_k = _to_float(temp_k)
+    pressure_pa = _to_float(pressure_pa)
+    # Clamp to liquid region — avoid supercritical (Region 3)
+    temp_k = min(temp_k, 623.0)
+
     try:
         state = IAPWS97(T=temp_k, P=_mpa(pressure_pa))
         return float(state.h) * 1000.0  # kJ/kg → J/kg
@@ -110,6 +180,9 @@ def steam_enthalpy(temp_k: float, pressure_pa: float) -> float:
 
     For superheated steam: T must be above saturation temperature at P.
     """
+    temp_k = _to_float(temp_k)
+    pressure_pa = _to_float(pressure_pa)
+
     try:
         state = IAPWS97(T=temp_k, P=_mpa(pressure_pa))
         return float(state.h) * 1000.0  # kJ/kg → J/kg
@@ -124,6 +197,9 @@ def steam_density(temp_k: float, pressure_pa: float) -> float:
     """
     Density of superheated steam [kg/m³] at given T and P.
     """
+    temp_k = _to_float(temp_k)
+    pressure_pa = _to_float(pressure_pa)
+
     try:
         state = IAPWS97(T=temp_k, P=_mpa(pressure_pa))
         return float(state.rho)
@@ -137,6 +213,9 @@ def steam_specific_heat(temp_k: float, pressure_pa: float) -> float:
     """
     Specific heat capacity of steam Cp [J/(kg·K)] at given T and P.
     """
+    temp_k = _to_float(temp_k)
+    pressure_pa = _to_float(pressure_pa)
+
     try:
         state = IAPWS97(T=temp_k, P=_mpa(pressure_pa))
         cp = state.cp
@@ -153,6 +232,7 @@ def latent_heat(pressure_pa: float) -> float:
 
     Difference between saturated vapor and saturated liquid enthalpy.
     """
+    pressure_pa = _to_float(pressure_pa)
     pressure_pa = max(611.7, min(pressure_pa, 22.064e6))
     liquid = IAPWS97(P=_mpa(pressure_pa), x=0.0)
     vapor = IAPWS97(P=_mpa(pressure_pa), x=1.0)
@@ -164,6 +244,7 @@ def latent_heat(pressure_pa: float) -> float:
 
 def saturated_liquid_enthalpy(pressure_pa: float) -> float:
     """Enthalpy of saturated liquid [J/kg] at given pressure."""
+    pressure_pa = _to_float(pressure_pa)
     pressure_pa = max(611.7, min(pressure_pa, 22.064e6))
     state = IAPWS97(P=_mpa(pressure_pa), x=0.0)
     return float(state.h) * 1000.0
@@ -171,6 +252,7 @@ def saturated_liquid_enthalpy(pressure_pa: float) -> float:
 
 def saturated_vapor_enthalpy(pressure_pa: float) -> float:
     """Enthalpy of saturated vapor [J/kg] at given pressure."""
+    pressure_pa = _to_float(pressure_pa)
     pressure_pa = max(611.7, min(pressure_pa, 22.064e6))
     state = IAPWS97(P=_mpa(pressure_pa), x=1.0)
     return float(state.h) * 1000.0

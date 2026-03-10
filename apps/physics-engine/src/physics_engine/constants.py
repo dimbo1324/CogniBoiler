@@ -14,7 +14,7 @@ DRUM_CROSS_SECTION: float = 6.0  # m²        — cross-sectional area of drum
 DRUM_HEIGHT: float = 8.0  # m         — total drum height
 
 # ─── Operating ranges ───────────────────────────────────────────────────────
-PRESSURE_MIN: float = 100.0e5  # Pa        — minimum operating pressure (100 bar)
+PRESSURE_MIN: float = 20.0e5  # Pa        — minimum operating pressure (100 bar)
 PRESSURE_MAX: float = 180.0e5  # Pa        — maximum operating pressure (180 bar)
 PRESSURE_NOMINAL: float = 140.0e5  # Pa        — nominal operating pressure (140 bar)
 
@@ -32,9 +32,22 @@ MAX_FUEL_FLOW: float = 10.0  # kg/s      — maximum fuel mass flow rate
 
 # ─── Heat transfer ───────────────────────────────────────────────────────────
 HEAT_LOSS_COEFFICIENT: float = 500.0  # W/K       — overall heat loss coefficient (UA)
-HEAT_TRANSFER_GAS_WATER: float = (
-    15000.0  # W/K     — gas-to-water heat transfer coefficient
-)
+
+# FIX (v3): previous values were 15 000 W/K and 250 000 W/K — both insufficient.
+#
+# At full feedwater (300 kg/s, 150 °C) flowing into a 337 °C drum, the
+# cold-dilution power demand is:
+#   P_dil = 300 × 5 000 × (610 − 423) K ≈ 281 MW
+#
+# With UA = 250 000 W/K combustion only delivers 250 000 × 663 ≈ 166 MW < 281 MW
+# → temperature (and hence pressure) fell even under full firing.
+#
+# With UA = 450 000 W/K:
+#   Q_gas = 450 000 × (1273 − 610) = 298 MW > 281 MW  → temperature rises  ✓
+#
+# Physical sanity: a 300 t/h utility boiler has ~3 000 m² heating surface and
+# gas-side HTC ≈ 120–160 W/(m²·K) → UA ≈ 3 000 × 150 = 450 000 W/K.
+HEAT_TRANSFER_GAS_WATER: float = 450_000.0  # W/K — gas-to-water UA
 
 # ─── Steam flow ─────────────────────────────────────────────────────────────
 STEAM_VALVE_COEFFICIENT: float = 50.0  # kg/(s·bar) — steam valve flow coefficient

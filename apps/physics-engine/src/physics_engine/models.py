@@ -16,7 +16,6 @@ from physics_engine.constants import (
     STEAM_VALVE_COEFFICIENT,
     TEMP_AMBIENT,
     TEMP_FEEDWATER,
-    TEMP_STEAM_NOMINAL,
 )
 
 
@@ -191,26 +190,22 @@ class BoilerParameters:
     def nominal_initial_state(self) -> "BoilerState":
         """
         Return a physically consistent initial state at nominal operating point.
-
-        Water mass and internal energy are computed using IAPWS-IF97
-        density at nominal pressure and temperature — no fixed constants.
         """
         water_level_nominal = self.drum_height * 0.6
+
+        t_sat = steam_tables.saturation_temp(PRESSURE_NOMINAL)
+
         water_density = steam_tables.water_density(
-            temp_k=TEMP_STEAM_NOMINAL,
+            temp_k=t_sat,
             pressure_pa=PRESSURE_NOMINAL,
         )
         water_mass = water_density * self.drum_cross_section * water_level_nominal
-        cp_water = steam_tables.water_specific_heat(
-            temp_k=TEMP_STEAM_NOMINAL,
-            pressure_pa=PRESSURE_NOMINAL,
-        )
-        u_nominal = water_mass * cp_water * TEMP_STEAM_NOMINAL
+        u_nominal = water_mass * steam_tables.water_enthalpy(t_sat, PRESSURE_NOMINAL)
 
         return BoilerState(
             internal_energy=u_nominal,
             pressure=PRESSURE_NOMINAL,
             water_level=water_level_nominal,
             flue_gas_temp=1273.15,  # K — ~1000°C nominal furnace temperature
-            water_temp=TEMP_STEAM_NOMINAL,
+            water_temp=t_sat,
         )
