@@ -12,6 +12,7 @@ dependencies = [
     "grpcio>=1.62.0",
     "grpcio-tools>=1.62.0",
     "protobuf>=4.25.0",
+    "iapws>=1.5.0",
 ]
 
 [build-system]

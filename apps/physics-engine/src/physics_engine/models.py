@@ -1,7 +1,8 @@
 """Data models for the CogniBoiler steam boiler simulation."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from physics_engine import steam_tables
 from physics_engine.constants import (
     DRUM_CROSS_SECTION,
     DRUM_HEIGHT,
@@ -16,7 +17,6 @@ from physics_engine.constants import (
     TEMP_AMBIENT,
     TEMP_FEEDWATER,
     TEMP_STEAM_NOMINAL,
-    WATER_DENSITY,
 )
 
 
@@ -25,14 +25,18 @@ class BoilerState:
     """
     Represents the instantaneous physical state of the boiler.
 
-    This is the state vector y = [U, P, h, T_gas] that the ODE solver
-    integrates over time. All values use SI units.
+    State vector y = [U, P, h, T_gas, T_water] — 5 dimensions.
+    T_water is now explicit to avoid repeated recomputation from U
+    and to eliminate numerical drift in the energy-to-temperature inversion.
+
+    All values use SI units.
     """
 
-    internal_energy: float  # J       — total thermal energy stored in water mass
-    pressure: float  # Pa      — steam drum pressure
-    water_level: float  # m       — water level in drum (0 = empty, drum_height = full)
-    flue_gas_temp: float  # K       — flue gas temperature in furnace
+    internal_energy: float  # J   — total thermal energy stored in water mass
+    pressure: float  # Pa  — steam drum pressure
+    water_level: float  # m   — water level in drum (0=empty, drum_height=full)
+    flue_gas_temp: float  # K   — flue gas temperature in furnace
+    water_temp: float  # K   — bulk water/steam temperature in drum
 
     def to_vector(self) -> list[float]:
         """Convert state to a flat list for the ODE solver."""
@@ -41,6 +45,7 @@ class BoilerState:
             self.pressure,
             self.water_level,
             self.flue_gas_temp,
+            self.water_temp,
         ]
 
     @classmethod
@@ -51,20 +56,108 @@ class BoilerState:
             pressure=y[1],
             water_level=y[2],
             flue_gas_temp=y[3],
+            water_temp=y[4],
         )
 
     @property
-    def water_temp(self) -> float:
-        """
-        Estimate water/steam temperature from internal energy.
+    def pressure_bar(self) -> float:
+        """Pressure in bar (convenience property)."""
+        return self.pressure / 1.0e5
 
-        Simplified: assumes water mass is constant at nominal,
-        uses average specific heat capacity.
-        """
-        from physics_engine.constants import SPECIFIC_HEAT_WATER, WATER_DENSITY
+    @property
+    def water_temp_celsius(self) -> float:
+        """Water temperature in Celsius (convenience property)."""
+        return self.water_temp - 273.15
 
-        water_mass = WATER_DENSITY * DRUM_VOLUME * 0.6  # assume 60% fill
-        return self.internal_energy / (water_mass * SPECIFIC_HEAT_WATER)
+    @property
+    def flue_gas_temp_celsius(self) -> float:
+        """Flue gas temperature in Celsius (convenience property)."""
+        return self.flue_gas_temp - 273.15
+
+
+@dataclass
+class ValveState:
+    """
+    Physical state of a control valve including actuation dynamics.
+
+    Real valves do not jump instantly to a commanded position —
+    they move at a finite rate (typical: 10–20% per second for
+    motorized valves in power plant service).
+
+    This prevents instantaneous step changes in flow that would
+    create numerical stiffness in the ODE solver and are physically
+    unrealistic.
+    """
+
+    position: float  # —    current actual valve opening [0, 1]
+    command: float  # —    operator commanded position [0, 1]
+    rate_limit: float = 0.15  # 1/s  maximum rate of change (15% per second)
+
+    def __post_init__(self) -> None:
+        self.position = max(0.0, min(1.0, self.position))
+        self.command = max(0.0, min(1.0, self.command))
+
+    def step(self, dt: float) -> None:
+        """
+        Advance valve position toward command by one time step.
+
+        Args:
+            dt: Time step [s].
+        """
+        max_move = self.rate_limit * dt
+        error = self.command - self.position
+        move = max(-max_move, min(max_move, error))
+        self.position = max(0.0, min(1.0, self.position + move))
+
+
+@dataclass
+class ControlInputs:
+    """
+    Operator control commands sent to the boiler.
+
+    Contains both the commanded setpoints and the actual valve states
+    (which lag behind commands due to actuator dynamics).
+
+    Values are normalized: 0.0 = fully closed/off, 1.0 = fully open/max.
+    """
+
+    fuel_valve_command: float = 0.5  # — commanded fuel valve position
+    feedwater_valve_command: float = 0.5  # — commanded feedwater valve position
+    steam_valve_command: float = 0.5  # — commanded steam valve position
+
+    # Actual valve states with dynamics (initialized at command position)
+    fuel_valve: ValveState = field(init=False)
+    feedwater_valve: ValveState = field(init=False)
+    steam_valve: ValveState = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.fuel_valve_command = max(0.0, min(1.0, self.fuel_valve_command))
+        self.feedwater_valve_command = max(0.0, min(1.0, self.feedwater_valve_command))
+        self.steam_valve_command = max(0.0, min(1.0, self.steam_valve_command))
+
+        # Initialise valves at current command positions
+        self.fuel_valve = ValveState(
+            position=self.fuel_valve_command,
+            command=self.fuel_valve_command,
+        )
+        self.feedwater_valve = ValveState(
+            position=self.feedwater_valve_command,
+            command=self.feedwater_valve_command,
+        )
+        self.steam_valve = ValveState(
+            position=self.steam_valve_command,
+            command=self.steam_valve_command,
+        )
+
+    def update_valves(self, dt: float) -> None:
+        """Advance all valve positions by one time step."""
+        self.fuel_valve.command = self.fuel_valve_command
+        self.feedwater_valve.command = self.feedwater_valve_command
+        self.steam_valve.command = self.steam_valve_command
+
+        self.fuel_valve.step(dt)
+        self.feedwater_valve.step(dt)
+        self.steam_valve.step(dt)
 
 
 @dataclass
@@ -81,8 +174,7 @@ class BoilerParameters:
     drum_cross_section: float = DRUM_CROSS_SECTION  # m²
     drum_height: float = DRUM_HEIGHT  # m
 
-    # Thermal properties
-    water_density: float = WATER_DENSITY  # kg/m³
+    # Thermal properties (fallback — actual values from steam_tables)
     heat_loss_coeff: float = HEAT_LOSS_COEFFICIENT  # W/K
     heat_transfer_coeff: float = HEAT_TRANSFER_GAS_WATER  # W/K
 
@@ -100,35 +192,25 @@ class BoilerParameters:
         """
         Return a physically consistent initial state at nominal operating point.
 
-        Used to start simulation from a steady-state condition.
+        Water mass and internal energy are computed using IAPWS-IF97
+        density at nominal pressure and temperature — no fixed constants.
         """
-        from physics_engine.constants import SPECIFIC_HEAT_WATER
-
-        water_mass = self.water_density * self.drum_volume * 0.6
-        u_nominal = water_mass * SPECIFIC_HEAT_WATER * TEMP_STEAM_NOMINAL
+        water_level_nominal = self.drum_height * 0.6
+        water_density = steam_tables.water_density(
+            temp_k=TEMP_STEAM_NOMINAL,
+            pressure_pa=PRESSURE_NOMINAL,
+        )
+        water_mass = water_density * self.drum_cross_section * water_level_nominal
+        cp_water = steam_tables.water_specific_heat(
+            temp_k=TEMP_STEAM_NOMINAL,
+            pressure_pa=PRESSURE_NOMINAL,
+        )
+        u_nominal = water_mass * cp_water * TEMP_STEAM_NOMINAL
 
         return BoilerState(
             internal_energy=u_nominal,
             pressure=PRESSURE_NOMINAL,
-            water_level=self.drum_height * 0.6,
+            water_level=water_level_nominal,
             flue_gas_temp=1273.15,  # K — ~1000°C nominal furnace temperature
+            water_temp=TEMP_STEAM_NOMINAL,
         )
-
-
-@dataclass
-class ControlInputs:
-    """
-    Operator control signals sent to the boiler at each time step.
-
-    Values are normalized: 0.0 = fully closed/off, 1.0 = fully open/max.
-    """
-
-    fuel_valve: float = 0.5  # — fuel valve position [0, 1]
-    feedwater_valve: float = 0.5  # — feedwater valve position [0, 1]
-    steam_valve: float = 0.5  # — steam outlet valve position [0, 1]
-
-    def __post_init__(self) -> None:
-        """Clamp all valve positions to [0, 1]."""
-        self.fuel_valve = max(0.0, min(1.0, self.fuel_valve))
-        self.feedwater_valve = max(0.0, min(1.0, self.feedwater_valve))
-        self.steam_valve = max(0.0, min(1.0, self.steam_valve))

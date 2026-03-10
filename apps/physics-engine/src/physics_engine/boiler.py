@@ -1,204 +1,278 @@
 """
 Thermodynamic ODE model of a steam boiler.
 
-The boiler state is described by 4 coupled ODEs:
-    dU/dt    — internal energy balance (heat in - heat out)
-    dP/dt    — steam pressure dynamics
-    dh/dt    — water level dynamics (mass balance)
-    dT_gas/dt — flue gas temperature dynamics
+Integrates all sub-models into a unified simulation:
+    - CombustionModel    : heat release from fuel burning
+    - SuperheaterModel   : saturated → superheated steam
+    - EconomizerModel    : feedwater preheating from flue gas
+    - steam_tables       : IAPWS-IF97 water/steam properties
+    - ValveState         : actuator dynamics for all control valves
+
+State vector y = [U, P, h, T_gas, T_water] — 5 dimensions.
+
+ODE system:
+    dU/dt      — internal energy balance
+    dP/dt      — steam pressure dynamics via IAPWS-IF97
+    dh/dt      — water level mass balance with real steam density
+    dT_gas/dt  — furnace flue gas temperature
+    dT_w/dt    — bulk water temperature (explicit, avoids U inversion)
 """
 
 import numpy as np
-from scipy.integrate import (
-    OdeResult,
-    solve_ivp,
-)
+from scipy.integrate import solve_ivp
+from scipy.integrate._ivp.ivp import OdeResult
 
+from physics_engine import steam_tables
+from physics_engine.combustion import CombustionModel
 from physics_engine.constants import (
-    ANTOINE_A,
-    ANTOINE_B,
-    ANTOINE_C,
-    COMBUSTION_EFFICIENCY,
-    FUEL_HEATING_VALUE,
-    LATENT_HEAT_VAPORIZATION,
-    SPECIFIC_HEAT_STEAM,
-    SPECIFIC_HEAT_WATER,
+    PRESSURE_MAX,
+    PRESSURE_MIN,
+    TEMP_STEAM_MAX,
 )
+from physics_engine.heat_exchanger import EconomizerModel, SuperheaterModel
 from physics_engine.models import BoilerParameters, BoilerState, ControlInputs
+
+# ─── ODE solver configuration ─────────────────────────────────────────────────
+
+# Use Radau (implicit, stiff solver) instead of RK45.
+# Our system is stiff: pressure responds in ~seconds,
+# water temperature changes over ~minutes.
+ODE_METHOD: str = "Radau"
+ODE_RTOL: float = 1e-4
+ODE_ATOL: float = 1e-6
+ODE_MAX_STEP: float = 5.0  # seconds
+
+# Flue gas thermal mass in furnace [kg] and Cp [J/(kg·K)]
+FURNACE_GAS_MASS: float = 5000.0
+FURNACE_GAS_CP: float = 1100.0
+
+# Pressure response time constant [s]
+# How fast drum pressure tracks saturation pressure
+TAU_PRESSURE: float = 30.0
 
 
 class BoilerModel:
     """
-    Numerical ODE model of a steam boiler using RK45 integration.
+    Full thermodynamic ODE model of a steam boiler.
 
-    Physics summary:
-        - Energy balance: heat from combustion heats water, steam carries energy out
-        - Pressure: derived from saturation temperature via Antoine equation
-        - Water level: feedwater in minus steam out (mass balance)
-        - Flue gas: heated by combustion, cooled by heat transfer to water
+    Integrates combustion, heat exchangers, drum dynamics, and
+    actuator dynamics into a single simulate() call.
 
     Usage:
         params = BoilerParameters()
-        model = BoilerModel(params)
-        initial = params.nominal_initial_state()
-        controls = ControlInputs(fuel_valve=0.7, feedwater_valve=0.5, steam_valve=0.6)
-        result = model.simulate(initial, controls, t_span=(0, 300), dt=1.0)
+        model  = BoilerModel(params)
+        state0 = params.nominal_initial_state()
+        ctrl   = ControlInputs(
+            fuel_valve_command=0.7,
+            feedwater_valve_command=0.5,
+            steam_valve_command=0.6,
+        )
+        result = model.simulate(state0, ctrl, t_span=(0, 600), dt=1.0)
     """
 
-    def __init__(self, params: BoilerParameters) -> None:
+    def __init__(
+        self,
+        params: BoilerParameters,
+        excess_air_ratio: float = 1.1,
+        air_preheat_temp: float | None = None,
+    ) -> None:
+        """
+        Args:
+            params: Fixed boiler design parameters.
+            excess_air_ratio: Combustion lambda (1.0=stoichiometric, 1.1=typical).
+            air_preheat_temp: Combustion air inlet temperature [K].
+                              Defaults to params.ambient_temp.
+        """
         self.params = params
+        self.combustion = CombustionModel(
+            max_fuel_flow=params.max_fuel_flow,
+            nominal_excess_air=excess_air_ratio,
+            air_preheat_temp=air_preheat_temp or params.ambient_temp,
+        )
+        self.superheater = SuperheaterModel()
+        self.economizer = EconomizerModel()
 
-    # ─── Antoine equation ────────────────────────────────────────────────────
+    # ─── Flow calculations ────────────────────────────────────────────────────
 
-    def _saturation_pressure(self, temp_k: float) -> float:
+    def _steam_flow(self, pressure_pa: float, valve_position: float) -> float:
         """
-        Calculate saturation pressure from temperature using Antoine equation.
+        Steam mass flow through outlet valve [kg/s].
 
-        Antoine: ln(P) = A - B / (T - C)
-        Returns pressure in Pa.
+        Uses square-root pressure drop model (more accurate than linear):
+            m = Cv * position * sqrt(P - P_downstream)
+        Assumes fixed downstream pressure of 10 bar (turbine inlet).
         """
-        temp_k = max(temp_k, 373.15)  # clamp to boiling point minimum
-        ln_p = ANTOINE_A - ANTOINE_B / (temp_k - ANTOINE_C)
-        return float(np.exp(ln_p))
-
-    def _saturation_temp(self, pressure_pa: float) -> float:
-        """
-        Calculate saturation temperature from pressure (inverse Antoine).
-
-        Returns temperature in K.
-        """
-        pressure_pa = max(pressure_pa, 1.0e4)  # avoid log(0)
-        ln_p = float(np.log(pressure_pa))
-        return ANTOINE_B / (ANTOINE_A - ln_p) + ANTOINE_C
-
-    # ─── Steam flow ───────────────────────────────────────────────────────────
-
-    def _steam_flow(self, pressure_pa: float, steam_valve: float) -> float:
-        """
-        Calculate steam mass flow through the outlet valve.
-
-        Simple linear valve model: m_steam = Cv * valve_position * pressure_bar
-        Returns flow in kg/s.
-        """
-        pressure_bar = pressure_pa / 1.0e5
-        flow = self.params.steam_valve_coeff * steam_valve * pressure_bar
+        p_downstream = 10.0e5  # Pa — turbine inlet pressure
+        dp = max(pressure_pa - p_downstream, 0.0)
+        flow = self.params.steam_valve_coeff * valve_position * np.sqrt(dp / 1.0e5)
         return float(np.clip(flow, 0.0, self.params.max_steam_flow))
 
-    def _feedwater_flow(self, feedwater_valve: float) -> float:
-        """
-        Calculate feedwater mass flow into the drum.
+    def _feedwater_flow(self, valve_position: float) -> float:
+        """Feedwater mass flow into drum [kg/s]."""
+        max_feedwater = 300.0  # kg/s
+        return valve_position * max_feedwater
 
-        Returns flow in kg/s.
-        """
-        max_feedwater = 300.0  # kg/s — maximum feedwater pump capacity
-        return feedwater_valve * max_feedwater
-
-    # ─── Heat flows ──────────────────────────────────────────────────────────
-
-    def _heat_from_combustion(self, fuel_valve: float) -> float:
-        """
-        Heat released by burning fuel [W].
-
-        Q_fuel = m_fuel * LHV * eta_combustion
-        """
-        m_fuel = fuel_valve * self.params.max_fuel_flow
-        return m_fuel * FUEL_HEATING_VALUE * COMBUSTION_EFFICIENCY
+    # ─── Heat transfer ────────────────────────────────────────────────────────
 
     def _heat_to_water(self, flue_gas_temp: float, water_temp: float) -> float:
         """
-        Heat transferred from flue gas to water [W].
+        Heat transferred from flue gas to drum water [W].
 
-        Q_transfer = UA * (T_gas - T_water)
+        UA coefficient is fixed by design — a more advanced model
+        would make this a function of flow rates and fouling.
         """
-        delta_t = flue_gas_temp - water_temp
-        return self.params.heat_transfer_coeff * max(delta_t, 0.0)
+        delta_t = max(flue_gas_temp - water_temp, 0.0)
+        return self.params.heat_transfer_coeff * delta_t
 
     def _heat_loss(self, water_temp: float) -> float:
-        """
-        Heat lost through boiler walls to ambient [W].
+        """Heat lost through boiler walls to ambient [W]."""
+        delta_t = max(water_temp - self.params.ambient_temp, 0.0)
+        return self.params.heat_loss_coeff * delta_t
 
-        Q_loss = UA_loss * (T_water - T_ambient)
-        """
-        delta_t = water_temp - self.params.ambient_temp
-        return self.params.heat_loss_coeff * max(delta_t, 0.0)
-
-    def _heat_carried_by_steam(self, steam_flow: float, water_temp: float) -> float:
+    def _heat_carried_by_steam(
+        self,
+        steam_flow: float,
+        pressure_pa: float,
+        water_temp: float,
+    ) -> float:
         """
         Enthalpy carried out by steam [W].
 
-        Includes latent heat of vaporization + sensible heat of superheated steam.
+        Uses IAPWS-IF97 to get accurate steam enthalpy at current
+        pressure and temperature — replaces the simplified formula.
         """
-        enthalpy_per_kg = LATENT_HEAT_VAPORIZATION + SPECIFIC_HEAT_STEAM * (
-            water_temp - 373.15
+        if steam_flow <= 0.0:
+            return 0.0
+        h_steam = steam_tables.steam_enthalpy(
+            temp_k=water_temp,
+            pressure_pa=pressure_pa,
         )
-        return steam_flow * enthalpy_per_kg
+        h_liquid = steam_tables.water_enthalpy(
+            temp_k=water_temp,
+            pressure_pa=pressure_pa,
+        )
+        # Net enthalpy removed = steam enthalpy - liquid reference
+        return steam_flow * (h_steam - h_liquid)
+
+    # ─── Event functions for solve_ivp ───────────────────────────────────────
+
+    @staticmethod
+    def _event_pressure_high(t: float, y: list[float], *args: object) -> float:
+        """Stop integration if pressure exceeds maximum [Pa]."""
+        return y[1] - PRESSURE_MAX
+
+    @staticmethod
+    def _event_pressure_low(t: float, y: list[float], *args: object) -> float:
+        """Stop integration if pressure drops below minimum [Pa]."""
+        return y[1] - PRESSURE_MIN
+
+    @staticmethod
+    def _event_water_empty(t: float, y: list[float], *args: object) -> float:
+        """Stop integration if drum runs dry [m]."""
+        return y[2] - 0.05  # 5 cm safety margin
+
+    @staticmethod
+    def _event_water_overflow(t: float, y: list[float], *args: object) -> float:
+        """Stop integration if drum overflows [m]."""
+        from physics_engine.constants import DRUM_HEIGHT
+
+        return y[2] - (DRUM_HEIGHT - 0.1)  # 10 cm safety margin
+
+    @staticmethod
+    def _event_temp_high(t: float, y: list[float], *args: object) -> float:
+        """Stop integration if steam temperature exceeds maximum [K]."""
+        return y[4] - TEMP_STEAM_MAX
 
     # ─── ODE right-hand side ─────────────────────────────────────────────────
 
     def _derivatives(
         self,
-        t: float,  # noqa: ARG002  (time unused — autonomous system)
+        t: float,  # noqa: ARG002
         y: list[float],
         controls: ControlInputs,
     ) -> list[float]:
         """
         Compute dy/dt for the ODE solver.
 
-        State vector y = [U, P, h, T_gas]
-        Returns derivative vector [dU/dt, dP/dt, dh/dt, dT_gas/dt]
+        State vector y = [U, P, h, T_gas, T_water]
+        Returns [dU/dt, dP/dt, dh/dt, dT_gas/dt, dT_water/dt]
         """
         state = BoilerState.from_vector(y)
 
-        # ── Derived quantities ────────────────────────────────────────────────
-        water_mass = (
-            self.params.water_density
-            * self.params.drum_cross_section
-            * max(state.water_level, 0.01)
-        )
-        water_temp = state.internal_energy / (
-            water_mass * SPECIFIC_HEAT_WATER + 1.0  # +1 avoids div-by-zero
-        )
-        water_temp = max(water_temp, 373.15)
+        # ── Clamp state to physical bounds ────────────────────────────────────
+        water_level = max(state.water_level, 0.01)
+        water_temp = max(state.water_temp, 373.15)
+        pressure_pa = max(state.pressure, 1.0e5)
 
-        # ── Flow rates ────────────────────────────────────────────────────────
-        m_steam = self._steam_flow(state.pressure, controls.steam_valve)
-        m_feed = self._feedwater_flow(controls.feedwater_valve)
+        # ── Water mass via IAPWS-IF97 density (not a fixed constant) ─────────
+        rho_water = steam_tables.water_density(water_temp, pressure_pa)
+        water_mass = rho_water * self.params.drum_cross_section * water_level
+        water_mass = max(water_mass, 1.0)  # avoid div-by-zero
+
+        # ── Cp of water at current conditions via IAPWS-IF97 ─────────────────
+        cp_water = steam_tables.water_specific_heat(water_temp, pressure_pa)
+
+        # ── Valve positions (actual, after actuator dynamics) ─────────────────
+        fv = controls.fuel_valve.position
+        wv = controls.feedwater_valve.position
+        sv = controls.steam_valve.position
+
+        # ── Combustion ────────────────────────────────────────────────────────
+        comb = self.combustion.calculate(fuel_valve=fv)
+
+        # ── Economizer: preheat feedwater with residual flue gas ──────────────
+        m_feed_raw = self._feedwater_flow(wv)
+        eco = self.economizer.calculate(
+            feedwater_flow=m_feed_raw,
+            feedwater_temp_in=self.params.feedwater_temp,
+            pressure_pa=pressure_pa,
+            flue_gas_temp_in=state.flue_gas_temp * 0.4,  # economizer sees cooler gas
+            flue_gas_flow=comb.flue_gas_flow,
+        )
+        # Feedwater enters drum at economizer outlet temperature
+        feedwater_temp_actual = eco.water_temp_out
+
+        # ── Superheater: not part of drum ODE but affects steam enthalpy ─────
+        m_steam = self._steam_flow(pressure_pa, sv)
+        sh = self.superheater.calculate(
+            pressure_pa=pressure_pa,
+            steam_flow=m_steam,
+            flue_gas_temp_in=state.flue_gas_temp,
+            flue_gas_flow=comb.flue_gas_flow,
+        )
 
         # ── Heat flows ────────────────────────────────────────────────────────
-        q_combustion = self._heat_from_combustion(controls.fuel_valve)
         q_gas_to_water = self._heat_to_water(state.flue_gas_temp, water_temp)
         q_loss = self._heat_loss(water_temp)
-        q_steam_out = self._heat_carried_by_steam(m_steam, water_temp)
-        q_feedwater_in = (
-            m_feed * SPECIFIC_HEAT_WATER * (self.params.feedwater_temp - 273.15)
-        )
+        q_steam_out = self._heat_carried_by_steam(m_steam, pressure_pa, water_temp)
+        q_feedwater_in = m_feed_raw * cp_water * (feedwater_temp_actual - 273.15)
 
-        # ── ODE 1: dU/dt — internal energy balance ────────────────────────────
-        # Energy in: heat from gas + feedwater enthalpy
-        # Energy out: heat in steam + wall losses
+        # ── ODE 1: dU/dt — internal energy ────────────────────────────────────
         du_dt = q_gas_to_water + q_feedwater_in - q_steam_out - q_loss
 
-        # ── ODE 2: dP/dt — pressure dynamics ──────────────────────────────────
-        # Pressure tracks saturation pressure of current water temp
-        # with a lag time constant (boiler thermal inertia ~30s)
-        p_sat = self._saturation_pressure(water_temp)
-        tau_pressure = 30.0  # seconds — pressure response time constant
-        dp_dt = (p_sat - state.pressure) / tau_pressure
+        # ── ODE 2: dP/dt — pressure tracks IAPWS-IF97 saturation pressure ────
+        p_sat = steam_tables.saturation_pressure(water_temp)
+        dp_dt = (p_sat - pressure_pa) / TAU_PRESSURE
 
         # ── ODE 3: dh/dt — water level (mass balance) ─────────────────────────
-        # Level rises with feedwater, drops with steam (converted to volume)
-        m_steam_liquid_equiv = m_steam * 0.001  # steam density ~1 kg/m³ → volume
-        dh_dt = (m_feed - m_steam_liquid_equiv) / (
-            self.params.water_density * self.params.drum_cross_section
+        # Steam volume flow uses real steam density from IAPWS-IF97
+        rho_steam = steam_tables.steam_density(water_temp, pressure_pa)
+        rho_steam = max(rho_steam, 0.1)  # physical floor
+        dh_dt = (m_feed_raw - m_steam / rho_steam) / (
+            rho_water * self.params.drum_cross_section
         )
 
-        # ── ODE 4: dT_gas/dt — flue gas temperature ───────────────────────────
-        # Gas mass in furnace (approximate)
-        m_gas = 5000.0  # kg — approximate flue gas mass in furnace
-        cp_gas = 1100.0  # J/(kg·K) — specific heat of flue gas
-        dt_gas_dt = (q_combustion - q_gas_to_water) / (m_gas * cp_gas)
+        # ── ODE 4: dT_gas/dt — furnace flue gas temperature ──────────────────
+        q_sh_absorbed = sh.heat_transferred  # superheater absorbs from flue gas
+        dt_gas_dt = (comb.heat_available - q_gas_to_water - q_sh_absorbed) / (
+            FURNACE_GAS_MASS * FURNACE_GAS_CP
+        )
 
-        return [du_dt, dp_dt, dh_dt, dt_gas_dt]
+        # ── ODE 5: dT_water/dt — explicit water temperature ───────────────────
+        # dT/dt = (1 / (m * Cp)) * dU/dt  — avoids repeated U inversion
+        dt_water_dt = du_dt / (water_mass * cp_water)
+
+        return [du_dt, dp_dt, dh_dt, dt_gas_dt, dt_water_dt]
 
     # ─── Public simulation interface ─────────────────────────────────────────
 
@@ -210,34 +284,79 @@ class BoilerModel:
         dt: float = 1.0,
     ) -> OdeResult:
         """
-        Integrate the ODE system over a time span.
+        Integrate the ODE system over a time span with event detection.
+
+        Solver: Radau (implicit, handles stiff systems correctly).
+        Events: stops automatically on pressure/level/temperature limits.
 
         Args:
             initial_state: Starting state of the boiler.
-            controls: Constant control inputs during this simulation period.
+            controls: Control inputs (valve commands + actuator states).
             t_span: (t_start, t_end) in seconds.
-            dt: Output time step in seconds (does not affect solver accuracy).
+            dt: Output time step in seconds.
 
         Returns:
-            scipy OdeResult with .t (time array) and .y (state array, shape 4×N).
+            scipy OdeResult. Check result.status:
+                0 = reached t_end normally
+               -1 = integration step failed
+                1 = termination event triggered (alarm condition)
         """
+        # Advance valve positions before integration starts
+        controls.update_valves(dt)
+
         t_eval = np.arange(t_span[0], t_span[1], dt)
         y0 = initial_state.to_vector()
+
+        # Register terminal events
+        events = [
+            self._event_pressure_high,
+            self._event_pressure_low,
+            self._event_water_empty,
+            self._event_water_overflow,
+            self._event_temp_high,
+        ]
+        for ev in events:
+            ev.terminal = True  # type: ignore[attr-defined]
+            ev.direction = 1.0  # type: ignore[attr-defined]
 
         result: OdeResult = solve_ivp(
             fun=lambda t, y: self._derivatives(t, y, controls),
             t_span=t_span,
             y0=y0,
-            method="RK45",
+            method=ODE_METHOD,
             t_eval=t_eval,
-            rtol=1e-4,  # relative tolerance
-            atol=1e-6,  # absolute tolerance
-            max_step=5.0,  # max solver step: 5 seconds
+            events=events,
+            rtol=ODE_RTOL,
+            atol=ODE_ATOL,
+            max_step=ODE_MAX_STEP,
         )
 
         return result
 
     def get_state_at(self, result: OdeResult, index: int) -> BoilerState:
         """Extract BoilerState from ODE result at a given time index."""
-        y = [float(result.y[i, index]) for i in range(4)]
+        y = [float(result.y[i, index]) for i in range(5)]
         return BoilerState.from_vector(y)
+
+    def check_result(self, result: OdeResult) -> str:
+        """
+        Return human-readable simulation termination reason.
+
+        Useful for detecting which alarm condition was triggered.
+        """
+        if result.status == 0:
+            return "Simulation completed normally."
+        if result.status == -1:
+            return f"Solver failed: {result.message}"
+        # status == 1: event triggered
+        event_names = [
+            "PRESSURE HIGH",
+            "PRESSURE LOW",
+            "DRUM DRY",
+            "DRUM OVERFLOW",
+            "STEAM TEMP HIGH",
+        ]
+        for i, t_event in enumerate(result.t_events):
+            if len(t_event) > 0:
+                return f"ALARM [{event_names[i]}] at t={t_event[0]:.1f}s"
+        return "Terminated by unknown event."
