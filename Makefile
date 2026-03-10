@@ -31,6 +31,15 @@ test:
 test-cov:
 	$(UV) run pytest tests/ -v --cov=apps --cov-report=html --cov-report=term-missing
 
+pre-commit-install:
+	$(UV) run pre-commit install
+
+pre-commit-run:
+	$(UV) run pre-commit run --all-files
+
+pre-commit-update:
+	$(UV) run pre-commit autoupdate
+
 clean:
 	@if exist .ruff_cache rmdir /s /q .ruff_cache
 	@if exist .mypy_cache rmdir /s /q .mypy_cache
