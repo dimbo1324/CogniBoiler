@@ -167,8 +167,7 @@ class CombustionModel:
         # ── Fuel and air flows ────────────────────────────────────────────────
         m_fuel = fuel_valve * self.max_fuel_flow
         m_air = m_fuel * STOICHIOMETRIC_AFR * lam
-        m_flue = m_fuel * FLUE_GAS_PER_FUEL + m_air * (lam - 1.0) * STOICHIOMETRIC_AFR
-
+        m_flue = m_fuel + m_air
         # ── Combustion efficiency ─────────────────────────────────────────────
         eta = self._combustion_efficiency(lam)
 

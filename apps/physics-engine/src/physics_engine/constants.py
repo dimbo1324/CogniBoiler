@@ -40,9 +40,3 @@ HEAT_TRANSFER_GAS_WATER: float = (
 STEAM_VALVE_COEFFICIENT: float = 50.0  # kg/(s·bar) — steam valve flow coefficient
 MAX_STEAM_FLOW: float = 277.8  # kg/s       — max steam flow (1000 t/h)
 MIN_STEAM_FLOW: float = 138.9  # kg/s       — min steam flow (500 t/h)
-
-# ─── Antoine equation coefficients for water (P in Pa, T in K) ──────────────
-# Simplified: P_sat ≈ P_ref * exp(A - B / (T - C))
-ANTOINE_A: float = 23.7836
-ANTOINE_B: float = 3782.89
-ANTOINE_C: float = 43.11  # K offset

@@ -16,11 +16,13 @@ ODE system:
     dh/dt      — water level mass balance with real steam density
     dT_gas/dt  — furnace flue gas temperature
     dT_w/dt    — bulk water temperature (explicit, avoids U inversion)
+
+Flue gas path through heat exchangers (temperature decreasing):
+    Furnace → Superheater → Boiler drum tubes → Economizer → Stack
 """
 
 import numpy as np
-from scipy.integrate import solve_ivp
-from scipy.integrate._ivp.ivp import OdeResult
+from scipy.integrate import OdeResult, solve_ivp
 
 from physics_engine import steam_tables
 from physics_engine.combustion import CombustionModel
@@ -139,7 +141,8 @@ class BoilerModel:
         Enthalpy carried out by steam [W].
 
         Uses IAPWS-IF97 to get accurate steam enthalpy at current
-        pressure and temperature — replaces the simplified formula.
+        pressure and temperature. Net enthalpy = h_steam - h_liquid
+        represents the energy leaving the drum per kg of steam produced.
         """
         if steam_flow <= 0.0:
             return 0.0
@@ -151,36 +154,38 @@ class BoilerModel:
             temp_k=water_temp,
             pressure_pa=pressure_pa,
         )
-        # Net enthalpy removed = steam enthalpy - liquid reference
         return steam_flow * (h_steam - h_liquid)
 
     # ─── Event functions for solve_ivp ───────────────────────────────────────
+    # Each event function must have .terminal and .direction set individually.
+    # direction =  1.0 : trigger when crossing zero from below (value rising)
+    # direction = -1.0 : trigger when crossing zero from above (value falling)
 
     @staticmethod
     def _event_pressure_high(t: float, y: list[float], *args: object) -> float:
-        """Stop integration if pressure exceeds maximum [Pa]."""
+        """Trigger when pressure rises above PRESSURE_MAX."""
         return y[1] - PRESSURE_MAX
 
     @staticmethod
     def _event_pressure_low(t: float, y: list[float], *args: object) -> float:
-        """Stop integration if pressure drops below minimum [Pa]."""
+        """Trigger when pressure falls below PRESSURE_MIN."""
         return y[1] - PRESSURE_MIN
 
     @staticmethod
     def _event_water_empty(t: float, y: list[float], *args: object) -> float:
-        """Stop integration if drum runs dry [m]."""
-        return y[2] - 0.05  # 5 cm safety margin
+        """Trigger when water level falls below 5 cm safety margin."""
+        return y[2] - 0.05
 
     @staticmethod
     def _event_water_overflow(t: float, y: list[float], *args: object) -> float:
-        """Stop integration if drum overflows [m]."""
+        """Trigger when water level rises above drum limit."""
         from physics_engine.constants import DRUM_HEIGHT
 
-        return y[2] - (DRUM_HEIGHT - 0.1)  # 10 cm safety margin
+        return y[2] - (DRUM_HEIGHT - 0.1)
 
     @staticmethod
     def _event_temp_high(t: float, y: list[float], *args: object) -> float:
-        """Stop integration if steam temperature exceeds maximum [K]."""
+        """Trigger when steam temperature rises above TEMP_STEAM_MAX."""
         return y[4] - TEMP_STEAM_MAX
 
     # ─── ODE right-hand side ─────────────────────────────────────────────────
@@ -220,19 +225,9 @@ class BoilerModel:
         # ── Combustion ────────────────────────────────────────────────────────
         comb = self.combustion.calculate(fuel_valve=fv)
 
-        # ── Economizer: preheat feedwater with residual flue gas ──────────────
-        m_feed_raw = self._feedwater_flow(wv)
-        eco = self.economizer.calculate(
-            feedwater_flow=m_feed_raw,
-            feedwater_temp_in=self.params.feedwater_temp,
-            pressure_pa=pressure_pa,
-            flue_gas_temp_in=state.flue_gas_temp * 0.4,  # economizer sees cooler gas
-            flue_gas_flow=comb.flue_gas_flow,
-        )
-        # Feedwater enters drum at economizer outlet temperature
-        feedwater_temp_actual = eco.water_temp_out
-
-        # ── Superheater: not part of drum ODE but affects steam enthalpy ─────
+        # ── Superheater FIRST — it sees the hottest flue gas directly ─────────
+        # Must be calculated before economizer so we can pass sh.flue_gas_temp_out
+        # to the economizer (correct flue gas path order).
         m_steam = self._steam_flow(pressure_pa, sv)
         sh = self.superheater.calculate(
             pressure_pa=pressure_pa,
@@ -241,11 +236,27 @@ class BoilerModel:
             flue_gas_flow=comb.flue_gas_flow,
         )
 
+        # ── Economizer SECOND — uses flue gas cooled by the superheater ───────
+        # sh.flue_gas_temp_out is the physically correct inlet temperature here,
+        # replacing the previous magic-number approximation (T_gas * 0.4).
+        m_feed_raw = self._feedwater_flow(wv)
+        eco = self.economizer.calculate(
+            feedwater_flow=m_feed_raw,
+            feedwater_temp_in=self.params.feedwater_temp,
+            pressure_pa=pressure_pa,
+            flue_gas_temp_in=sh.flue_gas_temp_out,
+            flue_gas_flow=comb.flue_gas_flow,
+        )
+        feedwater_temp_actual = eco.water_temp_out
+
         # ── Heat flows ────────────────────────────────────────────────────────
         q_gas_to_water = self._heat_to_water(state.flue_gas_temp, water_temp)
         q_loss = self._heat_loss(water_temp)
         q_steam_out = self._heat_carried_by_steam(m_steam, pressure_pa, water_temp)
-        q_feedwater_in = m_feed_raw * cp_water * (feedwater_temp_actual - 273.15)
+
+        # Feedwater heat contribution: energy added to drum relative to current
+        # drum water temperature (not an absolute reference like 0°C).
+        q_feedwater_in = m_feed_raw * cp_water * (feedwater_temp_actual - water_temp)
 
         # ── ODE 1: dU/dt — internal energy ────────────────────────────────────
         du_dt = q_gas_to_water + q_feedwater_in - q_steam_out - q_loss
@@ -263,13 +274,14 @@ class BoilerModel:
         )
 
         # ── ODE 4: dT_gas/dt — furnace flue gas temperature ──────────────────
-        q_sh_absorbed = sh.heat_transferred  # superheater absorbs from flue gas
+        # Available heat minus what drum tubes and superheater absorb
+        q_sh_absorbed = sh.heat_transferred
         dt_gas_dt = (comb.heat_available - q_gas_to_water - q_sh_absorbed) / (
             FURNACE_GAS_MASS * FURNACE_GAS_CP
         )
 
         # ── ODE 5: dT_water/dt — explicit water temperature ───────────────────
-        # dT/dt = (1 / (m * Cp)) * dU/dt  — avoids repeated U inversion
+        # dT/dt = dU/dt / (m * Cp) — avoids repeated U inversion
         dt_water_dt = du_dt / (water_mass * cp_water)
 
         return [du_dt, dp_dt, dh_dt, dt_gas_dt, dt_water_dt]
@@ -301,13 +313,29 @@ class BoilerModel:
                -1 = integration step failed
                 1 = termination event triggered (alarm condition)
         """
-        # Advance valve positions before integration starts
         controls.update_valves(dt)
 
         t_eval = np.arange(t_span[0], t_span[1], dt)
         y0 = initial_state.to_vector()
 
-        # Register terminal events
+        # Set terminal flag and correct crossing direction per event.
+        # direction= 1.0 : fires when function crosses zero going UP   (value rising)
+        # direction=-1.0 : fires when function crosses zero going DOWN  (value falling)
+        self._event_pressure_high.terminal = True  # type: ignore[attr-defined]
+        self._event_pressure_high.direction = 1.0  # type: ignore[attr-defined]
+
+        self._event_pressure_low.terminal = True  # type: ignore[attr-defined]
+        self._event_pressure_low.direction = -1.0  # type: ignore[attr-defined]
+
+        self._event_water_empty.terminal = True  # type: ignore[attr-defined]
+        self._event_water_empty.direction = -1.0  # type: ignore[attr-defined]
+
+        self._event_water_overflow.terminal = True  # type: ignore[attr-defined]
+        self._event_water_overflow.direction = 1.0  # type: ignore[attr-defined]
+
+        self._event_temp_high.terminal = True  # type: ignore[attr-defined]
+        self._event_temp_high.direction = 1.0  # type: ignore[attr-defined]
+
         events = [
             self._event_pressure_high,
             self._event_pressure_low,
@@ -315,9 +343,6 @@ class BoilerModel:
             self._event_water_overflow,
             self._event_temp_high,
         ]
-        for ev in events:
-            ev.terminal = True  # type: ignore[attr-defined]
-            ev.direction = 1.0  # type: ignore[attr-defined]
 
         result: OdeResult = solve_ivp(
             fun=lambda t, y: self._derivatives(t, y, controls),
@@ -348,7 +373,6 @@ class BoilerModel:
             return "Simulation completed normally."
         if result.status == -1:
             return f"Solver failed: {result.message}"
-        # status == 1: event triggered
         event_names = [
             "PRESSURE HIGH",
             "PRESSURE LOW",
