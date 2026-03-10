@@ -16,9 +16,8 @@ Models two key heat exchangers absent from the base boiler drum model:
 Flue gas path (temperature decreasing):
     Furnace → Superheater → Boiler drum tubes → Economizer → Stack
 
-Energy balance for each heat exchanger:
-    Q = U * A * LMTD
-    where LMTD = log mean temperature difference between hot and cold streams
+Heat transfer method: effectiveness-NTU (Number of Transfer Units).
+    Accounts for capacity rate ratio and counter-flow configuration.
 """
 
 import math
@@ -35,14 +34,10 @@ from physics_engine.constants import (
 SH_HEAT_TRANSFER_AREA: float = 800.0  # m²  — superheater tube surface area
 SH_OVERALL_HTC: float = 60.0  # W/(m²·K) — overall heat transfer coefficient
 #   (flue gas side dominates, low value)
-SH_TUBE_MASS: float = 12000.0  # kg  — thermal mass of superheater tubes
-SH_TUBE_CP: float = 500.0  # J/(kg·K) — specific heat of steel tubes
 
 # Economizer
 ECO_HEAT_TRANSFER_AREA: float = 1200.0  # m²  — economizer tube surface area
 ECO_OVERALL_HTC: float = 45.0  # W/(m²·K) — overall heat transfer coefficient
-ECO_TUBE_MASS: float = 8000.0  # kg  — thermal mass of economizer tubes
-ECO_TUBE_CP: float = 500.0  # J/(kg·K) — specific heat of steel tubes
 
 # Minimum temperature approach (pinch point) [K]
 # Flue gas cannot be cooled below this margin above water/steam temperature
@@ -81,30 +76,6 @@ class EconomizerState:
     flue_gas_temp_out: float  # K  — flue gas temperature leaving economizer (stack)
     heat_transferred: float  # W  — heat transferred from flue gas to feedwater
     water_enthalpy_gain: float  # J/kg — enthalpy gain per kg of feedwater
-
-
-def _lmtd(
-    t_hot_in: float,
-    t_hot_out: float,
-    t_cold_in: float,
-    t_cold_out: float,
-) -> float:
-    """
-    Log Mean Temperature Difference for a counter-flow heat exchanger [K].
-
-    LMTD = (ΔT1 - ΔT2) / ln(ΔT1 / ΔT2)
-    where ΔT1 = T_hot_in - T_cold_out
-          ΔT2 = T_hot_out - T_cold_in
-
-    Falls back to arithmetic mean if temperatures are nearly equal.
-    """
-    dt1 = max(t_hot_in - t_cold_out, MIN_TEMP_APPROACH)
-    dt2 = max(t_hot_out - t_cold_in, MIN_TEMP_APPROACH)
-
-    if abs(dt1 - dt2) < 0.1:
-        return (dt1 + dt2) / 2.0  # arithmetic mean when ΔT1 ≈ ΔT2
-
-    return (dt1 - dt2) / math.log(dt1 / dt2)
 
 
 class SuperheaterModel:

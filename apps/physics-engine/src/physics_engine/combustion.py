@@ -37,8 +37,6 @@ CP_AIR: float = 1010.0
 # Specific heat of flue gas [J/(kg·K)]
 CP_FLUE_GAS: float = 1100.0
 
-# Flue gas mass per kg of fuel at stoichiometric conditions [kg_flue/kg_fuel]
-FLUE_GAS_PER_FUEL: float = 18.2
 
 # Reference lower heating value of natural gas [J/kg]
 LHV_NATURAL_GAS: float = FUEL_HEATING_VALUE  # 42.0 MJ/kg
