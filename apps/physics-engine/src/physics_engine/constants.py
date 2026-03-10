@@ -14,7 +14,7 @@ DRUM_CROSS_SECTION: float = 6.0  # m²        — cross-sectional area of drum
 DRUM_HEIGHT: float = 8.0  # m         — total drum height
 
 # ─── Operating ranges ───────────────────────────────────────────────────────
-PRESSURE_MIN: float = 20.0e5  # Pa        — minimum operating pressure (100 bar)
+PRESSURE_MIN: float = 20.0e5  # Pa — minimum operating pressure (20 bar, safety floor)
 PRESSURE_MAX: float = 180.0e5  # Pa        — maximum operating pressure (180 bar)
 PRESSURE_NOMINAL: float = 140.0e5  # Pa        — nominal operating pressure (140 bar)
 
