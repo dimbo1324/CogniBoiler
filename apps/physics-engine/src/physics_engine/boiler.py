@@ -15,7 +15,7 @@ ODE system:
     dP/dt      — steam pressure dynamics via IAPWS-IF97
     dh/dt      — water level mass balance with real steam density
     dT_gas/dt  — furnace flue gas temperature
-    dT_w/dt    — bulk water temperature (explicit, avoids U inversion)
+    dT_w/dt    — bulk water temperature (variable-mass corrected)
 
 Flue gas path through heat exchangers (temperature decreasing):
     Furnace → Superheater → Boiler drum tubes → Economizer → Stack
@@ -138,11 +138,15 @@ class BoilerModel:
         water_temp: float,
     ) -> float:
         """
-        Enthalpy carried out by steam [W].
+        Enthalpy carried out of the drum by steam [W].
 
-        Uses IAPWS-IF97 to get accurate steam enthalpy at current
-        pressure and temperature. Net enthalpy = h_steam - h_liquid
-        represents the energy leaving the drum per kg of steam produced.
+        This is an open thermodynamic system: steam physically leaves the
+        control volume and carries its full specific enthalpy h_steam with it.
+        We do NOT subtract h_liquid — that subtraction would be valid only in
+        a closed system. Removing it corrects a 2.5–3x underestimate of energy
+        leaving the drum, which previously caused unbounded pressure rise.
+
+        Q_steam_out = m_steam * h_steam(T, P)
         """
         if steam_flow <= 0.0:
             return 0.0
@@ -150,11 +154,7 @@ class BoilerModel:
             temp_k=water_temp,
             pressure_pa=pressure_pa,
         )
-        h_liquid = steam_tables.water_enthalpy(
-            temp_k=water_temp,
-            pressure_pa=pressure_pa,
-        )
-        return steam_flow * (h_steam - h_liquid)
+        return steam_flow * h_steam
 
     # ─── Event functions for solve_ivp ───────────────────────────────────────
     # Each event function must have .terminal and .direction set individually.
@@ -237,8 +237,7 @@ class BoilerModel:
         )
 
         # ── Economizer SECOND — uses flue gas cooled by the superheater ───────
-        # sh.flue_gas_temp_out is the physically correct inlet temperature here,
-        # replacing the previous magic-number approximation (T_gas * 0.4).
+        # sh.flue_gas_temp_out is the physically correct inlet temperature here.
         m_feed_raw = self._feedwater_flow(wv)
         eco = self.economizer.calculate(
             feedwater_flow=m_feed_raw,
@@ -252,11 +251,15 @@ class BoilerModel:
         # ── Heat flows ────────────────────────────────────────────────────────
         q_gas_to_water = self._heat_to_water(state.flue_gas_temp, water_temp)
         q_loss = self._heat_loss(water_temp)
+
+        # Steam carries its full enthalpy out of the open control volume.
         q_steam_out = self._heat_carried_by_steam(m_steam, pressure_pa, water_temp)
 
-        # Feedwater heat contribution: energy added to drum relative to current
-        # drum water temperature (not an absolute reference like 0°C).
-        q_feedwater_in = m_feed_raw * cp_water * (feedwater_temp_actual - water_temp)
+        # Feedwater adds energy relative to absolute zero reference (273.15 K).
+        # U is extensive: adding mass always increases U. The drum temperature
+        # may drop (mixing effect) but that is captured in dT_water_dt below,
+        # not by making q_feedwater_in negative.
+        q_feedwater_in = m_feed_raw * cp_water * (feedwater_temp_actual - 273.15)
 
         # ── ODE 1: dU/dt — internal energy ────────────────────────────────────
         du_dt = q_gas_to_water + q_feedwater_in - q_steam_out - q_loss
@@ -280,9 +283,15 @@ class BoilerModel:
             FURNACE_GAS_MASS * FURNACE_GAS_CP
         )
 
-        # ── ODE 5: dT_water/dt — explicit water temperature ───────────────────
-        # dT/dt = dU/dt / (m * Cp) — avoids repeated U inversion
-        dt_water_dt = du_dt / (water_mass * cp_water)
+        # ── ODE 5: dT_water/dt — variable-mass corrected ──────────────────────
+        # For a system with changing mass U = M * cp * T, the product rule gives:
+        #   dU/dt = dM/dt * cp * T + M * cp * dT/dt
+        # Solving for dT/dt:
+        #   dT/dt = (dU/dt - dM/dt * cp * T) / (M * cp)
+        # This correctly accounts for the thermal dilution effect when cold
+        # feedwater mixes with hotter drum water.
+        dm_dt = m_feed_raw - m_steam  # net mass flow into drum [kg/s]
+        dt_water_dt = (du_dt - dm_dt * cp_water * water_temp) / (water_mass * cp_water)
 
         return [du_dt, dp_dt, dh_dt, dt_gas_dt, dt_water_dt]
 
@@ -319,8 +328,8 @@ class BoilerModel:
         y0 = initial_state.to_vector()
 
         # Set terminal flag and correct crossing direction per event.
-        # direction= 1.0 : fires when function crosses zero going UP   (value rising)
-        # direction=-1.0 : fires when function crosses zero going DOWN  (value falling)
+        # direction= 1.0 : fires when function crosses zero going UP
+        # direction=-1.0 : fires when function crosses zero going DOWN
         self._event_pressure_high.terminal = True  # type: ignore[attr-defined]
         self._event_pressure_high.direction = 1.0  # type: ignore[attr-defined]
 

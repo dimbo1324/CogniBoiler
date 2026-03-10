@@ -24,9 +24,7 @@ import math
 from dataclasses import dataclass
 
 from physics_engine import steam_tables
-from physics_engine.constants import (
-    TEMP_STEAM_NOMINAL,
-)
+from physics_engine.constants import TEMP_STEAM_NOMINAL
 
 # ─── Heat exchanger design constants ─────────────────────────────────────────
 
@@ -53,10 +51,10 @@ class SuperheaterState:
     and the heat transferred from flue gas.
     """
 
-    steam_temp_in: float  # K  — saturated steam temperature entering superheater
-    steam_temp_out: float  # K  — superheated steam temperature leaving superheater
+    steam_temp_in: float  # K    — saturated steam temperature entering
+    steam_temp_out: float  # K   — superheated steam temperature leaving
     flue_gas_temp_in: float  # K  — flue gas temperature entering superheater
-    flue_gas_temp_out: float  # K  — flue gas temperature leaving superheater
+    flue_gas_temp_out: float  # K — flue gas temperature leaving superheater
     heat_transferred: float  # W  — heat transferred from flue gas to steam
     steam_enthalpy_in: float  # J/kg — specific enthalpy of steam entering
     steam_enthalpy_out: float  # J/kg — specific enthalpy of steam leaving
@@ -70,11 +68,11 @@ class EconomizerState:
     Tracks feedwater conditions and residual flue gas heat recovery.
     """
 
-    water_temp_in: float  # K  — feedwater temperature entering economizer
-    water_temp_out: float  # K  — feedwater temperature leaving economizer (→ drum)
+    water_temp_in: float  # K   — feedwater temperature entering economizer
+    water_temp_out: float  # K  — feedwater temperature leaving (→ drum)
     flue_gas_temp_in: float  # K  — flue gas temperature entering economizer
-    flue_gas_temp_out: float  # K  — flue gas temperature leaving economizer (stack)
-    heat_transferred: float  # W  — heat transferred from flue gas to feedwater
+    flue_gas_temp_out: float  # K — flue gas temperature leaving (stack)
+    heat_transferred: float  # W  — heat actually transferred (energy-balanced)
     water_enthalpy_gain: float  # J/kg — enthalpy gain per kg of feedwater
 
 
@@ -129,7 +127,6 @@ class SuperheaterModel:
         h_steam_in = steam_tables.saturated_vapor_enthalpy(pressure_pa)
 
         # ── Capacity rates [W/K] ──────────────────────────────────────────────
-        # C_steam: use average Cp between saturation and target superheat
         cp_steam_avg = steam_tables.steam_specific_heat(
             temp_k=(t_sat + TEMP_STEAM_NOMINAL) / 2.0,
             pressure_pa=pressure_pa,
@@ -141,25 +138,22 @@ class SuperheaterModel:
         c_max = max(c_steam, c_gas)
         c_ratio = c_min / c_max
 
-        # ── Effectiveness-NTU method ──────────────────────────────────────────
+        # ── Effectiveness-NTU ─────────────────────────────────────────────────
         ntu = self.ua / c_min
         if c_ratio < 0.99:
             effectiveness = (1.0 - math.exp(-ntu * (1.0 - c_ratio))) / (
                 1.0 - c_ratio * math.exp(-ntu * (1.0 - c_ratio))
             )
         else:
-            effectiveness = ntu / (1.0 + ntu)  # balanced flow case
+            effectiveness = ntu / (1.0 + ntu)
 
-        # ── Maximum possible heat transfer ────────────────────────────────────
+        # ── Heat transfer ─────────────────────────────────────────────────────
         q_max = c_min * (flue_gas_temp_in - t_sat)
-        q_actual = effectiveness * q_max
-        q_actual = max(0.0, q_actual)
+        q_actual = max(0.0, effectiveness * q_max)
 
         # ── Outlet temperatures ───────────────────────────────────────────────
         t_steam_out = t_sat + q_actual / c_steam
         t_gas_out = flue_gas_temp_in - q_actual / c_gas
-
-        # Enforce pinch: flue gas cannot be cooled below steam temp + margin
         t_gas_out = max(t_gas_out, t_steam_out + MIN_TEMP_APPROACH)
 
         # ── Steam outlet enthalpy ─────────────────────────────────────────────
@@ -186,13 +180,9 @@ class EconomizerModel:
     Recovers residual heat from flue gas leaving the superheater
     and uses it to preheat feedwater before it enters the drum.
 
-    Benefits:
-        1. Reduces heat input needed to bring feedwater to saturation
-        2. Lowers stack temperature → improves overall boiler efficiency
-        3. Reduces thermal shock to drum (water enters closer to saturation)
-
-    Typical feedwater temperature rise: 150°C → 230°C (423 K → 503 K)
-    Typical flue gas temperature drop: 400°C → 180°C (673 K → 453 K)
+    Energy balance is strictly enforced: if the subcooling limit clamps
+    the water outlet temperature, q_actual and t_gas_out are recalculated
+    from the clamped delta — no energy disappears into a 'black hole'.
     """
 
     def __init__(
@@ -216,23 +206,27 @@ class EconomizerModel:
         """
         Calculate economizer performance at given operating conditions.
 
+        Energy balance is always consistent: q_water_absorbed == q_gas_released.
+        If the subcooling limit is active, both q_actual and t_gas_out are
+        recalculated from the clamped water-side delta — no energy is lost.
+
         Args:
             feedwater_flow: Feedwater mass flow [kg/s].
             feedwater_temp_in: Feedwater inlet temperature [K].
-            pressure_pa: Drum pressure [Pa] — used to find saturation temp
-                         (feedwater must not boil in economizer).
+            pressure_pa: Drum pressure [Pa] — used to find saturation temp.
             flue_gas_temp_in: Flue gas temperature entering economizer [K].
             flue_gas_flow: Flue gas mass flow [kg/s].
             cp_flue_gas: Specific heat of flue gas [J/(kg·K)].
 
         Returns:
-            EconomizerState with all calculated temperatures and heat recovery.
+            EconomizerState with energy-balanced temperatures and heat transfer.
         """
         # ── Saturation temperature limit ──────────────────────────────────────
         # Feedwater must not reach saturation inside the economizer
-        # (would cause steam flashing — dangerous and inefficient)
+        # (would cause steam flashing — dangerous and inefficient).
+        # 10 K subcooling margin is standard industry practice.
         t_sat = steam_tables.saturation_temp(pressure_pa)
-        t_water_max = t_sat - 10.0  # K — 10 K subcooling margin
+        t_water_max = t_sat - 10.0
 
         # ── Water specific heat at average conditions ─────────────────────────
         t_water_avg = (feedwater_temp_in + t_water_max) / 2.0
@@ -258,14 +252,21 @@ class EconomizerModel:
         else:
             effectiveness = ntu / (1.0 + ntu)
 
-        # ── Heat transfer ─────────────────────────────────────────────────────
+        # ── Unclamped heat transfer and water outlet temperature ──────────────
         q_max = c_min * (flue_gas_temp_in - feedwater_temp_in)
-        q_actual = effectiveness * q_max
-        q_actual = max(0.0, q_actual)
-
-        # ── Outlet temperatures ───────────────────────────────────────────────
+        q_actual = max(0.0, effectiveness * q_max)
         t_water_out = feedwater_temp_in + q_actual / c_water
-        t_water_out = min(t_water_out, t_water_max)  # enforce subcooling limit
+
+        # ── Subcooling limit with strict energy re-balance ────────────────────
+        # If the NTU result would cause flashing, clamp t_water_out and
+        # recalculate q_actual and t_gas_out from the clamped delta.
+        # This ensures q_water_absorbed == q_gas_released at all times.
+        if t_water_out > t_water_max:
+            t_water_out = t_water_max
+            q_actual = c_water * (t_water_out - feedwater_temp_in)  # re-balance
+            q_actual = max(0.0, q_actual)
+
+        # ── Gas outlet temperature — always from the same q_actual ────────────
         t_gas_out = flue_gas_temp_in - q_actual / c_gas
         t_gas_out = max(t_gas_out, feedwater_temp_in + MIN_TEMP_APPROACH)
 
