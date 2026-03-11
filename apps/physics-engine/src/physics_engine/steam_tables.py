@@ -125,7 +125,7 @@ def water_density(temp_k: float, pressure_pa: float) -> float:
 
     try:
         state = IAPWS97(T=temp_k, P=_mpa(pressure_pa))
-        if state.phase in ("Liquid", "Subcooled liquid", "Compressed liquid"):
+        if state.phase in ("liq", "Liquid", "Subcooled liquid", "Compressed liquid"):
             return float(state.rho)
     except Exception:
         pass
