@@ -256,3 +256,86 @@ def saturated_vapor_enthalpy(pressure_pa: float) -> float:
     pressure_pa = max(611.7, min(pressure_pa, 22.064e6))
     state = IAPWS97(P=_mpa(pressure_pa), x=1.0)
     return float(state.h) * 1000.0
+
+
+# ───────────────────────────────────────────────────────────────
+
+
+def steam_entropy(temp_k: float, pressure_pa: float) -> float:
+    """
+    Specific entropy of superheated steam [J/(kg·K)] at given T and P.
+
+    Used as the inlet condition for isentropic turbine expansion:
+        s_in = steam_entropy(T_in, P_in)
+
+    Valid range: T above saturation at P (superheated region).
+    """
+
+    temp_k = _to_float(temp_k)
+    pressure_pa = _to_float(pressure_pa)
+
+    try:
+        state = IAPWS97(T=temp_k, P=_mpa(pressure_pa))
+        return float(state.s) * 1000.0  # kJ/(kg·K) → J/(kg·K)
+    except Exception:
+        pass
+    # fallback: saturated vapor entropy
+    sat = IAPWS97(P=_mpa(pressure_pa), x=1.0)
+    return float(sat.s) * 1000.0
+
+
+def isentropic_enthalpy(entropy_in: float, pressure_out: float) -> float:
+    """
+    Specific enthalpy of steam after isentropic expansion [J/kg].
+
+    Finds the state at (s=entropy_in, P=pressure_out) — i.e. the outlet
+    condition of an ideal turbine stage.  Used to compute isentropic work:
+        W_ideal = h_in − isentropic_enthalpy(s_in, P_out)
+
+    Args:
+        entropy_in:   Inlet entropy [J/(kg·K)].
+        pressure_out: Turbine exhaust pressure [Pa].
+
+    Returns:
+        Specific enthalpy at isentropic outlet [J/kg].
+    """
+    entropy_in = _to_float(entropy_in)
+    pressure_out = _to_float(pressure_out)
+
+    s_mpa = entropy_in / 1000.0  # J/(kg·K) → kJ/(kg·K) for iapws
+
+    try:
+        state = IAPWS97(P=_mpa(pressure_out), s=s_mpa)
+        return float(state.h) * 1000.0  # kJ/kg → J/kg
+    except Exception:
+        pass
+    # fallback: saturated vapor enthalpy at exhaust pressure
+    sat = IAPWS97(P=_mpa(pressure_out), x=1.0)
+    return float(sat.h) * 1000.0
+
+
+def exhaust_temp(enthalpy: float, pressure_pa: float) -> float:
+    """
+    Temperature of steam at given enthalpy and pressure [K].
+
+    Used to find turbine exhaust temperature from actual outlet enthalpy.
+    Works for both wet and superheated exhaust conditions.
+
+    Args:
+        enthalpy:    Specific enthalpy [J/kg].
+        pressure_pa: Exhaust pressure [Pa].
+
+    Returns:
+        Temperature [K].
+    """
+    enthalpy = _to_float(enthalpy)
+    pressure_pa = _to_float(pressure_pa)
+
+    try:
+        state = IAPWS97(P=_mpa(pressure_pa), h=enthalpy / 1000.0)  # J/kg → kJ/kg
+        return float(state.T)
+    except Exception:
+        pass
+    # fallback: saturation temperature at exhaust pressure
+    sat = IAPWS97(P=_mpa(pressure_pa), x=1.0)
+    return float(sat.T)
