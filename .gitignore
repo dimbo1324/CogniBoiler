@@ -426,3 +426,4 @@ pip-wheel-metadata/
 # =========================
 **/.cache/
 **/node_modules/   # на случай mixed-проектов
+helper.txt

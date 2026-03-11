@@ -170,6 +170,7 @@ class BoilerTurbineSystem:
             feedwater_valve_command=feedwater_valve,
             steam_valve_command=steam_valve,
         )
+
         initial_state = self.boiler_params.nominal_initial_state()
         result = self.boiler.simulate(
             initial_state, controls, t_span=(0.0, t_settle), dt=1.0
