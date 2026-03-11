@@ -192,14 +192,18 @@ class BoilerModel:
     @staticmethod
     def _event_temp_high(t: float, y: list[float], *args: object) -> float:
         """
-        Trigger when drum water temperature rises above TEMP_STEAM_MAX.
+        Last-resort safety event: triggers if drum temperature somehow exceeds
+        TEMP_STEAM_MAX (838 K / 565°C).
 
-        y[4] is the drum water temperature.  Because water_temp is clamped at
-        T_CRITICAL = 647 K inside _derivatives, this event only fires when the
-        physical limit is approached — well above the normal operating range
-        (~610 K at 140 bar) and below TEMP_STEAM_MAX (838 K).
+        NOTE: This event is intentionally set ABOVE the T_CRITICAL clamp (647 K)
+        applied inside _derivatives.  Under normal operation water_temp is always
+        clamped at 647 K, so this event will never fire.  It exists solely as a
+        numerical safety net in case a future change removes or raises the clamp.
+        The real guard against supercritical behavior is the clamp, not this event.
         """
-        return y[4] - TEMP_STEAM_MAX
+        return (
+            y[4] - TEMP_STEAM_MAX
+        )  # 838.15 K — unreachable while T_CRITICAL clamp is active
 
     # ─── ODE right-hand side ─────────────────────────────────────────────────
 
@@ -338,7 +342,9 @@ class BoilerModel:
                -1 = integration step failed
                 1 = termination event triggered (alarm condition)
         """
-        controls.update_valves(dt)
+        # TODO (Phase 2.3): integrate valve dynamics into ODE state vector
+        # or implement async event-driven valve stepping outside the integrator.
+        controls.update_valves(dt)  # applies valve commands once at t=0
 
         t_eval = np.arange(t_span[0], t_span[1], dt)
         y0 = initial_state.to_vector()
