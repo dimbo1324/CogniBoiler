@@ -1216,6 +1216,15 @@ wheels = [
 ]
 
 [[package]]
+name = "iapws"
+version = "1.5.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4b/df/3ae2f432b8aefc9e88a684660083cca79b2967c3ec6b59e63c1cf5786322/iapws-1.5.4.tar.gz", hash = "sha256:9f0faa39a967d76fc5e5f95f61d922e135453192e02bf875d07242f13d6eaa55", size = 114629, upload-time = "2024-05-02T20:52:10.876Z" }
+
+[[package]]
 name = "identify"
 version = "2.6.17"
 source = { registry = "https://pypi.org/simple" }
@@ -2058,6 +2067,7 @@ dependencies = [
     { name = "asyncio-mqtt" },
     { name = "grpcio" },
     { name = "grpcio-tools" },
+    { name = "iapws" },
     { name = "numpy" },
     { name = "protobuf" },
     { name = "pydantic" },
@@ -2070,6 +2080,7 @@ requires-dist = [
     { name = "asyncio-mqtt", specifier = ">=0.16.0" },
     { name = "grpcio", specifier = ">=1.62.0" },
     { name = "grpcio-tools", specifier = ">=1.62.0" },
+    { name = "iapws", specifier = ">=1.5.0" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "protobuf", specifier = ">=4.25.0" },
     { name = "pydantic", specifier = ">=2.6.0" },
