@@ -1,29 +1,38 @@
 """
 MQTT → InfluxDB historian subscriber.
 
-Subscribes to sensors/# , parses each JSON payload,
-builds an InfluxDB Point, and writes it via InfluxWriter.
+Subscribes to sensors/boiler and sensors/turbine, deserializes
+protobuf payloads, builds InfluxDB Points, and writes via InfluxWriter.
 
 Flow:
     MQTT broker [sensors/#]
         → HistorianSubscriber.run()
         → _handle_message(topic, raw_payload)
-        → build_point(topic, parsed_payload)
+        → build_boiler_point(msg) or build_turbine_point(msg)
         → InfluxWriter.write_point(point)
+
+Topic contract:
+    sensors/boiler          ← BoilerStateMsg  (protobuf)
+    sensors/turbine         ← TurbineStateMsg (protobuf)
+    sensors/system/heartbeat ← UTF-8 timestamp (skipped)
 """
 
 from __future__ import annotations
 
-import json
 import logging
 
+import cogniboiler_pb2 as pb
 from asyncio_mqtt import Client, MqttError
 
-from historian.writer import InfluxWriter, build_point
+from historian.writer import InfluxWriter, build_boiler_point, build_turbine_point
 
 logger = logging.getLogger(__name__)
 
 SUBSCRIBE_TOPIC: str = "sensors/#"
+
+TOPIC_BOILER: str = "sensors/boiler"
+TOPIC_TURBINE: str = "sensors/turbine"
+TOPIC_HEARTBEAT: str = "sensors/system/heartbeat"
 
 
 class HistorianSubscriber:
@@ -59,34 +68,48 @@ class HistorianSubscriber:
 
     async def _handle_message(self, topic: str, raw_payload: bytes) -> None:
         """
-        Parse one MQTT message and write to InfluxDB.
+        Deserialize one MQTT protobuf message and write to InfluxDB.
 
         Skips:
-          - Heartbeat (sensors/system/timestamp_ms)
-          - Malformed JSON
-          - Topics with no measurement mapping
+          - Heartbeat (sensors/system/heartbeat)
+          - Unknown topics
+          - Malformed protobuf payloads
         """
         self._received += 1
 
-        # Skip heartbeat
-        if topic.endswith("/timestamp_ms"):
+        if topic == TOPIC_HEARTBEAT:
             self._skipped += 1
             return
 
-        try:
-            payload = json.loads(raw_payload)
-        except json.JSONDecodeError as exc:
-            self._skipped += 1
-            logger.warning("JSON decode error on %s: %s", topic, exc)
+        if topic == TOPIC_BOILER:
+            try:
+                msg = pb.BoilerStateMsg()
+                msg.ParseFromString(raw_payload)
+            except Exception as exc:
+                self._skipped += 1
+                logger.warning("Protobuf decode error on %s: %s", topic, exc)
+                return
+            point = build_boiler_point(msg)
+            self._writer.write_point(point)
+            self._stored += 1
             return
 
-        point = build_point(topic, payload)
-        if point is None:
-            self._skipped += 1
+        if topic == TOPIC_TURBINE:
+            try:
+                msg = pb.TurbineStateMsg()
+                msg.ParseFromString(raw_payload)
+            except Exception as exc:
+                self._skipped += 1
+                logger.warning("Protobuf decode error on %s: %s", topic, exc)
+                return
+            point = build_turbine_point(msg)
+            self._writer.write_point(point)
+            self._stored += 1
             return
 
-        self._writer.write_point(point)
-        self._stored += 1
+        # Unknown topic — not part of our schema
+        self._skipped += 1
+        logger.debug("No handler for topic: %s", topic)
 
     async def run(self) -> None:
         """

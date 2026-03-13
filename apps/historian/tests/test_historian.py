@@ -1,47 +1,78 @@
 """
-Tests for Historian writer and subscriber.
+Tests for Historian writer and subscriber (protobuf edition).
 
 No real InfluxDB or MQTT broker needed.
 We test:
-  1. topic_to_measurement()  — topic routing logic
-  2. build_point()           — Point construction and field/tag values
+  1. build_boiler_point()  — Point construction from BoilerStateMsg
+  2. build_turbine_point() — Point construction from TurbineStateMsg
   3. HistorianSubscriber._handle_message() — full pipeline with mock writer
 """
 
 from __future__ import annotations
 
-import json
-from typing import Any
 from unittest.mock import MagicMock
 
+import cogniboiler_pb2 as pb
 import pytest
-from historian.subscriber import HistorianSubscriber
+from historian.subscriber import (
+    TOPIC_BOILER,
+    TOPIC_HEARTBEAT,
+    TOPIC_TURBINE,
+    HistorianSubscriber,
+)
 from historian.writer import (
     MEASUREMENT_BOILER,
     MEASUREMENT_TURBINE,
-    TOPIC_TO_SENSOR_NAME,
     InfluxWriter,
-    build_point,
-    topic_to_measurement,
+    build_boiler_point,
+    build_turbine_point,
 )
 from influxdb_client import Point
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-
-def make_payload(
-    value: float,
-    unit: str = "Pa",
-    quality: str = "good",
-    ts: int = 1_741_000_000_000,
-) -> bytes:
-    return json.dumps(
-        {"value": value, "unit": unit, "quality": quality, "ts": ts}
-    ).encode()
+TS_MS: int = 1_741_000_000_000
+TS_NS: int = TS_MS * 1_000_000
 
 
-def parse_payload(raw: bytes) -> dict[str, Any]:
-    return json.loads(raw)  # type: ignore[no-any-return]
+def make_boiler_msg(
+    pressure_pa: float = 14_000_000.0,
+    water_level_m: float = 4.8,
+    water_temp_k: float = 611.0,
+    flue_gas_temp_k: float = 1200.0,
+    internal_energy_j: float = 2.5e12,
+    quality: int = pb.SensorQuality.GOOD,
+    timestamp_ms: int = TS_MS,
+) -> pb.BoilerStateMsg:
+    return pb.BoilerStateMsg(
+        pressure_pa=pressure_pa,
+        water_level_m=water_level_m,
+        water_temp_k=water_temp_k,
+        flue_gas_temp_k=flue_gas_temp_k,
+        internal_energy_j=internal_energy_j,
+        quality=quality,
+        timestamp_ms=timestamp_ms,
+    )
+
+
+def make_turbine_msg(
+    electrical_power_w: float = 200_000_000.0,
+    shaft_power_w: float = 205_000_000.0,
+    enthalpy_in_j_kg: float = 3_400_000.0,
+    enthalpy_out_j_kg: float = 2_200_000.0,
+    exhaust_pressure_pa: float = 7_000.0,
+    steam_flow_kg_s: float = 150.0,
+    timestamp_ms: int = TS_MS,
+) -> pb.TurbineStateMsg:
+    return pb.TurbineStateMsg(
+        electrical_power_w=electrical_power_w,
+        shaft_power_w=shaft_power_w,
+        enthalpy_in_j_kg=enthalpy_in_j_kg,
+        enthalpy_out_j_kg=enthalpy_out_j_kg,
+        exhaust_pressure_pa=exhaust_pressure_pa,
+        steam_flow_kg_s=steam_flow_kg_s,
+        timestamp_ms=timestamp_ms,
+    )
 
 
 def make_mock_writer() -> MagicMock:
@@ -50,121 +81,7 @@ def make_mock_writer() -> MagicMock:
     return writer
 
 
-# ─── topic_to_measurement tests ───────────────────────────────────────────────
-
-
-class TestTopicToMeasurement:
-    def test_boiler_pressure_maps_to_boiler_sensors(self) -> None:
-        assert topic_to_measurement("sensors/boiler/pressure_pa") == MEASUREMENT_BOILER
-
-    def test_boiler_water_level_maps_to_boiler_sensors(self) -> None:
-        assert (
-            topic_to_measurement("sensors/boiler/water_level_m") == MEASUREMENT_BOILER
-        )
-
-    def test_turbine_electrical_power_maps_to_turbine_sensors(self) -> None:
-        result = topic_to_measurement("sensors/turbine/electrical_power_w")
-        assert result == MEASUREMENT_TURBINE
-
-    def test_heartbeat_returns_none(self) -> None:
-        assert topic_to_measurement("sensors/system/timestamp_ms") is None
-
-    def test_unknown_topic_returns_none(self) -> None:
-        assert topic_to_measurement("sensors/unknown/xyz") is None
-
-    def test_all_boiler_topics_map_correctly(self) -> None:
-        boiler_topics = [t for t in TOPIC_TO_SENSOR_NAME if "/boiler/" in t]
-        for topic in boiler_topics:
-            assert topic_to_measurement(topic) == MEASUREMENT_BOILER
-
-    def test_all_turbine_topics_map_correctly(self) -> None:
-        turbine_topics = [t for t in TOPIC_TO_SENSOR_NAME if "/turbine/" in t]
-        for topic in turbine_topics:
-            assert topic_to_measurement(topic) == MEASUREMENT_TURBINE
-
-
-# ─── build_point tests ────────────────────────────────────────────────────────
-
-
-class TestBuildPoint:
-    def test_returns_point_for_known_topic(self) -> None:
-        payload = parse_payload(make_payload(14_000_000.0))
-        result = build_point("sensors/boiler/pressure_pa", payload)
-        assert isinstance(result, Point)
-
-    def test_returns_none_for_heartbeat(self) -> None:
-        payload = parse_payload(make_payload(1.0))
-        result = build_point("sensors/system/timestamp_ms", payload)
-        assert result is None
-
-    def test_returns_none_for_unknown_topic(self) -> None:
-        payload = parse_payload(make_payload(1.0))
-        result = build_point("sensors/unknown/xyz", payload)
-        assert result is None
-
-    def test_returns_none_on_missing_value_key(self) -> None:
-        payload: dict[str, Any] = {"unit": "Pa", "quality": "good", "ts": 1000}
-        result = build_point("sensors/boiler/pressure_pa", payload)
-        assert result is None
-
-    def test_returns_none_on_missing_ts_key(self) -> None:
-        payload: dict[str, Any] = {"value": 1.0, "unit": "Pa", "quality": "good"}
-        result = build_point("sensors/boiler/pressure_pa", payload)
-        assert result is None
-
-    def test_point_measurement_is_boiler_sensors(self) -> None:
-        payload = parse_payload(make_payload(14_000_000.0))
-        point = build_point("sensors/boiler/pressure_pa", payload)
-        assert point is not None
-        line = point.to_line_protocol()
-        assert line.startswith(MEASUREMENT_BOILER)
-
-    def test_point_measurement_is_turbine_sensors(self) -> None:
-        payload = parse_payload(make_payload(341_000_000.0, unit="W"))
-        point = build_point("sensors/turbine/electrical_power_w", payload)
-        assert point is not None
-        line = point.to_line_protocol()
-        assert line.startswith(MEASUREMENT_TURBINE)
-
-    def test_point_contains_value_field(self) -> None:
-        payload = parse_payload(make_payload(14_000_000.0))
-        point = build_point("sensors/boiler/pressure_pa", payload)
-        assert point is not None
-        line = point.to_line_protocol()
-        assert "value=14000000" in line
-
-    def test_point_contains_unit_tag(self) -> None:
-        payload = parse_payload(make_payload(1.0, unit="kg/s"))
-        point = build_point("sensors/turbine/steam_flow_kg_s", payload)
-        assert point is not None
-        line = point.to_line_protocol()
-        assert "unit=kg/s" in line
-
-    def test_point_contains_quality_tag(self) -> None:
-        payload = parse_payload(make_payload(1.0, quality="uncertain"))
-        point = build_point("sensors/boiler/pressure_pa", payload)
-        assert point is not None
-        line = point.to_line_protocol()
-        assert "quality=uncertain" in line
-
-    def test_point_timestamp_converted_to_nanoseconds(self) -> None:
-        ts_ms = 1_741_000_000_000
-        payload = parse_payload(make_payload(1.0, ts=ts_ms))
-        point = build_point("sensors/boiler/pressure_pa", payload)
-        assert point is not None
-        line = point.to_line_protocol()
-        ts_ns = int(line.split()[-1])
-        assert ts_ns == ts_ms * 1_000_000
-
-    def test_point_sensor_tag_is_pressure(self) -> None:
-        payload = parse_payload(make_payload(1.0))
-        point = build_point("sensors/boiler/pressure_pa", payload)
-        assert point is not None
-        line = point.to_line_protocol()
-        assert "sensor=Pressure" in line
-
-
-# ─── HistorianSubscriber fixtures ────────────────────────────────────────────
+# ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 
 @pytest.fixture  # type: ignore[misc]
@@ -177,90 +94,295 @@ def subscriber(writer: MagicMock) -> HistorianSubscriber:
     return HistorianSubscriber(writer=writer)
 
 
+# ─── build_boiler_point tests ─────────────────────────────────────────────────
+
+
+class TestBuildBoilerPoint:
+    def test_returns_point_instance(self) -> None:
+        point = build_boiler_point(make_boiler_msg())
+        assert isinstance(point, Point)
+
+    def test_measurement_is_boiler_sensors(self) -> None:
+        line = build_boiler_point(make_boiler_msg()).to_line_protocol()
+        assert line.startswith(MEASUREMENT_BOILER)
+
+    def test_pressure_field_present(self) -> None:
+        line = build_boiler_point(
+            make_boiler_msg(pressure_pa=14_000_000.0)
+        ).to_line_protocol()
+        assert "pressure_pa=14000000" in line
+
+    def test_water_level_field_present(self) -> None:
+        line = build_boiler_point(make_boiler_msg(water_level_m=4.8)).to_line_protocol()
+        assert "water_level_m=4.8" in line
+
+    def test_water_temp_field_present(self) -> None:
+        line = build_boiler_point(
+            make_boiler_msg(water_temp_k=611.0)
+        ).to_line_protocol()
+        assert "water_temp_k=611" in line
+
+    def test_flue_gas_temp_field_present(self) -> None:
+        line = build_boiler_point(
+            make_boiler_msg(flue_gas_temp_k=1200.0)
+        ).to_line_protocol()
+        assert "flue_gas_temp_k=1200" in line
+
+    def test_internal_energy_field_present(self) -> None:
+        line = build_boiler_point(
+            make_boiler_msg(internal_energy_j=2.5e12)
+        ).to_line_protocol()
+        assert "internal_energy_j=" in line
+
+    def test_quality_good_tag(self) -> None:
+        line = build_boiler_point(
+            make_boiler_msg(quality=pb.SensorQuality.GOOD)
+        ).to_line_protocol()
+        assert "quality=good" in line
+
+    def test_quality_uncertain_tag(self) -> None:
+        line = build_boiler_point(
+            make_boiler_msg(quality=pb.SensorQuality.UNCERTAIN)
+        ).to_line_protocol()
+        assert "quality=uncertain" in line
+
+    def test_quality_bad_tag(self) -> None:
+        line = build_boiler_point(
+            make_boiler_msg(quality=pb.SensorQuality.BAD)
+        ).to_line_protocol()
+        assert "quality=bad" in line
+
+    def test_timestamp_converted_to_nanoseconds(self) -> None:
+        line = build_boiler_point(
+            make_boiler_msg(timestamp_ms=TS_MS)
+        ).to_line_protocol()
+        ts_ns = int(line.split()[-1])
+        assert ts_ns == TS_NS
+
+    def test_all_five_fields_present_in_one_point(self) -> None:
+        line = build_boiler_point(make_boiler_msg()).to_line_protocol()
+        for field in (
+            "pressure_pa",
+            "water_level_m",
+            "water_temp_k",
+            "flue_gas_temp_k",
+            "internal_energy_j",
+        ):
+            assert field in line, f"Missing field: {field}"
+
+
+# ─── build_turbine_point tests ────────────────────────────────────────────────
+
+
+class TestBuildTurbinePoint:
+    def test_returns_point_instance(self) -> None:
+        point = build_turbine_point(make_turbine_msg())
+        assert isinstance(point, Point)
+
+    def test_measurement_is_turbine_sensors(self) -> None:
+        line = build_turbine_point(make_turbine_msg()).to_line_protocol()
+        assert line.startswith(MEASUREMENT_TURBINE)
+
+    def test_electrical_power_field_present(self) -> None:
+        line = build_turbine_point(
+            make_turbine_msg(electrical_power_w=200_000_000.0)
+        ).to_line_protocol()
+        assert "electrical_power_w=" in line
+
+    def test_shaft_power_field_present(self) -> None:
+        line = build_turbine_point(make_turbine_msg()).to_line_protocol()
+        assert "shaft_power_w=" in line
+
+    def test_steam_flow_field_present(self) -> None:
+        line = build_turbine_point(
+            make_turbine_msg(steam_flow_kg_s=150.0)
+        ).to_line_protocol()
+        assert "steam_flow_kg_s=150" in line
+
+    def test_exhaust_pressure_field_present(self) -> None:
+        line = build_turbine_point(
+            make_turbine_msg(exhaust_pressure_pa=7000.0)
+        ).to_line_protocol()
+        assert "exhaust_pressure_pa=7000" in line
+
+    def test_enthalpy_in_field_present(self) -> None:
+        line = build_turbine_point(make_turbine_msg()).to_line_protocol()
+        assert "enthalpy_in_j_kg=" in line
+
+    def test_enthalpy_out_field_present(self) -> None:
+        line = build_turbine_point(make_turbine_msg()).to_line_protocol()
+        assert "enthalpy_out_j_kg=" in line
+
+    def test_timestamp_converted_to_nanoseconds(self) -> None:
+        line = build_turbine_point(
+            make_turbine_msg(timestamp_ms=TS_MS)
+        ).to_line_protocol()
+        ts_ns = int(line.split()[-1])
+        assert ts_ns == TS_NS
+
+    def test_all_six_fields_present_in_one_point(self) -> None:
+        line = build_turbine_point(make_turbine_msg()).to_line_protocol()
+        for field in (
+            "electrical_power_w",
+            "shaft_power_w",
+            "enthalpy_in_j_kg",
+            "enthalpy_out_j_kg",
+            "exhaust_pressure_pa",
+            "steam_flow_kg_s",
+        ):
+            assert field in line, f"Missing field: {field}"
+
+
 # ─── HistorianSubscriber tests ────────────────────────────────────────────────
 
 
 class TestHistorianSubscriber:
     @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_known_topic_calls_write_point(
+    async def test_boiler_topic_calls_write_point(
         self, subscriber: HistorianSubscriber, writer: MagicMock
     ) -> None:
-        await subscriber._handle_message(
-            "sensors/boiler/pressure_pa", make_payload(14_000_000.0)
-        )
+        payload = make_boiler_msg().SerializeToString()
+        await subscriber._handle_message(TOPIC_BOILER, payload)
         writer.write_point.assert_called_once()
 
     @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_write_point_receives_point_instance(
+    async def test_boiler_topic_writes_point_instance(
         self, subscriber: HistorianSubscriber, writer: MagicMock
     ) -> None:
-        await subscriber._handle_message(
-            "sensors/boiler/pressure_pa", make_payload(14_000_000.0)
-        )
-        call_arg = writer.write_point.call_args.args[0]
-        assert isinstance(call_arg, Point)
+        payload = make_boiler_msg().SerializeToString()
+        await subscriber._handle_message(TOPIC_BOILER, payload)
+        arg = writer.write_point.call_args.args[0]
+        assert isinstance(arg, Point)
+
+    @pytest.mark.asyncio  # type: ignore[misc]
+    async def test_boiler_point_has_correct_measurement(
+        self, subscriber: HistorianSubscriber, writer: MagicMock
+    ) -> None:
+        payload = make_boiler_msg().SerializeToString()
+        await subscriber._handle_message(TOPIC_BOILER, payload)
+        arg = writer.write_point.call_args.args[0]
+        assert arg.to_line_protocol().startswith(MEASUREMENT_BOILER)
+
+    @pytest.mark.asyncio  # type: ignore[misc]
+    async def test_turbine_topic_calls_write_point(
+        self, subscriber: HistorianSubscriber, writer: MagicMock
+    ) -> None:
+        payload = make_turbine_msg().SerializeToString()
+        await subscriber._handle_message(TOPIC_TURBINE, payload)
+        writer.write_point.assert_called_once()
+
+    @pytest.mark.asyncio  # type: ignore[misc]
+    async def test_turbine_point_has_correct_measurement(
+        self, subscriber: HistorianSubscriber, writer: MagicMock
+    ) -> None:
+        payload = make_turbine_msg().SerializeToString()
+        await subscriber._handle_message(TOPIC_TURBINE, payload)
+        arg = writer.write_point.call_args.args[0]
+        assert arg.to_line_protocol().startswith(MEASUREMENT_TURBINE)
 
     @pytest.mark.asyncio  # type: ignore[misc]
     async def test_heartbeat_skipped(
         self, subscriber: HistorianSubscriber, writer: MagicMock
     ) -> None:
-        await subscriber._handle_message(
-            "sensors/system/timestamp_ms", b"1741000000000"
-        )
-        writer.write_point.assert_not_called()
-
-    @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_malformed_json_skipped(
-        self, subscriber: HistorianSubscriber, writer: MagicMock
-    ) -> None:
-        await subscriber._handle_message("sensors/boiler/pressure_pa", b"not-json")
+        await subscriber._handle_message(TOPIC_HEARTBEAT, b"1741000000000")
         writer.write_point.assert_not_called()
 
     @pytest.mark.asyncio  # type: ignore[misc]
     async def test_unknown_topic_skipped(
         self, subscriber: HistorianSubscriber, writer: MagicMock
     ) -> None:
-        await subscriber._handle_message("sensors/unknown/xyz", make_payload(1.0))
+        await subscriber._handle_message("sensors/unknown/xyz", b"\x00\x01\x02")
         writer.write_point.assert_not_called()
 
     @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_received_counter_increments(
+    async def test_malformed_protobuf_boiler_skipped(
         self, subscriber: HistorianSubscriber, writer: MagicMock
     ) -> None:
-        await subscriber._handle_message(
-            "sensors/boiler/pressure_pa", make_payload(1.0)
-        )
+        await subscriber._handle_message(TOPIC_BOILER, b"not-protobuf-\xff\xfe")
+        writer.write_point.assert_not_called()
+
+    @pytest.mark.asyncio  # type: ignore[misc]
+    async def test_malformed_protobuf_turbine_skipped(
+        self, subscriber: HistorianSubscriber, writer: MagicMock
+    ) -> None:
+        await subscriber._handle_message(TOPIC_TURBINE, b"not-protobuf-\xff\xfe")
+        writer.write_point.assert_not_called()
+
+    @pytest.mark.asyncio  # type: ignore[misc]
+    async def test_received_counter_increments_on_boiler(
+        self, subscriber: HistorianSubscriber, writer: MagicMock
+    ) -> None:
+        payload = make_boiler_msg().SerializeToString()
+        await subscriber._handle_message(TOPIC_BOILER, payload)
         assert subscriber.stats["received"] == 1
 
     @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_stored_counter_increments_on_success(
+    async def test_stored_counter_increments_on_boiler(
         self, subscriber: HistorianSubscriber, writer: MagicMock
     ) -> None:
-        await subscriber._handle_message(
-            "sensors/boiler/pressure_pa", make_payload(1.0)
-        )
+        payload = make_boiler_msg().SerializeToString()
+        await subscriber._handle_message(TOPIC_BOILER, payload)
         assert subscriber.stats["stored"] == 1
 
     @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_skipped_counter_increments_on_heartbeat(
+    async def test_stored_counter_increments_on_turbine(
         self, subscriber: HistorianSubscriber, writer: MagicMock
     ) -> None:
-        await subscriber._handle_message("sensors/system/timestamp_ms", b"12345")
+        payload = make_turbine_msg().SerializeToString()
+        await subscriber._handle_message(TOPIC_TURBINE, payload)
+        assert subscriber.stats["stored"] == 1
+
+    @pytest.mark.asyncio  # type: ignore[misc]
+    async def test_skipped_counter_on_heartbeat(
+        self, subscriber: HistorianSubscriber, writer: MagicMock
+    ) -> None:
+        await subscriber._handle_message(TOPIC_HEARTBEAT, b"12345")
         assert subscriber.stats["skipped"] == 1
 
     @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_skipped_counter_increments_on_bad_json(
+    async def test_skipped_counter_on_bad_protobuf(
         self, subscriber: HistorianSubscriber, writer: MagicMock
     ) -> None:
-        await subscriber._handle_message("sensors/boiler/pressure_pa", b"{{bad}}")
+        await subscriber._handle_message(TOPIC_BOILER, b"\xff\xfe\xfd")
         assert subscriber.stats["skipped"] == 1
 
     @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_all_sensor_topics_stored(
+    async def test_skipped_counter_on_unknown_topic(
         self, subscriber: HistorianSubscriber, writer: MagicMock
     ) -> None:
-        """Every sensor topic must result in a write_point call."""
-        for topic in TOPIC_TO_SENSOR_NAME:
-            writer.write_point.reset_mock()
-            await subscriber._handle_message(topic, make_payload(1.0))
-            writer.write_point.assert_called_once()
+        await subscriber._handle_message("sensors/weird/topic", b"data")
+        assert subscriber.stats["skipped"] == 1
+
+    @pytest.mark.asyncio  # type: ignore[misc]
+    async def test_both_topics_stored_independently(
+        self, subscriber: HistorianSubscriber, writer: MagicMock
+    ) -> None:
+        await subscriber._handle_message(
+            TOPIC_BOILER, make_boiler_msg().SerializeToString()
+        )
+        await subscriber._handle_message(
+            TOPIC_TURBINE, make_turbine_msg().SerializeToString()
+        )
+        assert subscriber.stats["stored"] == 2
+        assert writer.write_point.call_count == 2
+
+    @pytest.mark.asyncio  # type: ignore[misc]
+    async def test_boiler_roundtrip_pressure_value(
+        self, subscriber: HistorianSubscriber, writer: MagicMock
+    ) -> None:
+        """Verify that the exact pressure value survives the protobuf roundtrip."""
+        payload = make_boiler_msg(pressure_pa=15_500_000.0).SerializeToString()
+        await subscriber._handle_message(TOPIC_BOILER, payload)
+        arg = writer.write_point.call_args.args[0]
+        line = arg.to_line_protocol()
+        assert "pressure_pa=15500000" in line
+
+    @pytest.mark.asyncio  # type: ignore[misc]
+    async def test_turbine_roundtrip_steam_flow_value(
+        self, subscriber: HistorianSubscriber, writer: MagicMock
+    ) -> None:
+        payload = make_turbine_msg(steam_flow_kg_s=175.5).SerializeToString()
+        await subscriber._handle_message(TOPIC_TURBINE, payload)
+        arg = writer.write_point.call_args.args[0]
+        line = arg.to_line_protocol()
+        assert "steam_flow_kg_s=175.5" in line

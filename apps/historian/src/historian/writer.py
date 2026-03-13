@@ -1,26 +1,31 @@
 """
 InfluxDB writer for CogniBoiler sensor telemetry.
 
-Converts MQTT JSON payloads into InfluxDB Points and writes them
+Converts protobuf messages into InfluxDB Points and writes them
 via the official influxdb-client-python library.
 
-Data model:
-    Measurement:  "boiler_sensors"  or  "turbine_sensors"
-    Fields:       value (float)
-    Tags:         sensor   (browse_name, e.g. "Pressure")
-                  unit     (engineering unit, e.g. "Pa")
-                  quality  ("good" | "uncertain" | "bad")
-    Timestamp:    taken from payload["ts"] (milliseconds → nanoseconds)
+Data model (one Point per MQTT message, multiple fields):
+    boiler_sensors measurement:
+        tags:   quality (GOOD | UNCERTAIN | BAD)
+        fields: pressure_pa, water_level_m, water_temp_k,
+                flue_gas_temp_k, internal_energy_j
+        time:   BoilerStateMsg.timestamp_ms → nanoseconds
 
-One Point per MQTT message — no batching delay, InfluxDB client
-handles internal write batching transparently.
+    turbine_sensors measurement:
+        fields: electrical_power_w, shaft_power_w,
+                enthalpy_in_j_kg, enthalpy_out_j_kg,
+                exhaust_pressure_pa, steam_flow_kg_s
+        time:   TurbineStateMsg.timestamp_ms → nanoseconds
+
+Writing one multi-field Point per message (vs one Point per field)
+gives atomic writes and faster range queries.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any
 
+import cogniboiler_pb2 as pb
 from influxdb_client import InfluxDBClient, Point, WritePrecision
 from influxdb_client.client.write_api import SYNCHRONOUS
 
@@ -31,84 +36,70 @@ logger = logging.getLogger(__name__)
 MEASUREMENT_BOILER: str = "boiler_sensors"
 MEASUREMENT_TURBINE: str = "turbine_sensors"
 
-# MQTT sub-topic prefix → measurement name
-TOPIC_PREFIX_TO_MEASUREMENT: dict[str, str] = {
-    "boiler": MEASUREMENT_BOILER,
-    "turbine": MEASUREMENT_TURBINE,
-}
+# ─── Quality enum → tag string ────────────────────────────────────────────────
 
-# MQTT sub-topic → sensor browse name (for the "sensor" tag)
-TOPIC_TO_SENSOR_NAME: dict[str, str] = {
-    "sensors/boiler/pressure_pa": "Pressure",
-    "sensors/boiler/water_level_m": "WaterLevel",
-    "sensors/boiler/water_temp_k": "WaterTemp",
-    "sensors/boiler/flue_gas_temp_k": "FlueGasTemp",
-    "sensors/boiler/internal_energy_j": "InternalEnergy",
-    "sensors/turbine/electrical_power_w": "ElectricalPower",
-    "sensors/turbine/shaft_power_w": "ShaftPower",
-    "sensors/turbine/steam_flow_kg_s": "SteamFlow",
-    "sensors/turbine/exhaust_pressure_pa": "ExhaustPressure",
+_QUALITY_TAG: dict[int, str] = {
+    pb.SensorQuality.GOOD: "good",
+    pb.SensorQuality.UNCERTAIN: "uncertain",
+    pb.SensorQuality.BAD: "bad",
 }
 
 
-# ─── Point builder ────────────────────────────────────────────────────────────
+# ─── Point builders ───────────────────────────────────────────────────────────
 
 
-def topic_to_measurement(topic: str) -> str | None:
+def build_boiler_point(msg: pb.BoilerStateMsg) -> Point:
     """
-    Derive InfluxDB measurement name from MQTT topic.
+    Build an InfluxDB Point from a BoilerStateMsg protobuf message.
 
-    "sensors/boiler/pressure_pa"  → "boiler_sensors"
-    "sensors/turbine/shaft_power" → "turbine_sensors"
-    "sensors/system/timestamp_ms" → None  (skip)
-
-    Returns None for topics that should not be stored.
-    """
-    parts = topic.split("/")
-    if len(parts) < 2:
-        return None
-    sub = parts[1]  # "boiler" | "turbine" | "system"
-    return TOPIC_PREFIX_TO_MEASUREMENT.get(sub)
-
-
-def build_point(topic: str, payload: dict[str, Any]) -> Point | None:
-    """
-    Build an InfluxDB Point from a parsed MQTT payload dict.
+    All five sensor fields are written as separate fields on a single Point.
+    The quality enum is stored as a tag for fast filtering.
 
     Args:
-        topic:   Full MQTT topic string.
-        payload: Parsed JSON dict with keys: value, unit, quality, ts.
+        msg: Parsed BoilerStateMsg from MQTT payload.
 
     Returns:
-        Point ready for writing, or None if topic should be skipped.
+        Point ready for writing to InfluxDB.
     """
-    measurement = topic_to_measurement(topic)
-    if measurement is None:
-        return None
+    ts_ns = msg.timestamp_ms * 1_000_000
+    quality_tag = _QUALITY_TAG.get(msg.quality, "unknown")
 
-    sensor_name = TOPIC_TO_SENSOR_NAME.get(topic, topic.split("/")[-1])
-
-    try:
-        value = float(payload["value"])
-        unit = str(payload.get("unit", ""))
-        quality = str(payload.get("quality", "good"))
-        ts_ms = int(payload["ts"])
-    except (KeyError, ValueError, TypeError) as exc:
-        logger.warning("Cannot build Point from payload on %s: %s", topic, exc)
-        return None
-
-    # InfluxDB client expects nanoseconds for WritePrecision.NS
-    ts_ns = ts_ms * 1_000_000
-
-    point = (
-        Point(measurement)
-        .tag("sensor", sensor_name)
-        .tag("unit", unit)
-        .tag("quality", quality)
-        .field("value", value)
+    return (
+        Point(MEASUREMENT_BOILER)
+        .tag("quality", quality_tag)
+        .field("pressure_pa", msg.pressure_pa)
+        .field("water_level_m", msg.water_level_m)
+        .field("water_temp_k", msg.water_temp_k)
+        .field("flue_gas_temp_k", msg.flue_gas_temp_k)
+        .field("internal_energy_j", msg.internal_energy_j)
         .time(ts_ns, WritePrecision.NS)
     )
-    return point
+
+
+def build_turbine_point(msg: pb.TurbineStateMsg) -> Point:
+    """
+    Build an InfluxDB Point from a TurbineStateMsg protobuf message.
+
+    All six sensor fields are written as separate fields on a single Point.
+
+    Args:
+        msg: Parsed TurbineStateMsg from MQTT payload.
+
+    Returns:
+        Point ready for writing to InfluxDB.
+    """
+    ts_ns = msg.timestamp_ms * 1_000_000
+
+    return (
+        Point(MEASUREMENT_TURBINE)
+        .field("electrical_power_w", msg.electrical_power_w)
+        .field("shaft_power_w", msg.shaft_power_w)
+        .field("enthalpy_in_j_kg", msg.enthalpy_in_j_kg)
+        .field("enthalpy_out_j_kg", msg.enthalpy_out_j_kg)
+        .field("exhaust_pressure_pa", msg.exhaust_pressure_pa)
+        .field("steam_flow_kg_s", msg.steam_flow_kg_s)
+        .time(ts_ns, WritePrecision.NS)
+    )
 
 
 # ─── Writer ───────────────────────────────────────────────────────────────────

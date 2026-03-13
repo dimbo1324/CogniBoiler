@@ -2,23 +2,17 @@
 MQTT publisher for Physics Engine telemetry.
 
 Publishes boiler and turbine state to Mosquitto broker
-at a configurable rate. Each physical quantity gets its
-own topic so subscribers can filter precisely.
+at a configurable rate using Protocol Buffers serialization.
 
-Topic tree (Poток 1):
-    sensors/boiler/pressure_pa
-    sensors/boiler/water_level_m
-    sensors/boiler/water_temp_k
-    sensors/boiler/flue_gas_temp_k
-    sensors/boiler/internal_energy_j
-    sensors/turbine/electrical_power_w
-    sensors/turbine/shaft_power_w
-    sensors/turbine/steam_flow_kg_s
-    sensors/turbine/exhaust_pressure_pa
-    sensors/system/timestamp_ms          ← sync heartbeat
+Topic tree (Flow 1):
+    sensors/boiler          ← serialized BoilerStateMsg
+    sensors/turbine         ← serialized TurbineStateMsg
+    sensors/system/heartbeat ← UTF-8 epoch-ms string
 
-Payload format: plain UTF-8 JSON
-    {"value": 14000000.0, "unit": "Pa", "quality": "good", "ts": 1741000000123}
+Protocol Buffers (not JSON) are used for:
+  - ~3× smaller payload vs equivalent JSON
+  - Strict schema — no silent field renames
+  - Native gRPC/OPC UA compatibility
 
 All publishes use QoS 0 (fire-and-forget) — sensor telemetry
 can tolerate occasional loss; throughput matters more.
@@ -27,13 +21,12 @@ can tolerate occasional loss; throughput matters more.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
 
+import cogniboiler_pb2 as pb  # shared/generated — added to sys.path by conftest
 from asyncio_mqtt import Client, MqttError
 
 from physics_engine.models import BoilerState
@@ -43,49 +36,54 @@ logger = logging.getLogger(__name__)
 
 # ─── Topic constants ──────────────────────────────────────────────────────────
 
-TOPIC_PREFIX = "sensors"
-
-BOILER_TOPICS: dict[str, tuple[str, str]] = {
-    # field_name: (sub_topic, unit)
-    "pressure": ("boiler/pressure_pa", "Pa"),
-    "water_level": ("boiler/water_level_m", "m"),
-    "water_temp": ("boiler/water_temp_k", "K"),
-    "flue_gas_temp": ("boiler/flue_gas_temp_k", "K"),
-    "internal_energy": ("boiler/internal_energy_j", "J"),
-}
-
-TURBINE_TOPICS: dict[str, tuple[str, str]] = {
-    "electrical_power": ("turbine/electrical_power_w", "W"),
-    "shaft_power": ("turbine/shaft_power_w", "W"),
-    "steam_flow_kg_s": ("turbine/steam_flow_kg_s", "kg/s"),
-    "exhaust_pressure": ("turbine/exhaust_pressure_pa", "Pa"),
-}
-
-HEARTBEAT_TOPIC = f"{TOPIC_PREFIX}/system/timestamp_ms"
+TOPIC_BOILER: str = "sensors/boiler"
+TOPIC_TURBINE: str = "sensors/turbine"
+TOPIC_HEARTBEAT: str = "sensors/system/heartbeat"
 
 
-# ─── Payload builder ──────────────────────────────────────────────────────────
+# ─── Protobuf serializers ─────────────────────────────────────────────────────
 
 
-def build_payload(value: float, unit: str, quality: str = "good") -> bytes:
+def boiler_state_to_proto(state: BoilerState) -> pb.BoilerStateMsg:
     """
-    Serialize a single sensor reading to JSON bytes.
+    Convert a BoilerState dataclass to a BoilerStateMsg protobuf message.
 
     Args:
-        value:   Engineering value.
-        unit:    Engineering unit string (e.g. "Pa", "K", "W").
-        quality: OPC UA quality string ("good" | "uncertain" | "bad").
+        state: Current boiler physics state.
 
     Returns:
-        UTF-8 encoded JSON bytes.
+        Populated BoilerStateMsg ready for serialization.
     """
-    doc: dict[str, Any] = {
-        "value": value,
-        "unit": unit,
-        "quality": quality,
-        "ts": int(time.time() * 1000),
-    }
-    return json.dumps(doc).encode()
+    return pb.BoilerStateMsg(
+        pressure_pa=state.pressure,
+        water_level_m=state.water_level,
+        water_temp_k=state.water_temp,
+        flue_gas_temp_k=state.flue_gas_temp,
+        internal_energy_j=state.internal_energy,
+        timestamp_ms=int(time.time() * 1000),
+        quality=pb.SensorQuality.GOOD,
+    )
+
+
+def turbine_state_to_proto(state: TurbineState) -> pb.TurbineStateMsg:
+    """
+    Convert a TurbineState dataclass to a TurbineStateMsg protobuf message.
+
+    Args:
+        state: Current turbine physics state.
+
+    Returns:
+        Populated TurbineStateMsg ready for serialization.
+    """
+    return pb.TurbineStateMsg(
+        electrical_power_w=state.electrical_power,
+        shaft_power_w=state.shaft_power,
+        enthalpy_in_j_kg=state.enthalpy_in,
+        enthalpy_out_j_kg=state.enthalpy_out_actual,
+        exhaust_pressure_pa=state.exhaust_pressure,
+        steam_flow_kg_s=state.steam_flow,
+        timestamp_ms=int(time.time() * 1000),
+    )
 
 
 # ─── Publisher config ─────────────────────────────────────────────────────────
@@ -109,10 +107,14 @@ class MQTTPublisher:
     """
     Async MQTT publisher for boiler + turbine telemetry.
 
+    Publishes protobuf-serialized messages to two topics:
+        sensors/boiler   ← BoilerStateMsg
+        sensors/turbine  ← TurbineStateMsg
+
     Usage (production):
         config = MQTTConfig(host="mosquitto", port=1883)
         pub = MQTTPublisher(config)
-        await pub.run(state_generator)   # blocks forever
+        await pub.run(boiler_state_fn, turbine_state_fn)   # blocks forever
 
     Usage (one-shot, for testing):
         async with pub.connected() as client:
@@ -143,60 +145,45 @@ class MQTTPublisher:
         self,
         client: Client,
         state: BoilerState,
-        quality: str = "good",
     ) -> None:
         """
-        Publish all boiler state fields to their individual topics.
+        Serialize BoilerState to BoilerStateMsg and publish to sensors/boiler.
 
-        Each field → one MQTT message, QoS 0.
+        One MQTT message per call, QoS 0.
         """
-        field_values = {
-            "pressure": state.pressure,
-            "water_level": state.water_level,
-            "water_temp": state.water_temp,
-            "flue_gas_temp": state.flue_gas_temp,
-            "internal_energy": state.internal_energy,
-        }
-        for field, (sub_topic, unit) in BOILER_TOPICS.items():
-            topic = f"{TOPIC_PREFIX}/{sub_topic}"
-            payload = build_payload(field_values[field], unit, quality)
-            try:
-                await client.publish(topic, payload, qos=0)
-                self._published += 1
-            except MqttError as exc:
-                self._errors += 1
-                logger.warning("Publish failed [%s]: %s", topic, exc)
+        msg = boiler_state_to_proto(state)
+        payload = msg.SerializeToString()
+        try:
+            await client.publish(TOPIC_BOILER, payload, qos=0)
+            self._published += 1
+        except MqttError as exc:
+            self._errors += 1
+            logger.warning("Publish failed [%s]: %s", TOPIC_BOILER, exc)
 
     async def publish_turbine(
         self,
         client: Client,
         state: TurbineState,
-        quality: str = "good",
     ) -> None:
         """
-        Publish all turbine state fields to their individual topics.
+        Serialize TurbineState to TurbineStateMsg and publish to sensors/turbine.
+
+        One MQTT message per call, QoS 0.
         """
-        field_values = {
-            "electrical_power": state.electrical_power,
-            "shaft_power": state.shaft_power,
-            "steam_flow_kg_s": state.steam_flow,
-            "exhaust_pressure": state.exhaust_pressure,
-        }
-        for field, (sub_topic, unit) in TURBINE_TOPICS.items():
-            topic = f"{TOPIC_PREFIX}/{sub_topic}"
-            payload = build_payload(field_values[field], unit, quality)
-            try:
-                await client.publish(topic, payload, qos=0)
-                self._published += 1
-            except MqttError as exc:
-                self._errors += 1
-                logger.warning("Publish failed [%s]: %s", topic, exc)
+        msg = turbine_state_to_proto(state)
+        payload = msg.SerializeToString()
+        try:
+            await client.publish(TOPIC_TURBINE, payload, qos=0)
+            self._published += 1
+        except MqttError as exc:
+            self._errors += 1
+            logger.warning("Publish failed [%s]: %s", TOPIC_TURBINE, exc)
 
     async def publish_heartbeat(self, client: Client) -> None:
         """Publish system sync heartbeat with current timestamp."""
         payload = str(int(time.time() * 1000)).encode()
         try:
-            await client.publish(HEARTBEAT_TOPIC, payload, qos=0)
+            await client.publish(TOPIC_HEARTBEAT, payload, qos=0)
             self._published += 1
         except MqttError as exc:
             self._errors += 1

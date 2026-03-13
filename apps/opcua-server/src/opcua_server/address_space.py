@@ -158,17 +158,24 @@ TURBINE_VARIABLES: list[VariableDescriptor] = [
 
 ALL_VARIABLES: list[VariableDescriptor] = BOILER_VARIABLES + TURBINE_VARIABLES
 
-# ─── MQTT topic → NodeId mapping ──────────────────────────────────────────────
-# Used by the MQTT subscriber to know which OPC UA node to update.
+# ─── Protobuf field → NodeId mappings ────────────────────────────────────────
+# Used by MQTTOPCBridge to map BoilerStateMsg / TurbineStateMsg fields
+# to the correct OPC UA variable nodes.
+#
+# Keys are BoilerStateMsg / TurbineStateMsg protobuf field names (strings).
+# getattr(msg, field_name) is called by the subscriber to extract the value.
 
-MQTT_TOPIC_TO_NODEID: dict[str, int] = {
-    "sensors/boiler/pressure_pa": NODEID_PRESSURE,
-    "sensors/boiler/water_level_m": NODEID_WATER_LEVEL,
-    "sensors/boiler/water_temp_k": NODEID_WATER_TEMP,
-    "sensors/boiler/flue_gas_temp_k": NODEID_FLUE_GAS_TEMP,
-    "sensors/boiler/internal_energy_j": NODEID_INTERNAL_ENERGY,
-    "sensors/turbine/electrical_power_w": NODEID_ELECTRICAL_POWER,
-    "sensors/turbine/shaft_power_w": NODEID_SHAFT_POWER,
-    "sensors/turbine/steam_flow_kg_s": NODEID_STEAM_FLOW,
-    "sensors/turbine/exhaust_pressure_pa": NODEID_EXHAUST_PRESSURE,
+BOILER_FIELD_TO_NODEID: dict[str, int] = {
+    "pressure_pa": NODEID_PRESSURE,
+    "water_level_m": NODEID_WATER_LEVEL,
+    "water_temp_k": NODEID_WATER_TEMP,
+    "flue_gas_temp_k": NODEID_FLUE_GAS_TEMP,
+    "internal_energy_j": NODEID_INTERNAL_ENERGY,
+}
+
+TURBINE_FIELD_TO_NODEID: dict[str, int] = {
+    "electrical_power_w": NODEID_ELECTRICAL_POWER,
+    "shaft_power_w": NODEID_SHAFT_POWER,
+    "steam_flow_kg_s": NODEID_STEAM_FLOW,
+    "exhaust_pressure_pa": NODEID_EXHAUST_PRESSURE,
 }

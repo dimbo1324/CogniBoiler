@@ -1,29 +1,39 @@
 """
-MQTT → OPC UA bridge subscriber.
+MQTT → OPC UA bridge subscriber (protobuf edition).
 
-Subscribes to all sensor topics (sensors/#), parses JSON payload,
-maps topic to OPC UA node ID, and writes the value to the server.
+Subscribes to sensors/boiler and sensors/turbine, deserializes
+protobuf payloads, and updates OPC UA variable nodes field-by-field.
 
 Flow:
     MQTT broker [sensors/#]
         → MQTTOPCBridge.run()
-        → _handle_message(topic, payload)
-        → CogniBoilerOPCServer.update_variable(node_id, value)
+        → _handle_message(topic, raw_payload)
+        → ParseFromString(raw_payload) → BoilerStateMsg | TurbineStateMsg
+        → for each field: CogniBoilerOPCServer.update_variable(node_id, value)
+
+Topic contract:
+    sensors/boiler           ← BoilerStateMsg  (protobuf)
+    sensors/turbine          ← TurbineStateMsg (protobuf)
+    sensors/system/heartbeat ← UTF-8 timestamp (skipped)
 """
 
 from __future__ import annotations
 
-import json
 import logging
 
+import cogniboiler_pb2 as pb
 from asyncio_mqtt import Client, MqttError
 
-from opcua_server.address_space import MQTT_TOPIC_TO_NODEID
+from opcua_server.address_space import BOILER_FIELD_TO_NODEID, TURBINE_FIELD_TO_NODEID
 from opcua_server.server import CogniBoilerOPCServer
 
 logger = logging.getLogger(__name__)
 
 SUBSCRIBE_TOPIC: str = "sensors/#"
+
+TOPIC_BOILER: str = "sensors/boiler"
+TOPIC_TURBINE: str = "sensors/turbine"
+TOPIC_HEARTBEAT: str = "sensors/system/heartbeat"
 
 
 class MQTTOPCBridge:
@@ -56,42 +66,70 @@ class MQTTOPCBridge:
             "skipped": self._messages_skipped,
         }
 
-    async def _handle_message(self, topic: str, payload: bytes) -> None:
+    async def _handle_message(self, topic: str, raw_payload: bytes) -> None:
         """
-        Parse a single MQTT message and update the OPC UA node.
+        Deserialize one MQTT protobuf message and update OPC UA nodes.
 
         Skips:
-          - Heartbeat topic (sensors/system/timestamp_ms)
-          - Topics not in MQTT_TOPIC_TO_NODEID mapping
-          - Malformed JSON payloads
+          - Heartbeat topic (sensors/system/heartbeat)
+          - Unknown topics
+          - Malformed protobuf payloads
         """
         self._messages_received += 1
 
-        # Skip heartbeat
-        if topic.endswith("/timestamp_ms"):
+        if topic == TOPIC_HEARTBEAT:
             self._messages_skipped += 1
             return
 
-        node_id = MQTT_TOPIC_TO_NODEID.get(topic)
-        if node_id is None:
-            self._messages_skipped += 1
-            logger.debug("No OPC UA mapping for topic: %s", topic)
+        if topic == TOPIC_BOILER:
+            await self._handle_boiler(raw_payload)
             return
 
+        if topic == TOPIC_TURBINE:
+            await self._handle_turbine(raw_payload)
+            return
+
+        # Unknown topic — not part of our schema
+        self._messages_skipped += 1
+        logger.debug("No handler for topic: %s", topic)
+
+    async def _handle_boiler(self, raw_payload: bytes) -> None:
+        """Deserialize BoilerStateMsg and update all boiler OPC UA nodes."""
         try:
-            doc = json.loads(payload)
-            value = float(doc["value"])
-        except (json.JSONDecodeError, KeyError, ValueError) as exc:
+            msg = pb.BoilerStateMsg()
+            msg.ParseFromString(raw_payload)
+        except Exception as exc:
             self._messages_skipped += 1
-            logger.warning("Bad payload on %s: %s", topic, exc)
+            logger.warning("Protobuf decode error on %s: %s", TOPIC_BOILER, exc)
             return
 
+        for field, node_id in BOILER_FIELD_TO_NODEID.items():
+            value = float(getattr(msg, field))
+            try:
+                await self._opc.update_variable(node_id, value)
+            except KeyError:
+                logger.warning("OPC UA node %d not found (field: %s)", node_id, field)
+
+        self._messages_mapped += 1
+
+    async def _handle_turbine(self, raw_payload: bytes) -> None:
+        """Deserialize TurbineStateMsg and update all turbine OPC UA nodes."""
         try:
-            await self._opc.update_variable(node_id, value)
-            self._messages_mapped += 1
-        except KeyError:
+            msg = pb.TurbineStateMsg()
+            msg.ParseFromString(raw_payload)
+        except Exception as exc:
             self._messages_skipped += 1
-            logger.warning("OPC UA node %d not found", node_id)
+            logger.warning("Protobuf decode error on %s: %s", TOPIC_TURBINE, exc)
+            return
+
+        for field, node_id in TURBINE_FIELD_TO_NODEID.items():
+            value = float(getattr(msg, field))
+            try:
+                await self._opc.update_variable(node_id, value)
+            except KeyError:
+                logger.warning("OPC UA node %d not found (field: %s)", node_id, field)
+
+        self._messages_mapped += 1
 
     async def run(self) -> None:
         """
