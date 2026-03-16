@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package cogniboiler;
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum SensorQuality {
+  GOOD = 0;
+  UNCERTAIN = 1;
+  BAD = 2;
+}
+
+enum CommandSource {
+  OPERATOR = 0;
+  PID = 1;
+  SAFETY = 2;
+  SCHEDULER = 3;
+}
+
+// ─── Core messages ───────────────────────────────────────────────────────────
+
+message Empty {}
+
+message HealthStatus {
+  string service = 1;
+  string status = 2; // "running" | "degraded" | "stopped"
+  string version = 3;
+  double uptime_seconds = 4;
+}
+
+// ─── Sensor / State messages ──────────────────────────────────────────────────
+
+message BoilerStateMsg {
+  double pressure_pa = 1; // Drum pressure [Pa]
+  double water_level_m = 2; // Water level in drum [m]
+  double water_temp_k = 3; // Bulk water temperature [K]
+  double flue_gas_temp_k = 4; // Flue gas temperature [K]
+  double internal_energy_j = 5; // Total internal energy [J]
+  int64 timestamp_ms = 6; // UTC epoch milliseconds
+  SensorQuality quality = 7;
+}
+
+message TurbineStateMsg {
+  double electrical_power_w = 1; // Net electrical output [W]
+  double shaft_power_w = 2; // Mechanical shaft power [W]
+  double enthalpy_in_j_kg = 3; // Inlet specific enthalpy [J/kg]
+  double enthalpy_out_j_kg = 4; // Outlet specific enthalpy [J/kg]
+  double exhaust_pressure_pa = 5; // Condenser pressure [Pa]
+  double steam_flow_kg_s = 6; // Steam mass flow [kg/s]
+  int64 timestamp_ms = 7;
+}
+
+message SystemStateMsg {
+  BoilerStateMsg boiler = 1;
+  TurbineStateMsg turbine = 2;
+}
+
+// ─── Control messages ─────────────────────────────────────────────────────────
+
+message ControlCommandMsg {
+  double fuel_valve = 1; // 0.0 – 1.0
+  double feedwater_valve = 2; // 0.0 – 1.0
+  double steam_valve = 3; // 0.0 – 1.0
+  int64 timestamp_ms = 4;
+  CommandSource source = 5;
+  string operator_id = 6; // empty if automated
+}
+
+message SetpointsMsg {
+  double pressure_pa = 1; // Target drum pressure [Pa]
+  double water_level_m = 2; // Target water level [m]
+  double steam_temp_k = 3; // Target steam temperature [K]
+  int64 timestamp_ms = 4;
+}
+
+message CommandAck {
+  bool accepted = 1;
+  string reason = 2; // rejection reason if !accepted
+  int64 timestamp_ms = 3;
+}
+
+// ─── Streaming ────────────────────────────────────────────────────────────────
+
+message StreamRequest {
+  double interval_s = 1; // Desired update interval [s], 0 = max rate
+}
+
+// ─── gRPC Services ───────────────────────────────────────────────────────────
+
+// PLCService: receives high-level commands, validates, applies to physics engine
+service PLCService {
+  rpc Health(Empty) returns (HealthStatus);
+  rpc SendCommand(ControlCommandMsg) returns (CommandAck);
+  rpc GetSetpoints(Empty) returns (SetpointsMsg);
+  rpc UpdateSetpoints(SetpointsMsg) returns (CommandAck);
+  rpc StreamCommands(StreamRequest) returns (stream ControlCommandMsg);
+}
+
+// PhysicsService: exposes boiler/turbine state (used in Phase 4.2+)
+service PhysicsService {
+  rpc Health(Empty) returns (HealthStatus);
+  rpc GetSystemState(Empty) returns (SystemStateMsg);
+  rpc StreamSystemState(StreamRequest) returns (stream SystemStateMsg);
+}

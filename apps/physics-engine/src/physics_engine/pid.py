@@ -12,9 +12,9 @@ Cascade PID connects two PID controllers in series:
     - Slave (inner):  fast loop, drives the actuator directly
 
 Typical boiler control loops:
-    Pressure    → master: pressure PID   / slave: fuel flow PID
-    Drum level  → master: level PID      / slave: feedwater flow PID
-    Steam temp  → single PID             / output: spray valve position
+    Pressure    -> master: pressure PID   / slave: fuel flow PID
+    Drum level  -> master: level PID      / slave: feedwater flow PID
+    Steam temp  -> single PID             / output: spray valve position
 """
 
 from dataclasses import dataclass
@@ -284,7 +284,7 @@ class CascadePIDController:
         Returns:
             Final actuator command, clamped to slave output range [0, 1].
         """
-        # ── Master: primary variable → slave setpoint ─────────────────────────
+        # ── Master: primary variable -> slave setpoint ─────────────────────────
         slave_setpoint_raw = self.master.step(
             setpoint=primary_setpoint,
             measurement=primary_measurement,
@@ -296,7 +296,7 @@ class CascadePIDController:
             min(self.params.slave_setpoint_max, slave_setpoint_raw),
         )
 
-        # ── Slave: inner variable → actuator command ──────────────────────────
+        # ── Slave: inner variable -> actuator command ──────────────────────────
         actuator_command = self.slave.step(
             setpoint=slave_setpoint,
             measurement=inner_measurement,

@@ -56,7 +56,7 @@ class TestTurbinePhysics:
         """
         Actual specific work must be strictly less than isentropic work.
 
-        Physics: η_is < 1 → W_actual = η_is × W_ideal < W_ideal
+        Physics: η_is < 1 -> W_actual = η_is × W_ideal < W_ideal
         """
         assert nominal_state.specific_work_actual < nominal_state.specific_work_ideal, (
             f"Actual work ({nominal_state.specific_work_actual/1e3:.1f} kJ/kg) "
@@ -67,7 +67,7 @@ class TestTurbinePhysics:
         """
         Outlet enthalpy must be lower than inlet enthalpy.
 
-        Physics: work is extracted → h_out < h_in
+        Physics: work is extracted -> h_out < h_in
         """
         assert nominal_state.enthalpy_out_actual < nominal_state.enthalpy_in, (
             f"Enthalpy did not drop: "
@@ -101,7 +101,7 @@ class TestTurbinePhysics:
         """
         Higher inlet pressure at same T and flow must produce more power.
 
-        Physics: larger pressure ratio → greater enthalpy drop → more work
+        Physics: larger pressure ratio -> greater enthalpy drop -> more work
         """
         state_low = turbine.calculate(
             steam_temp_in=825.65,
@@ -239,6 +239,6 @@ class TestSystem:
 
         assert state_high.electrical_power_mw > state_low.electrical_power_mw, (
             f"More steam valve did not increase power at equal boiler conditions: "
-            f"sv=0.3 → {state_low.electrical_power_mw:.1f} MW, "
-            f"sv=0.7 → {state_high.electrical_power_mw:.1f} MW"
+            f"sv=0.3 -> {state_low.electrical_power_mw:.1f} MW, "
+            f"sv=0.7 -> {state_high.electrical_power_mw:.1f} MW"
         )

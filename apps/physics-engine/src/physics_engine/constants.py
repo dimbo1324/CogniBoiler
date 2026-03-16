@@ -40,13 +40,13 @@ HEAT_LOSS_COEFFICIENT: float = 500.0  # W/K       — overall heat loss coeffici
 #   P_dil = 300 × 5 000 × (610 − 423) K ≈ 281 MW
 #
 # With UA = 250 000 W/K combustion only delivers 250 000 × 663 ≈ 166 MW < 281 MW
-# → temperature (and hence pressure) fell even under full firing.
+# -> temperature (and hence pressure) fell even under full firing.
 #
 # With UA = 450 000 W/K:
-#   Q_gas = 450 000 × (1273 − 610) = 298 MW > 281 MW  → temperature rises  ✓
+#   Q_gas = 450 000 × (1273 − 610) = 298 MW > 281 MW  -> temperature rises  ✓
 #
 # Physical sanity: a 300 t/h utility boiler has ~3 000 m² heating surface and
-# gas-side HTC ≈ 120–160 W/(m²·K) → UA ≈ 3 000 × 150 = 450 000 W/K.
+# gas-side HTC ≈ 120–160 W/(m²·K) -> UA ≈ 3 000 × 150 = 450 000 W/K.
 HEAT_TRANSFER_GAS_WATER: float = 450_000.0  # W/K — gas-to-water UA
 
 # ─── Steam flow ─────────────────────────────────────────────────────────────

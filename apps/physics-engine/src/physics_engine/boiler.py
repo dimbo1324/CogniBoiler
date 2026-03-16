@@ -3,7 +3,7 @@ Thermodynamic ODE model of a steam boiler.
 
 Integrates all sub-models into a unified simulation:
     - CombustionModel    : heat release from fuel burning
-    - SuperheaterModel   : saturated → superheated steam
+    - SuperheaterModel   : saturated -> superheated steam
     - EconomizerModel    : feedwater preheating from flue gas
     - steam_tables       : IAPWS-IF97 water/steam properties
     - ValveState         : actuator dynamics for all control valves
@@ -18,7 +18,7 @@ ODE system:
     dT_w/dt    — bulk water temperature (variable-mass corrected)
 
 Flue gas path through heat exchangers (temperature decreasing):
-    Furnace → Superheater → Boiler drum tubes → Economizer → Stack
+    Furnace -> Superheater -> Boiler drum tubes -> Economizer -> Stack
 """
 
 import numpy as np
@@ -290,7 +290,7 @@ class BoilerModel:
 
         # ── ODE 3: dh/dt — liquid mass balance ───────────────────────────────
         # d(ρ·A·h)/dt = m_feed − m_steam
-        # → dh/dt = (m_feed − m_steam) / (ρ_water · A)
+        # -> dh/dt = (m_feed − m_steam) / (ρ_water · A)
         #
         # FIX: previous formula subtracted m_steam/ρ_steam (a volumetric flow
         # [m³/s]) from m_feed (a mass flow [kg/s]) — dimensionally inconsistent.
@@ -304,7 +304,7 @@ class BoilerModel:
         )
 
         # ── ODE 5: dT_water/dt — variable-mass corrected ──────────────────────
-        # U = M · cp · (T − T_REF)  →  product rule:
+        # U = M · cp · (T − T_REF)  ->  product rule:
         #   dU/dt = dM/dt · cp · (T − T_REF) + M · cp · dT/dt
         # Solving for dT/dt:
         #   dT/dt = [dU/dt − dM/dt · cp · (T − T_REF)] / (M · cp)

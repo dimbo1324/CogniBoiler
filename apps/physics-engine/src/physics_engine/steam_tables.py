@@ -45,7 +45,7 @@ def _patched_region3(rho: object, t: object) -> dict[str, Any]:
     # N806 fix: local variable lowercase (t_f instead of T)
     rho_f: float
     t_f: float
-    # isinstance narrows rho to np.ndarray → .flat[0] is safe
+    # isinstance narrows rho to np.ndarray -> .flat[0] is safe
     if isinstance(rho, np.ndarray):
         rho_f = float(rho.flat[0])
     else:
@@ -147,7 +147,7 @@ def water_specific_heat(temp_k: float, pressure_pa: float) -> float:
         state = IAPWS97(T=temp_k, P=_mpa(pressure_pa))
         cp = state.cp
         if cp is not None and cp > 0:
-            return float(cp) * 1000.0  # kJ/(kg·K) → J/(kg·K)
+            return float(cp) * 1000.0  # kJ/(kg·K) -> J/(kg·K)
     except Exception:
         pass
     return 4186.0  # fallback: standard value at ~20°C
@@ -164,7 +164,7 @@ def water_enthalpy(temp_k: float, pressure_pa: float) -> float:
 
     try:
         state = IAPWS97(T=temp_k, P=_mpa(pressure_pa))
-        return float(state.h) * 1000.0  # kJ/kg → J/kg
+        return float(state.h) * 1000.0  # kJ/kg -> J/kg
     except Exception:
         pass
     sat = IAPWS97(P=_mpa(pressure_pa), x=0.0)
@@ -185,7 +185,7 @@ def steam_enthalpy(temp_k: float, pressure_pa: float) -> float:
 
     try:
         state = IAPWS97(T=temp_k, P=_mpa(pressure_pa))
-        return float(state.h) * 1000.0  # kJ/kg → J/kg
+        return float(state.h) * 1000.0  # kJ/kg -> J/kg
     except Exception:
         pass
     # fallback: saturated steam enthalpy
@@ -236,7 +236,7 @@ def latent_heat(pressure_pa: float) -> float:
     pressure_pa = max(611.7, min(pressure_pa, 22.064e6))
     liquid = IAPWS97(P=_mpa(pressure_pa), x=0.0)
     vapor = IAPWS97(P=_mpa(pressure_pa), x=1.0)
-    return (float(vapor.h) - float(liquid.h)) * 1000.0  # kJ/kg → J/kg
+    return (float(vapor.h) - float(liquid.h)) * 1000.0  # kJ/kg -> J/kg
 
 
 # ─── Convenience: saturation line properties ──────────────────────────────────
@@ -276,7 +276,7 @@ def steam_entropy(temp_k: float, pressure_pa: float) -> float:
 
     try:
         state = IAPWS97(T=temp_k, P=_mpa(pressure_pa))
-        return float(state.s) * 1000.0  # kJ/(kg·K) → J/(kg·K)
+        return float(state.s) * 1000.0  # kJ/(kg·K) -> J/(kg·K)
     except Exception:
         pass
     # fallback: saturated vapor entropy
@@ -302,11 +302,11 @@ def isentropic_enthalpy(entropy_in: float, pressure_out: float) -> float:
     entropy_in = _to_float(entropy_in)
     pressure_out = _to_float(pressure_out)
 
-    s_mpa = entropy_in / 1000.0  # J/(kg·K) → kJ/(kg·K) for iapws
+    s_mpa = entropy_in / 1000.0  # J/(kg·K) -> kJ/(kg·K) for iapws
 
     try:
         state = IAPWS97(P=_mpa(pressure_out), s=s_mpa)
-        return float(state.h) * 1000.0  # kJ/kg → J/kg
+        return float(state.h) * 1000.0  # kJ/kg -> J/kg
     except Exception:
         pass
     # fallback: saturated vapor enthalpy at exhaust pressure
@@ -332,7 +332,7 @@ def exhaust_temp(enthalpy: float, pressure_pa: float) -> float:
     pressure_pa = _to_float(pressure_pa)
 
     try:
-        state = IAPWS97(P=_mpa(pressure_pa), h=enthalpy / 1000.0)  # J/kg → kJ/kg
+        state = IAPWS97(P=_mpa(pressure_pa), h=enthalpy / 1000.0)  # J/kg -> kJ/kg
         return float(state.T)
     except Exception:
         pass

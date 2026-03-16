@@ -87,10 +87,10 @@ This is not a toy simulation. The physics model is derived from real thermodynam
 ```
 
 **Data flows:**
-- **Sensor stream** (1–10 Hz): Physics Engine → MQTT → Historian → InfluxDB → Grafana
-- **Control commands**: Operator → API Gateway → PLC → MQTT → Physics Engine
-- **AI analysis** (scheduled): InfluxDB → AI Predictor → Alert Manager → PostgreSQL
-- **Observability** (continuous): All services → OpenTelemetry → Prometheus + Loki → Grafana
+- **Sensor stream** (1–10 Hz): Physics Engine -> MQTT -> Historian -> InfluxDB -> Grafana
+- **Control commands**: Operator -> API Gateway -> PLC -> MQTT -> Physics Engine
+- **AI analysis** (scheduled): InfluxDB -> AI Predictor -> Alert Manager -> PostgreSQL
+- **Observability** (continuous): All services -> OpenTelemetry -> Prometheus + Loki -> Grafana
 
 ---
 
@@ -127,7 +127,7 @@ apps/
 ├── physics-engine/     Thermodynamic ODE model of boiler + turbine
 ├── plc-controller/     Virtual PLC with cascade PID and safety interlocks
 ├── api-gateway/        FastAPI gateway — auth, routing, WebSocket
-├── historian/          MQTT subscriber → InfluxDB time-series writer
+├── historian/          MQTT subscriber -> InfluxDB time-series writer
 ├── alert-manager/      Alarm management and immutable audit log
 ├── opcua-server/       OPC UA field-level server (IEC 62541)
 └── ai-predictor/       PyTorch inference: anomaly · efficiency · maintenance
@@ -172,10 +172,10 @@ Turbine power:      W_elec = η_turbine · m_steam · (h_in - h_out)
 | Boiler efficiency | 88 – 93 % |
 
 Control is implemented as a **cascade PID system** — the industrial standard for boiler control:
-- `PID_1` Master: power setpoint → pressure setpoint
-- `PID_2` Slave: pressure setpoint → fuel valve position
-- `PID_3` Independent: water level → feedwater valve
-- `PID_4` Independent: steam temperature → desuperheater spray
+- `PID_1` Master: power setpoint -> pressure setpoint
+- `PID_2` Slave: pressure setpoint -> fuel valve position
+- `PID_3` Independent: water level -> feedwater valve
+- `PID_4` Independent: steam temperature -> desuperheater spray
 
 ---
 

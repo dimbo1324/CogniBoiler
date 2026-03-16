@@ -145,7 +145,7 @@ class TestPID:
         """
         With ki > 0, repeated steps at fixed error must drive output up.
 
-        Physics: integral accumulates → output grows until error = 0.
+        Physics: integral accumulates -> output grows until error = 0.
         """
         outputs = [
             integrating_pid.step(setpoint=5.0, measurement=4.0, dt=1.0)
@@ -200,7 +200,7 @@ class TestPID:
         simple_pid.step(setpoint=5.0, measurement=5.0, dt=1.0)
         simple_pid.set_auto()
 
-        # With SP=PV=5.0 and kp=1.0, ki=kd=0 → error=0 → output=0
+        # With SP=PV=5.0 and kp=1.0, ki=kd=0 -> error=0 -> output=0
         # But due to bumpless transfer integrator=0.5, output may vary
         # Key check: controller is no longer in manual mode
         assert not simple_pid.is_manual
@@ -339,7 +339,7 @@ class TestController:
         """
         Pressure below setpoint must cause fuel valve to open over time.
 
-        Physics: error > 0 → integral accumulates → fuel valve opens.
+        Physics: error > 0 -> integral accumulates -> fuel valve opens.
         """
         outputs = [
             controller.step(
@@ -503,7 +503,7 @@ class TestScenarios:
         """
         After fuel trip, pressure must drop compared to pre-trip value.
 
-        Physics: no heat input → drum cools → saturation pressure drops.
+        Physics: no heat input -> drum cools -> saturation pressure drops.
         """
         result = runner.fuel_trip(t_trip=60.0, duration=180.0, dt=1.0)
 
