@@ -52,7 +52,7 @@ class PLCServicer(pb2_grpc.PLCServiceServicer):  # type: ignore[misc]
             steam_valve=request.steam_valve,
         )
         logger.info(
-            "Command received: fv=%.2f fw=%.2f sv=%.2f → %s",
+            "Command received: fv=%.2f fw=%.2f sv=%.2f -> %s",
             request.fuel_valve,
             request.feedwater_valve,
             request.steam_valve,

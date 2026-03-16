@@ -1,15 +1,15 @@
 """
-MQTT → InfluxDB historian subscriber.
+MQTT -> InfluxDB historian subscriber.
 
 Subscribes to sensors/boiler and sensors/turbine, deserializes
 protobuf payloads, builds InfluxDB Points, and writes via InfluxWriter.
 
 Flow:
     MQTT broker [sensors/#]
-        → HistorianSubscriber.run()
-        → _handle_message(topic, raw_payload)
-        → build_boiler_point(msg) or build_turbine_point(msg)
-        → InfluxWriter.write_point(point)
+        -> HistorianSubscriber.run()
+        -> _handle_message(topic, raw_payload)
+        -> build_boiler_point(msg) or build_turbine_point(msg)
+        -> InfluxWriter.write_point(point)
 
 Topic contract:
     sensors/boiler          ← BoilerStateMsg  (protobuf)

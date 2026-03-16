@@ -1,15 +1,15 @@
 """
-MQTT → OPC UA bridge subscriber (protobuf edition).
+MQTT -> OPC UA bridge subscriber (protobuf edition).
 
 Subscribes to sensors/boiler and sensors/turbine, deserializes
 protobuf payloads, and updates OPC UA variable nodes field-by-field.
 
 Flow:
     MQTT broker [sensors/#]
-        → MQTTOPCBridge.run()
-        → _handle_message(topic, raw_payload)
-        → ParseFromString(raw_payload) → BoilerStateMsg | TurbineStateMsg
-        → for each field: CogniBoilerOPCServer.update_variable(node_id, value)
+        -> MQTTOPCBridge.run()
+        -> _handle_message(topic, raw_payload)
+        -> ParseFromString(raw_payload) -> BoilerStateMsg | TurbineStateMsg
+        -> for each field: CogniBoilerOPCServer.update_variable(node_id, value)
 
 Topic contract:
     sensors/boiler           ← BoilerStateMsg  (protobuf)
@@ -143,7 +143,7 @@ class MQTTOPCBridge:
                     port=self._port,
                 ) as client:
                     logger.info(
-                        "MQTT→OPC bridge connected to %s:%d",
+                        "MQTT->OPC bridge connected to %s:%d",
                         self._host,
                         self._port,
                     )

@@ -14,7 +14,7 @@ Models two key heat exchangers absent from the base boiler drum model:
         Recovers waste heat, improving overall boiler efficiency.
 
 Flue gas path (temperature decreasing):
-    Furnace → Superheater → Boiler drum tubes → Economizer → Stack
+    Furnace -> Superheater -> Boiler drum tubes -> Economizer -> Stack
 
 Heat transfer method: effectiveness-NTU (Number of Transfer Units).
     Accounts for capacity rate ratio and counter-flow configuration.
@@ -69,7 +69,7 @@ class EconomizerState:
     """
 
     water_temp_in: float  # K   — feedwater temperature entering economizer
-    water_temp_out: float  # K  — feedwater temperature leaving (→ drum)
+    water_temp_out: float  # K  — feedwater temperature leaving (-> drum)
     flue_gas_temp_in: float  # K  — flue gas temperature entering economizer
     flue_gas_temp_out: float  # K — flue gas temperature leaving (stack)
     heat_transferred: float  # W  — heat actually transferred (energy-balanced)

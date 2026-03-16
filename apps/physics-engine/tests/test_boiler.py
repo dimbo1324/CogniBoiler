@@ -61,7 +61,7 @@ class TestPhysics:
         """
         With maximum fuel and steam valve closed, pressure must rise monotonically.
 
-        Physics: Q_combustion >> Q_loss → dU/dt > 0 → T rises → P_sat rises → dP/dt > 0
+        Physics: Q_combustion >> Q_loss -> dU/dt > 0 -> T rises -> P_sat rises -> dP/dt > 0
         """
         controls = ControlInputs(
             fuel_valve_command=1.0,
@@ -87,7 +87,7 @@ class TestPhysics:
         """
         With steam valve open and no feedwater, drum level must fall.
 
-        Physics: m_steam > 0, m_feed = 0 → dh/dt < 0
+        Physics: m_steam > 0, m_feed = 0 -> dh/dt < 0
         """
         controls = ControlInputs(
             fuel_valve_command=0.6,
@@ -112,7 +112,7 @@ class TestPhysics:
         """
         With maximum feedwater and steam valve closed, drum level must rise.
 
-        Physics: m_feed >> m_steam → dh/dt > 0
+        Physics: m_feed >> m_steam -> dh/dt > 0
         """
         controls = ControlInputs(
             fuel_valve_command=0.5,
@@ -137,7 +137,7 @@ class TestPhysics:
         """
         With zero fuel, water temperature must decrease over time (cooling).
 
-        Physics: Q_combustion = 0, Q_loss > 0 → dU/dt < 0 → dT/dt < 0
+        Physics: Q_combustion = 0, Q_loss > 0 -> dU/dt < 0 -> dT/dt < 0
         """
         controls = ControlInputs(
             fuel_valve_command=0.0,  # no fuel
@@ -162,7 +162,7 @@ class TestPhysics:
         """
         With full fuel and no steam output, internal energy must increase.
 
-        Physics: Q_in > Q_loss → dU/dt > 0
+        Physics: Q_in > Q_loss -> dU/dt > 0
         """
         controls = ControlInputs(
             fuel_valve_command=1.0,

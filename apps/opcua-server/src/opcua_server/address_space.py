@@ -158,7 +158,7 @@ TURBINE_VARIABLES: list[VariableDescriptor] = [
 
 ALL_VARIABLES: list[VariableDescriptor] = BOILER_VARIABLES + TURBINE_VARIABLES
 
-# ─── Protobuf field → NodeId mappings ────────────────────────────────────────
+# ─── Protobuf field -> NodeId mappings ────────────────────────────────────────
 # Used by MQTTOPCBridge to map BoilerStateMsg / TurbineStateMsg fields
 # to the correct OPC UA variable nodes.
 #

@@ -4,15 +4,15 @@ drum water level, and superheated steam temperature.
 
 Control architecture:
     Loop 1 — Pressure:
-        Master: pressure PID     setpoint: bar → output: fuel flow setpoint [kg/s]
-        Slave:  fuel flow PID    setpoint: kg/s → output: fuel valve command [0, 1]
+        Master: pressure PID     setpoint: bar -> output: fuel flow setpoint [kg/s]
+        Slave:  fuel flow PID    setpoint: kg/s -> output: fuel valve command [0, 1]
 
     Loop 2 — Drum level:
-        Master: level PID        setpoint: m → output: feedwater flow setpoint [kg/s]
-        Slave:  feedwater PID    setpoint: kg/s → output: feedwater valve command [0, 1]
+        Master: level PID        setpoint: m -> output: feedwater flow setpoint [kg/s]
+        Slave:  feedwater PID    setpoint: kg/s -> output: feedwater valve command [0, 1]
 
     Loop 3 — Steam temperature:
-        Single PID               setpoint: K → output: steam valve command [0, 1]
+        Single PID               setpoint: K -> output: steam valve command [0, 1]
         (simple throttling — spray injection modelled in Phase 3.2)
 
 All loops support AUTO / MANUAL mode with bumpless transfer.
@@ -80,11 +80,11 @@ class ControllerOutput:
 # ─── Default PID tunings ──────────────────────────────────────────────────────
 
 # Loop 1 — Pressure cascade
-# Master: pressure [Pa] → fuel flow setpoint [kg/s]
+# Master: pressure [Pa] -> fuel flow setpoint [kg/s]
 #   Large Kp needed — pressure range is 100–180 bar = 1e7 Pa
 #   Output range: 0–10 kg/s (max fuel flow)
 _PRESSURE_MASTER = PIDParameters(
-    kp=5e-6,  # 1e5 Pa error → 0.5 kg/s fuel change
+    kp=5e-6,  # 1e5 Pa error -> 0.5 kg/s fuel change
     ki=1e-7,  # slow integral — pressure is sluggish
     kd=1e-5,  # mild derivative — damps pressure oscillations
     output_min=0.0,
@@ -93,9 +93,9 @@ _PRESSURE_MASTER = PIDParameters(
     anti_windup=True,
 )
 
-# Slave: fuel flow [kg/s] → fuel valve command [0, 1]
+# Slave: fuel flow [kg/s] -> fuel valve command [0, 1]
 _PRESSURE_SLAVE = PIDParameters(
-    kp=0.08,  # 1 kg/s error → 0.08 valve movement
+    kp=0.08,  # 1 kg/s error -> 0.08 valve movement
     ki=0.02,  # moderate integral
     kd=0.01,
     output_min=0.0,
@@ -105,11 +105,11 @@ _PRESSURE_SLAVE = PIDParameters(
 )
 
 # Loop 2 — Level cascade
-# Master: level [m] → feedwater flow setpoint [kg/s]
+# Master: level [m] -> feedwater flow setpoint [kg/s]
 #   Level range: 0–8 m, nominal 4.8 m
 #   Output range: 0–300 kg/s (max feedwater flow)
 _LEVEL_MASTER = PIDParameters(
-    kp=30.0,  # 1 m error → 30 kg/s feedwater change
+    kp=30.0,  # 1 m error -> 30 kg/s feedwater change
     ki=2.0,  # moderate integral
     kd=5.0,  # derivative helps with swell/shrink effect
     output_min=0.0,
@@ -118,9 +118,9 @@ _LEVEL_MASTER = PIDParameters(
     anti_windup=True,
 )
 
-# Slave: feedwater flow [kg/s] → feedwater valve command [0, 1]
+# Slave: feedwater flow [kg/s] -> feedwater valve command [0, 1]
 _LEVEL_SLAVE = PIDParameters(
-    kp=0.003,  # 1 kg/s error → 0.003 valve movement
+    kp=0.003,  # 1 kg/s error -> 0.003 valve movement
     ki=0.001,
     kd=0.0,
     output_min=0.0,
@@ -130,11 +130,11 @@ _LEVEL_SLAVE = PIDParameters(
 )
 
 # Loop 3 — Steam temperature (single PID)
-# Steam temp [K] → steam valve command [0, 1]
-# Logic: if temp too high → open steam valve more (release hot steam)
-#        if temp too low  → close steam valve (let steam superheat longer)
+# Steam temp [K] -> steam valve command [0, 1]
+# Logic: if temp too high -> open steam valve more (release hot steam)
+#        if temp too low  -> close steam valve (let steam superheat longer)
 _STEAM_TEMP = PIDParameters(
-    kp=0.002,  # 1 K error → 0.002 valve movement
+    kp=0.002,  # 1 K error -> 0.002 valve movement
     ki=0.0001,
     kd=0.005,
     output_min=0.0,
@@ -277,7 +277,7 @@ class BoilerController:
         Returns:
             ControllerOutput with valve commands and diagnostic signals.
         """
-        # ── Loop 1: pressure → fuel valve ────────────────────────────────────
+        # ── Loop 1: pressure -> fuel valve ────────────────────────────────────
         fuel_valve_cmd = self.pressure_loop.step(
             primary_setpoint=setpoints.pressure,
             primary_measurement=pressure,
@@ -285,7 +285,7 @@ class BoilerController:
             dt=dt,
         )
 
-        # ── Loop 2: level → feedwater valve ──────────────────────────────────
+        # ── Loop 2: level -> feedwater valve ──────────────────────────────────
         feedwater_valve_cmd = self.level_loop.step(
             primary_setpoint=setpoints.water_level,
             primary_measurement=water_level,
@@ -293,7 +293,7 @@ class BoilerController:
             dt=dt,
         )
 
-        # ── Loop 3: steam temp → steam valve ─────────────────────────────────
+        # ── Loop 3: steam temp -> steam valve ─────────────────────────────────
         steam_valve_cmd = self.temp_loop.step(
             setpoint=setpoints.steam_temp,
             measurement=steam_temp,

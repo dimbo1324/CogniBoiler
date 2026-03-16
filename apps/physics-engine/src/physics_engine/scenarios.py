@@ -136,8 +136,8 @@ class ScenarioRunner:
             scenario_name:   Label for the result.
             initial_state:   Starting boiler state.
             controller:      BoilerController instance (pre-configured).
-            setpoints_fn:    Callable(t) → BoilerSetpoints — time-varying setpoints.
-            steam_valve_fn:  Callable(t) → float | None — steam valve override or None.
+            setpoints_fn:    Callable(t) -> BoilerSetpoints — time-varying setpoints.
+            steam_valve_fn:  Callable(t) -> float | None — steam valve override or None.
             duration:        Total simulation time [s].
             dt:              Fixed time step [s].
 

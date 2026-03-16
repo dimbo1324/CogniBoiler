@@ -9,13 +9,13 @@ Data model (one Point per MQTT message, multiple fields):
         tags:   quality (GOOD | UNCERTAIN | BAD)
         fields: pressure_pa, water_level_m, water_temp_k,
                 flue_gas_temp_k, internal_energy_j
-        time:   BoilerStateMsg.timestamp_ms → nanoseconds
+        time:   BoilerStateMsg.timestamp_ms -> nanoseconds
 
     turbine_sensors measurement:
         fields: electrical_power_w, shaft_power_w,
                 enthalpy_in_j_kg, enthalpy_out_j_kg,
                 exhaust_pressure_pa, steam_flow_kg_s
-        time:   TurbineStateMsg.timestamp_ms → nanoseconds
+        time:   TurbineStateMsg.timestamp_ms -> nanoseconds
 
 Writing one multi-field Point per message (vs one Point per field)
 gives atomic writes and faster range queries.
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 MEASUREMENT_BOILER: str = "boiler_sensors"
 MEASUREMENT_TURBINE: str = "turbine_sensors"
 
-# ─── Quality enum → tag string ────────────────────────────────────────────────
+# ─── Quality enum -> tag string ────────────────────────────────────────────────
 
 _QUALITY_TAG: dict[int, str] = {
     pb.SensorQuality.GOOD: "good",

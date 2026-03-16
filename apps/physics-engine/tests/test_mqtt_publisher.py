@@ -86,7 +86,7 @@ class TestBoilerStateToProto:
         assert msg.timestamp_ms > 0
 
     def test_serializes_and_roundtrips(self, boiler_state: BoilerState) -> None:
-        """Serialize → bytes → deserialize → same pressure."""
+        """Serialize -> bytes -> deserialize -> same pressure."""
         msg = boiler_state_to_proto(boiler_state)
         raw = msg.SerializeToString()
         restored = pb.BoilerStateMsg()

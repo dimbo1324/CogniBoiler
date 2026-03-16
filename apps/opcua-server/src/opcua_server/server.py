@@ -8,9 +8,9 @@ The server does NOT pull data itself — it exposes an update_variable()
 method that the MQTT subscriber calls whenever a new sensor reading arrives.
 
 Architecture:
-    MQTT subscriber → calls update_variable(node_id, value)
-                    → OPC UA server writes new DataValue to the node
-                    → OPC UA clients see the updated value via subscriptions
+    MQTT subscriber -> calls update_variable(node_id, value)
+                    -> OPC UA server writes new DataValue to the node
+                    -> OPC UA clients see the updated value via subscriptions
 
 Usage:
     server = CogniBoilerOPCServer()
@@ -56,7 +56,7 @@ class CogniBoilerOPCServer:
         self._endpoint = endpoint
         self._server = Server()
         self._ns: int = NS_IDX
-        self._nodes: dict[int, Node] = {}  # node_id → asyncua Node
+        self._nodes: dict[int, Node] = {}  # node_id -> asyncua Node
         self._started: bool = False
 
     # ─── Lifecycle ────────────────────────────────────────────────────────────
@@ -65,7 +65,7 @@ class CogniBoilerOPCServer:
         """
         Initialise the OPC UA server and build the address space.
 
-        1. Register namespace URI → get namespace index
+        1. Register namespace URI -> get namespace index
         2. Create folder hierarchy under Objects/
         3. Create all VariableNodes with initial values
         4. Start TCP listener
