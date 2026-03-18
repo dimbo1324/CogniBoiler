@@ -1,5 +1,3 @@
-# apps/physics-engine/src/physics_engine/async_simulator.py
-
 """
 Async simulator for real-time boiler-turbine telemetry.
 

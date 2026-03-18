@@ -1,5 +1,3 @@
-# apps/physics-engine/tests/test_async_simulator.py
-
 """
 Tests for AsyncSimulator and cold_start scenario.
 

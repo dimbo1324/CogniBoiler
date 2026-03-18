@@ -1,5 +1,3 @@
-# apps/physics-engine/tests/test_safety.py
-
 """
 Tests for Safety Interlock Layer.
 
