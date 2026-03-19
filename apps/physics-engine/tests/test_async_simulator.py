@@ -28,8 +28,8 @@ def fast_config() -> SimulatorConfig:
     """
     Minimal config for fast integration tests.
 
-    duration=30s + speed_factor=100 → completes in ~0.3 wall-seconds.
-    dt=5s → only 6 time steps, very fast ODE integration.
+    duration=30s + speed_factor=100 -> completes in ~0.3 wall-seconds.
+    dt=5s -> only 6 time steps, very fast ODE integration.
     """
     return SimulatorConfig(
         scenario=ScenarioName.STEADY_STATE,

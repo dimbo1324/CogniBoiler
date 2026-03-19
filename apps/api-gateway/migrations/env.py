@@ -26,7 +26,7 @@ from alembic import context
 
 # ─── Import application models ────────────────────────────────────────────────
 # All models must be imported here so Alembic can detect schema changes.
-# Adding a new model → import it here → alembic revision --autogenerate
+# Adding a new model -> import it here -> alembic revision --autogenerate
 # will pick it up automatically.
 from api_gateway.config import settings
 from api_gateway.models.user import Base  # noqa: F401 — registers all models

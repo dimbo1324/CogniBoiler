@@ -8,8 +8,8 @@ In production these forward commands to the PLC Controller via gRPC.
 For Phase 5.1 they validate input and return a stub acknowledgement.
 
 Role requirements:
-    valve    → minimum: operator
-    setpoint → minimum: engineer
+    valve    -> minimum: operator
+    setpoint -> minimum: engineer
 """
 
 from __future__ import annotations

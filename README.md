@@ -11,8 +11,8 @@
 
 ### AI-Driven Digital Twin Platform for Industrial Steam Power Generation
 
-*A production-grade simulation and intelligence platform for steam boilers,*
-*turbines, and virtual PLC control — built for real-world deployment.*
+_A production-grade simulation and intelligence platform for steam boilers,_
+_turbines, and virtual PLC control — built for real-world deployment._
 
 ---
 
@@ -87,6 +87,7 @@ This is not a toy simulation. The physics model is derived from real thermodynam
 ```
 
 **Data flows:**
+
 - **Sensor stream** (1–10 Hz): Physics Engine -> MQTT -> Historian -> InfluxDB -> Grafana
 - **Control commands**: Operator -> API Gateway -> PLC -> MQTT -> Physics Engine
 - **AI analysis** (scheduled): InfluxDB -> AI Predictor -> Alert Manager -> PostgreSQL
@@ -96,25 +97,25 @@ This is not a toy simulation. The physics model is derived from real thermodynam
 
 ## Technology Stack
 
-| Layer | Technologies |
-|---|---|
-| **Language** | Python 3.12+ |
-| **Package management** | uv (workspace monorepo) |
-| **Web framework** | FastAPI, uvicorn |
-| **Physics simulation** | NumPy, SciPy (ODE solver RK45) |
-| **AI / ML** | PyTorch, scikit-learn, Pandas, MLflow |
-| **Protocols** | MQTT 5.0 (Mosquitto), OPC UA (asyncua), gRPC |
-| **Serialization** | Protocol Buffers (protobuf) |
-| **Time-series DB** | InfluxDB 2.x (Flux) |
-| **Relational DB** | PostgreSQL 16 (SQLAlchemy async, asyncpg) |
-| **Migrations** | Alembic |
-| **Security** | PyJWT (RS256), cryptography (AES-256, RSA), bcrypt |
-| **Visualization** | Grafana, Matplotlib |
-| **Observability** | OpenTelemetry, Prometheus, Loki, Promtail |
-| **Containers** | Docker (multi-stage builds) |
-| **Orchestration** | Kubernetes, Helm 3 |
-| **CI/CD** | GitHub Actions |
-| **Code quality** | ruff, mypy (strict), pre-commit |
+| Layer                  | Technologies                                       |
+| ---------------------- | -------------------------------------------------- |
+| **Language**           | Python 3.12+                                       |
+| **Package management** | uv (workspace monorepo)                            |
+| **Web framework**      | FastAPI, uvicorn                                   |
+| **Physics simulation** | NumPy, SciPy (ODE solver RK45)                     |
+| **AI / ML**            | PyTorch, scikit-learn, Pandas, MLflow              |
+| **Protocols**          | MQTT 5.0 (Mosquitto), OPC UA (asyncua), gRPC       |
+| **Serialization**      | Protocol Buffers (protobuf)                        |
+| **Time-series DB**     | InfluxDB 2.x (Flux)                                |
+| **Relational DB**      | PostgreSQL 16 (SQLAlchemy async, asyncpg)          |
+| **Migrations**         | Alembic                                            |
+| **Security**           | PyJWT (RS256), cryptography (AES-256, RSA), bcrypt |
+| **Visualization**      | Grafana, Matplotlib                                |
+| **Observability**      | OpenTelemetry, Prometheus, Loki, Promtail          |
+| **Containers**         | Docker (multi-stage builds)                        |
+| **Orchestration**      | Kubernetes, Helm 3                                 |
+| **CI/CD**              | GitHub Actions                                     |
+| **Code quality**       | ruff, mypy (strict), pre-commit                    |
 
 ---
 
@@ -163,15 +164,16 @@ Turbine power:      W_elec = η_turbine · m_steam · (h_in - h_out)
 
 **Nominal parameters** (300 MW class gas boiler):
 
-| Parameter | Value |
-|---|---|
-| Steam pressure | 100 – 180 bar |
-| Steam temperature | 540 – 565 °C |
-| Steam flow | 500 – 1000 t/h |
-| Electrical output | 100 – 300 MW |
-| Boiler efficiency | 88 – 93 % |
+| Parameter         | Value          |
+| ----------------- | -------------- |
+| Steam pressure    | 100 – 180 bar  |
+| Steam temperature | 540 – 565 °C   |
+| Steam flow        | 500 – 1000 t/h |
+| Electrical output | 100 – 300 MW   |
+| Boiler efficiency | 88 – 93 %      |
 
 Control is implemented as a **cascade PID system** — the industrial standard for boiler control:
+
 - `PID_1` Master: power setpoint -> pressure setpoint
 - `PID_2` Slave: pressure setpoint -> fuel valve position
 - `PID_3` Independent: water level -> feedwater valve
@@ -201,15 +203,15 @@ RBAC roles: `viewer` · `operator` · `engineer` · `admin`
 
 This project is under active development following a structured 7-phase roadmap.
 
-| Phase | Description | Status |
-|---|---|---|
-| 1 | Project foundation — uv workspace, tooling, structure | ✅ Complete |
-| 2 | Physics Engine — ODE boiler and turbine model | 🔄 Up next |
-| 3 | Virtual PLC — cascade PID, safety interlocks | ⏳ Planned |
-| 4 | Communication — protobuf, gRPC, MQTT, OPC UA, InfluxDB | ⏳ Planned |
-| 5 | API Gateway — FastAPI, JWT, TLS, PostgreSQL | ⏳ Planned |
-| 6 | AI/ML — PyTorch models, MLflow, inference service | ⏳ Planned |
-| 7 | Infrastructure — Docker, Kubernetes, Helm, CI/CD | ⏳ Planned |
+| Phase | Description                                            | Status      |
+| ----- | ------------------------------------------------------ | ----------- |
+| 1     | Project foundation — uv workspace, tooling, structure  | ✅ Complete |
+| 2     | Physics Engine — ODE boiler and turbine model          | 🔄 Up next  |
+| 3     | Virtual PLC — cascade PID, safety interlocks           | ⏳ Planned  |
+| 4     | Communication — protobuf, gRPC, MQTT, OPC UA, InfluxDB | ⏳ Planned  |
+| 5     | API Gateway — FastAPI, JWT, TLS, PostgreSQL            | ⏳ Planned  |
+| 6     | AI/ML — PyTorch models, MLflow, inference service      | ⏳ Planned  |
+| 7     | Infrastructure — Docker, Kubernetes, Helm, CI/CD       | ⏳ Planned  |
 
 ---
 
@@ -294,7 +296,7 @@ Licensed under the [Apache License 2.0](LICENSE).
 
 <div align="center">
 
-*Built with precision. Designed for industry.*
+_Built with precision. Designed for industry._
 
 **CogniBoiler** · AI-Driven Digital Twin Platform
 

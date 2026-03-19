@@ -7,14 +7,14 @@ executes concurrently.
 
 Architecture:
     ┌─────────────────────────┐      asyncio.Queue      ┌──────────────────┐
-    │  ThreadPoolExecutor     │  ─── SystemState ──►    │  Event loop      │
+    │  ThreadPoolExecutor     │  ─── SystemState ──>    │  Event loop      │
     │  ScenarioRunner._run()  │                         │  MQTT Publisher  │
     └─────────────────────────┘                         └──────────────────┘
 
 Speed factors:
-    speed_factor = 1   → real-time (1 sim-second = 1 wall-second)
-    speed_factor = 10  → 10× faster (used for testing)
-    speed_factor = 100 → 100× faster (used for dataset generation)
+    speed_factor = 1   -> real-time (1 sim-second = 1 wall-second)
+    speed_factor = 10  -> 10× faster (used for testing)
+    speed_factor = 100 -> 100× faster (used for dataset generation)
 
 Usage:
     sim = AsyncSimulator(SimulatorConfig(scenario="cold_start", speed_factor=1))
@@ -193,7 +193,7 @@ class AsyncSimulator:
 
         result = self._build_scenario_result()
 
-        # Build a BoilerTurbineSystem to convert ScenarioResult rows → SystemState
+        # Build a BoilerTurbineSystem to convert ScenarioResult rows -> SystemState
         system = BoilerTurbineSystem(
             boiler_params=self.config.boiler_params,
             turbine_params=self.config.turbine_params,

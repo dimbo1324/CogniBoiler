@@ -179,7 +179,7 @@ def run(output_dir: Path, quick: bool) -> None:
         frames.append(df)
 
         logger.info(
-            "  → done in %.1fs  rows=%d  pressure_range=[%.1f–%.1f] bar",
+            "  -> done in %.1fs  rows=%d  pressure_range=[%.1f–%.1f] bar",
             elapsed,
             len(df),
             df["pressure_bar"].min(),

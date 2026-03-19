@@ -19,9 +19,9 @@ from pwdlib.hashers.argon2 import Argon2Hasher
 
 # ─── Hasher instance ─────────────────────────────────────────────────────────
 # Argon2id is the recommended variant:
-#   - Argon2i  → side-channel attack resistant (password hashing)
-#   - Argon2d  → GPU brute-force resistant
-#   - Argon2id → hybrid; resistant to both
+#   - Argon2i  -> side-channel attack resistant (password hashing)
+#   - Argon2d  -> GPU brute-force resistant
+#   - Argon2id -> hybrid; resistant to both
 #
 # These parameters follow OWASP recommendations for interactive logins:
 #   time_cost=2, memory_cost=65536 (64 MB), parallelism=2

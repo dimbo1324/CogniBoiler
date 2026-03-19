@@ -39,7 +39,7 @@ from httpx import ASGITransport, AsyncClient
 # ─── App fixture ──────────────────────────────────────────────────────────────
 
 
-@pytest.fixture  # type: ignore[misc]
+@pytest.fixture
 def app() -> FastAPI:
     """Fresh FastAPI application instance for each test module."""
     return create_app()
@@ -61,7 +61,7 @@ async def client(app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
 # ─── Valid tokens fixtures ────────────────────────────────────────────────────
 
 
-@pytest.fixture  # type: ignore[misc]
+@pytest.fixture
 def viewer_tokens() -> dict[str, str]:
     """JWT token pair for a viewer user (lowest privilege)."""
     return {
@@ -70,7 +70,7 @@ def viewer_tokens() -> dict[str, str]:
     }
 
 
-@pytest.fixture  # type: ignore[misc]
+@pytest.fixture
 def operator_tokens() -> dict[str, str]:
     """JWT token pair for an operator user."""
     return {
@@ -79,7 +79,7 @@ def operator_tokens() -> dict[str, str]:
     }
 
 
-@pytest.fixture  # type: ignore[misc]
+@pytest.fixture
 def engineer_tokens() -> dict[str, str]:
     """JWT token pair for an engineer user."""
     return {
@@ -88,7 +88,7 @@ def engineer_tokens() -> dict[str, str]:
     }
 
 
-@pytest.fixture  # type: ignore[misc]
+@pytest.fixture
 def admin_tokens() -> dict[str, str]:
     """JWT token pair for an admin user."""
     return {
@@ -114,7 +114,7 @@ class TestPassword:
         assert "mysecret" not in result
 
     def test_two_hashes_of_same_password_differ(self) -> None:
-        # Argon2 uses a random salt — same input → different hash each time
+        # Argon2 uses a random salt — same input -> different hash each time
         h1 = hash_password("mysecret")
         h2 = hash_password("mysecret")
         assert h1 != h2

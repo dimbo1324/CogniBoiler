@@ -461,15 +461,15 @@ class ScenarioRunner:
         Cold start from ambient conditions to nominal operating point.
 
         Three phases:
-            Phase 1 — Warmup    (0 → 20% of duration):
-                Fuel valve ramps 0 → 0.3. Steam valve closed.
+            Phase 1 — Warmup    (0 -> 20% of duration):
+                Fuel valve ramps 0 -> 0.3. Steam valve closed.
                 Pressure builds from 2 bar toward 40 bar.
 
-            Phase 2 — Pressure buildup (20% → 60% of duration):
-                Fuel valve ramps 0.3 → 0.7. Steam valve opens slightly.
+            Phase 2 — Pressure buildup (20% -> 60% of duration):
+                Fuel valve ramps 0.3 -> 0.7. Steam valve opens slightly.
                 Controller takes over pressure and level loops.
 
-            Phase 3 — Load acceptance (60% → 100% of duration):
+            Phase 3 — Load acceptance (60% -> 100% of duration):
                 Controller maintains 140 bar / 4.8 m.
                 Steam valve opens to nominal 0.5.
 

@@ -69,10 +69,10 @@ class ParameterLimits:
     as the physics engine outputs.
 
     Attributes:
-        warn_low:  Advisory low limit. Below this → WARNING.
-        warn_high: Advisory high limit. Above this → WARNING.
-        trip_low:  Emergency low limit. Below this → TRIP.
-        trip_high: Emergency high limit. Above this → TRIP.
+        warn_low:  Advisory low limit. Below this -> WARNING.
+        warn_high: Advisory high limit. Above this -> WARNING.
+        trip_low:  Emergency low limit. Below this -> TRIP.
+        trip_high: Emergency high limit. Above this -> TRIP.
     """
 
     warn_low: float
@@ -173,8 +173,8 @@ PRESSURE_LIMITS = ParameterLimits(
 WATER_LEVEL_LIMITS = ParameterLimits(
     warn_low=2.0,  # 2 m  — low level warning
     warn_high=7.0,  # 7 m  — high level warning
-    trip_low=0.5,  # 0.5 m — drum nearly dry → trip
-    trip_high=7.8,  # 7.8 m — drum nearly full → trip
+    trip_low=0.5,  # 0.5 m — drum nearly dry -> trip
+    trip_high=7.8,  # 7.8 m — drum nearly full -> trip
 )
 
 # Water temperature limits [K]
@@ -182,7 +182,7 @@ WATER_TEMP_LIMITS = ParameterLimits(
     warn_low=373.0,  # 100°C — abnormally cold water
     warn_high=630.0,  # 357°C — approaching critical temp
     trip_low=320.0,  # 47°C  — critically cold (sensor fault likely)
-    trip_high=648.0,  # 375°C — above critical point → trip
+    trip_high=648.0,  # 375°C — above critical point -> trip
 )
 
 # Flue gas temperature limits [K]

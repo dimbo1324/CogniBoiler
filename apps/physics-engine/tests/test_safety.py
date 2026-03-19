@@ -159,7 +159,7 @@ class TestRateOfChangeLimiter:
             "pressure", PRESSURE_RATE_WARN, PRESSURE_RATE_TRIP
         )
         limiter.check(140.0e5, dt=1.0)  # seed
-        # dt=0 → skip check, return NORMAL
+        # dt=0 -> skip check, return NORMAL
         assert limiter.check(200.0e5, dt=0.0) == SafetyLevel.NORMAL
 
 
@@ -247,7 +247,7 @@ class TestEmergencyScenarios:
     # ── Scenario 1: High pressure trip ────────────────────────────────────────
 
     def test_scenario_1_high_pressure_trips(self) -> None:
-        """P > 185 bar → TRIP."""
+        """P > 185 bar -> TRIP."""
         interlock = make_interlock()
         status = interlock.check(
             pressure=190.0e5,  # 190 bar — above trip_high 185 bar
@@ -281,7 +281,7 @@ class TestEmergencyScenarios:
     # ── Scenario 2: Low pressure trip ─────────────────────────────────────────
 
     def test_scenario_2_low_pressure_trips(self) -> None:
-        """P < 20 bar → TRIP."""
+        """P < 20 bar -> TRIP."""
         interlock = make_interlock()
         status = interlock.check(
             pressure=10.0e5,  # 10 bar — below trip_low 20 bar
@@ -294,7 +294,7 @@ class TestEmergencyScenarios:
     # ── Scenario 3: Drum dry trip ──────────────────────────────────────────────
 
     def test_scenario_3_drum_dry_trips(self) -> None:
-        """Water level < 0.5 m → TRIP."""
+        """Water level < 0.5 m -> TRIP."""
         interlock = make_interlock()
         status = interlock.check(
             pressure=NOMINAL_PRESSURE,
@@ -317,7 +317,7 @@ class TestEmergencyScenarios:
     # ── Scenario 4: Drum overflow trip ────────────────────────────────────────
 
     def test_scenario_4_drum_overflow_trips(self) -> None:
-        """Water level > 7.8 m → TRIP."""
+        """Water level > 7.8 m -> TRIP."""
         interlock = make_interlock()
         status = interlock.check(
             pressure=NOMINAL_PRESSURE,
@@ -330,7 +330,7 @@ class TestEmergencyScenarios:
     # ── Scenario 5: High water temp trip ──────────────────────────────────────
 
     def test_scenario_5_high_water_temp_trips(self) -> None:
-        """T_water > 648 K → TRIP (above critical point)."""
+        """T_water > 648 K -> TRIP (above critical point)."""
         interlock = make_interlock()
         status = interlock.check(
             pressure=NOMINAL_PRESSURE,
@@ -343,7 +343,7 @@ class TestEmergencyScenarios:
     # ── Scenario 6: High flue gas temp trip ───────────────────────────────────
 
     def test_scenario_6_high_flue_gas_temp_trips(self) -> None:
-        """T_flue > 1700 K → TRIP."""
+        """T_flue > 1700 K -> TRIP."""
         interlock = make_interlock()
         status = interlock.check(
             pressure=NOMINAL_PRESSURE,
@@ -356,7 +356,7 @@ class TestEmergencyScenarios:
     # ── Scenario 7: Pressure rate of change trip ──────────────────────────────
 
     def test_scenario_7_pressure_rate_trip(self) -> None:
-        """Pressure rising at 15 bar/s → TRIP."""
+        """Pressure rising at 15 bar/s -> TRIP."""
         interlock = make_interlock()
         interlock.check(
             pressure=140.0e5,
@@ -378,7 +378,7 @@ class TestEmergencyScenarios:
     # ── Scenario 8: Fuel permissive denied ────────────────────────────────────
 
     def test_scenario_8_fuel_denied_when_drum_low(self) -> None:
-        """Fuel permissive: level ≤ 0.5 m → fuel cannot open."""
+        """Fuel permissive: level ≤ 0.5 m -> fuel cannot open."""
         interlock = make_interlock()
         assert not interlock.fuel_permitted(water_level=0.4)
 
@@ -387,7 +387,7 @@ class TestEmergencyScenarios:
         assert interlock.fuel_permitted(water_level=NOMINAL_LEVEL)
 
     def test_scenario_8_dry_drum_with_fuel_attempt_trips(self) -> None:
-        """Checking with dry drum level → TRIP regardless of pressure."""
+        """Checking with dry drum level -> TRIP regardless of pressure."""
         interlock = make_interlock()
         status = interlock.check(
             pressure=NOMINAL_PRESSURE,

@@ -1,11 +1,11 @@
 """
 Role-Based Access Control (RBAC) via FastAPI dependency injection.
 
-Role hierarchy (least → most privileged):
-    viewer   → read-only access to status and history
-    operator → viewer + valve commands within safe limits
-    engineer → operator + PID setpoint changes, model parameters
-    admin    → engineer + user management, security configuration
+Role hierarchy (least -> most privileged):
+    viewer   -> read-only access to status and history
+    operator -> viewer + valve commands within safe limits
+    engineer -> operator + PID setpoint changes, model parameters
+    admin    -> engineer + user management, security configuration
 
 How it works:
     Each router endpoint declares a dependency:
