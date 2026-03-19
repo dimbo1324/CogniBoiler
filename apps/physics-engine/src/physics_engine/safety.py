@@ -7,15 +7,15 @@ controller — it can override any control output.
 
 Architecture:
     Operator command
-        ↓
+        |
     BoilerController (PID)
-        ↓
+        |
     SafetyInterlock.check()   ← checks all parameters
-        ↓
+        |
     RateOfChangeLimiter.check() ← checks rate of change
-        ↓
+        |
     EmergencyStop (if trip)   ← overrides all outputs to safe state
-        ↓
+        |
     Physics Engine
 
 Protection levels (per parameter):
