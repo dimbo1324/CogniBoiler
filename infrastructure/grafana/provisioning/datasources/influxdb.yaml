@@ -1,0 +1,16 @@
+apiVersion: 1
+
+datasources:
+  - name: InfluxDB
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    isDefault: true
+    jsonData:
+      version: Flux
+      organization: cogniboiler
+      defaultBucket: sensors
+      tlsSkipVerify: true
+    secureJsonData:
+      token: cogniboiler-dev-token
+    editable: true

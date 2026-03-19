@@ -27,7 +27,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import cogniboiler_pb2 as pb  # shared/generated — added to sys.path by conftest
-from asyncio_mqtt import Client, MqttError
+from aiomqtt import Client, MqttError
 
 from physics_engine.models import BoilerState
 from physics_engine.turbine import TurbineState
@@ -203,7 +203,7 @@ class MQTTPublisher:
             hostname=self.config.host,
             port=self.config.port,
             keepalive=self.config.keepalive,
-            client_id=self.config.client_id,
+            identifier=self.config.client_id,  # aiomqtt uses 'identifier'
         )
 
     # ─── Continuous publish loop ──────────────────────────────────────────────
@@ -233,11 +233,9 @@ class MQTTPublisher:
                     while True:
                         boiler_state = boiler_state_fn()
                         turbine_state = turbine_state_fn()
-
                         await self.publish_boiler(client, boiler_state)
                         await self.publish_turbine(client, turbine_state)
                         await self.publish_heartbeat(client)
-
                         await asyncio.sleep(self.config.interval_s)
 
             except MqttError as exc:

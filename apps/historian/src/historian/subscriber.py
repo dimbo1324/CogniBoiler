@@ -19,10 +19,11 @@ Topic contract:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import cogniboiler_pb2 as pb
-from asyncio_mqtt import Client, MqttError
+from aiomqtt import Client
 
 from historian.writer import InfluxWriter, build_boiler_point, build_turbine_point
 
@@ -112,10 +113,6 @@ class HistorianSubscriber:
         logger.debug("No handler for topic: %s", topic)
 
     async def run(self) -> None:
-        """
-        Subscribe to sensors/# and persist to InfluxDB indefinitely.
-        Reconnects automatically on broker disconnect.
-        """
         while True:
             try:
                 async with Client(
@@ -127,12 +124,12 @@ class HistorianSubscriber:
                         self._host,
                         self._port,
                     )
-                    async with client.filtered_messages(SUBSCRIBE_TOPIC) as messages:
-                        await client.subscribe(SUBSCRIBE_TOPIC)
-                        async for message in messages:
-                            await self._handle_message(
-                                message.topic,
-                                message.payload,
-                            )
-            except MqttError as exc:
+                    await client.subscribe(SUBSCRIBE_TOPIC)
+                    async for message in client.messages:
+                        await self._handle_message(
+                            str(message.topic),
+                            message.payload,
+                        )
+            except Exception as exc:
                 logger.warning("Historian MQTT error: %s — retrying in 5s", exc)
+                await asyncio.sleep(5.0)

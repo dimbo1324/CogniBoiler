@@ -1,0 +1,110 @@
+# Services:
+#   mosquitto  — MQTT broker (port 1883, WebSocket 9001)
+#   influxdb   — Time-series database (port 8086)
+#   postgresql — Relational database for API Gateway (port 5432)
+#   grafana    — Dashboards (port 3000)
+#
+# Usage:
+#   docker-compose up -d                  # start all
+#   docker-compose up -d mosquitto        # start only MQTT broker
+#   docker-compose logs -f historian      # follow logs
+#   docker-compose down                   # stop all (data preserved)
+#   docker-compose down -v                # stop all + delete data volumes
+
+services:
+
+  # ─── MQTT Broker ────────────────────────────────────────────────────────────
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: cogniboiler-mosquitto
+    ports:
+      - "1883:1883"    # standard MQTT
+      - "9001:9001"    # WebSocket MQTT
+    volumes:
+      - ./infrastructure/docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-i", "healthcheck", "-W", "3"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ─── InfluxDB ────────────────────────────────────────────────────────────────
+  influxdb:
+    image: influxdb:2.7
+    container_name: cogniboiler-influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: cogniboiler
+      DOCKER_INFLUXDB_INIT_PASSWORD: cogniboiler123
+      DOCKER_INFLUXDB_INIT_ORG: cogniboiler
+      DOCKER_INFLUXDB_INIT_BUCKET: sensors
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: cogniboiler-dev-token
+      DOCKER_INFLUXDB_INIT_RETENTION: 90d
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_config:/etc/influxdb2
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── PostgreSQL ───────────────────────────────────────────────────────────────
+  postgresql:
+    image: postgres:16-alpine
+    container_name: cogniboiler-postgresql
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: cogniboiler
+      POSTGRES_PASSWORD: cogniboiler
+      POSTGRES_DB: cogniboiler
+    volumes:
+      - postgresql_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cogniboiler"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Grafana ─────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: cogniboiler-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: cogniboiler
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # Pre-configure InfluxDB datasource
+      GF_DATASOURCES_DEFAULT_NAME: InfluxDB
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# ─── Volumes ──────────────────────────────────────────────────────────────────
+
+volumes:
+  mosquitto_data:
+  mosquitto_log:
+  influxdb_data:
+  influxdb_config:
+  postgresql_data:
+  grafana_data:
