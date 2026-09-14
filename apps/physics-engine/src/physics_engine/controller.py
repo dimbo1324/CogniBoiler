@@ -134,9 +134,9 @@ _LEVEL_SLAVE = PIDParameters(
 # Logic: if temp too high -> open steam valve more (release hot steam)
 #        if temp too low  -> close steam valve (let steam superheat longer)
 _STEAM_TEMP = PIDParameters(
-    kp=0.002,  # 1 K error -> 0.002 valve movement
-    ki=0.0001,
-    kd=0.005,
+    kp=-0.002,  # reverse-acting: low temp -> close steam valve
+    ki=-0.0001,
+    kd=-0.005,
     output_min=0.0,
     output_max=1.0,
     tau_d=10.0,  # heavy filtering — temperature is very slow

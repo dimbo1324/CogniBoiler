@@ -1,0 +1,213 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: cogniboiler-mosquitto
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./infrastructure/docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-i", "healthcheck", "-W", "3"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  influxdb:
+    image: influxdb:2.7
+    container_name: cogniboiler-influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: cogniboiler
+      DOCKER_INFLUXDB_INIT_PASSWORD: cogniboiler123
+      DOCKER_INFLUXDB_INIT_ORG: cogniboiler
+      DOCKER_INFLUXDB_INIT_BUCKET: sensors
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: cogniboiler-dev-token
+      DOCKER_INFLUXDB_INIT_RETENTION: 90d
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_config:/etc/influxdb2
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgresql:
+    image: postgres:16-alpine
+    container_name: cogniboiler-postgresql
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: cogniboiler
+      POSTGRES_PASSWORD: cogniboiler
+      POSTGRES_DB: cogniboiler
+    volumes:
+      - postgresql_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cogniboiler"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  physics-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cogniboiler-physics
+    command: >
+      uv run --package physics-engine python -m physics_engine
+      --mqtt-host mosquitto
+      --grpc-port 50052
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    restart: unless-stopped
+
+  plc-controller:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cogniboiler-plc
+    command: >
+      uv run --package plc-controller python -m plc_controller
+      --physics-target physics-engine:50052
+      --mqtt-host mosquitto
+      --mqtt-port 1883
+      --port 50051
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      physics-engine:
+        condition: service_started
+    restart: unless-stopped
+
+  historian:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cogniboiler-historian
+    command: >
+      uv run --package historian python -m historian
+      --mqtt-host mosquitto
+      --influx-url http://influxdb:8086
+      --influx-token cogniboiler-dev-token
+      --influx-org cogniboiler
+      --influx-bucket sensors
+      --batch-size 50
+      --flush-interval-s 2.0
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  alert-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cogniboiler-alert-manager
+    command: >
+      uv run --package alert-manager python -m alert_manager
+      --mqtt-host mosquitto
+      --mqtt-port 1883
+    environment:
+      ALERT_MANAGER_DATABASE_URL: postgresql+asyncpg://cogniboiler:cogniboiler@postgresql:5432/cogniboiler
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      postgresql:
+        condition: service_healthy
+    restart: unless-stopped
+
+  opcua-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cogniboiler-opcua
+    command: >
+      uv run --package opcua-server python -m opcua_server
+      --mqtt-host mosquitto
+      --plc-target plc-controller:50051
+      --opc-port 4840
+    ports:
+      - "4840:4840"
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      plc-controller:
+        condition: service_started
+    restart: unless-stopped
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cogniboiler-api
+    command: >
+      uv run --package api-gateway uvicorn api_gateway.main:app
+      --host 0.0.0.0
+      --port 8000
+    environment:
+      DATABASE_URL: postgresql+asyncpg://cogniboiler:cogniboiler@postgresql:5432/cogniboiler
+      AUTO_INIT_DB: "true"
+      PHYSICS_GRPC_TARGET: physics-engine:50052
+      PLC_GRPC_TARGET: plc-controller:50051
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_TOKEN: cogniboiler-dev-token
+      INFLUX_ORG: cogniboiler
+      INFLUX_BUCKET: sensors
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+      physics-engine:
+        condition: service_started
+      plc-controller:
+        condition: service_started
+      alert-manager:
+        condition: service_started
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: cogniboiler-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: cogniboiler
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DATASOURCES_DEFAULT_NAME: InfluxDB
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infrastructure/grafana/dashboards:/etc/grafana/dashboards:ro
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mosquitto_data:
+  mosquitto_log:
+  influxdb_data:
+  influxdb_config:
+  postgresql_data:
+  grafana_data:

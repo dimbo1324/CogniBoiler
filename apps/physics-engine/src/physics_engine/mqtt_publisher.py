@@ -27,18 +27,32 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import cogniboiler_pb2 as pb  # shared/generated — added to sys.path by conftest
-from asyncio_mqtt import Client, MqttError
+from aiomqtt import Client, Will
+from aiomqtt import MqttError as AioMqttError
 
 from physics_engine.models import BoilerState
 from physics_engine.turbine import TurbineState
 
 logger = logging.getLogger(__name__)
 
+
+def _mqtt_error_types() -> tuple[type[BaseException], ...]:
+    """Support both aiomqtt and legacy asyncio-mqtt error classes."""
+    try:
+        from asyncio_mqtt import MqttError as AsyncioMqttError
+    except ImportError:  # pragma: no cover - optional compatibility path
+        return (AioMqttError,)
+    return (AioMqttError, AsyncioMqttError)
+
+
+MQTT_ERRORS = _mqtt_error_types()
+
 # ─── Topic constants ──────────────────────────────────────────────────────────
 
 TOPIC_BOILER: str = "sensors/boiler"
 TOPIC_TURBINE: str = "sensors/turbine"
 TOPIC_HEARTBEAT: str = "sensors/system/heartbeat"
+TOPIC_AVAILABILITY: str = "status/physics-engine"
 
 
 # ─── Protobuf serializers ─────────────────────────────────────────────────────
@@ -83,6 +97,7 @@ def turbine_state_to_proto(state: TurbineState) -> pb.TurbineStateMsg:
         exhaust_pressure_pa=state.exhaust_pressure,
         steam_flow_kg_s=state.steam_flow,
         timestamp_ms=int(time.time() * 1000),
+        steam_temp_in_k=state.steam_temp_in,
     )
 
 
@@ -98,6 +113,8 @@ class MQTTConfig:
     keepalive: int = 60  # seconds
     client_id: str = "physics-engine"
     interval_s: float = 0.1  # publish every 100 ms = 10 Hz
+    username: str | None = None
+    password: str | None = None
 
 
 # ─── Publisher ────────────────────────────────────────────────────────────────
@@ -156,7 +173,7 @@ class MQTTPublisher:
         try:
             await client.publish(TOPIC_BOILER, payload, qos=0)
             self._published += 1
-        except MqttError as exc:
+        except MQTT_ERRORS as exc:
             self._errors += 1
             logger.warning("Publish failed [%s]: %s", TOPIC_BOILER, exc)
 
@@ -175,7 +192,7 @@ class MQTTPublisher:
         try:
             await client.publish(TOPIC_TURBINE, payload, qos=0)
             self._published += 1
-        except MqttError as exc:
+        except MQTT_ERRORS as exc:
             self._errors += 1
             logger.warning("Publish failed [%s]: %s", TOPIC_TURBINE, exc)
 
@@ -185,9 +202,18 @@ class MQTTPublisher:
         try:
             await client.publish(TOPIC_HEARTBEAT, payload, qos=0)
             self._published += 1
-        except MqttError as exc:
+        except MQTT_ERRORS as exc:
             self._errors += 1
             logger.warning("Heartbeat publish failed: %s", exc)
+
+    async def publish_availability(self, client: Client, status: str) -> None:
+        """Publish retained availability state for broker-side liveness tracking."""
+        try:
+            await client.publish(TOPIC_AVAILABILITY, status, qos=1, retain=True)
+            self._published += 1
+        except MQTT_ERRORS as exc:
+            self._errors += 1
+            logger.warning("Availability publish failed: %s", exc)
 
     # ─── Context manager ─────────────────────────────────────────────────────
 
@@ -203,7 +229,10 @@ class MQTTPublisher:
             hostname=self.config.host,
             port=self.config.port,
             keepalive=self.config.keepalive,
-            client_id=self.config.client_id,
+            identifier=self.config.client_id,  # aiomqtt uses 'identifier'
+            username=self.config.username,
+            password=self.config.password,
+            will=Will(TOPIC_AVAILABILITY, payload="offline", qos=1, retain=True),
         )
 
     # ─── Continuous publish loop ──────────────────────────────────────────────
@@ -233,14 +262,12 @@ class MQTTPublisher:
                     while True:
                         boiler_state = boiler_state_fn()
                         turbine_state = turbine_state_fn()
-
                         await self.publish_boiler(client, boiler_state)
                         await self.publish_turbine(client, turbine_state)
                         await self.publish_heartbeat(client)
-
                         await asyncio.sleep(self.config.interval_s)
 
-            except MqttError as exc:
+            except MQTT_ERRORS as exc:
                 self._errors += 1
                 logger.warning("MQTT disconnected: %s — retrying in 5s", exc)
                 await asyncio.sleep(5.0)

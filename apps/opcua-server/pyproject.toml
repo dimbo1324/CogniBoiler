@@ -9,6 +9,8 @@ dependencies = [
     "pydantic>=2.6.0",
     "structlog>=24.0.0",
     "protobuf>=4.25.0",
+    "aiomqtt>=2.5.1",
+    "grpcio>=1.62.0",
 ]
 
 [build-system]

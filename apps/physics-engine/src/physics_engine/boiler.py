@@ -342,9 +342,10 @@ class BoilerModel:
                -1 = integration step failed
                 1 = termination event triggered (alarm condition)
         """
-        # TODO (Phase 2.3): integrate valve dynamics into ODE state vector
-        # or implement async event-driven valve stepping outside the integrator.
-        controls.update_valves(dt)  # applies valve commands once at t=0
+        # Valve dynamics are stepped once per discrete control interval.
+        # Callers that want realistic actuator lag must reuse the same
+        # ControlInputs instance across successive simulate() calls.
+        controls.update_valves(dt)
 
         t_eval = np.arange(t_span[0], t_span[1], dt)
         y0 = initial_state.to_vector()

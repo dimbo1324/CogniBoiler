@@ -24,10 +24,13 @@ gives atomic writes and faster range queries.
 from __future__ import annotations
 
 import logging
+from typing import Protocol, cast
 
 import cogniboiler_pb2 as pb
-from influxdb_client import InfluxDBClient, Point, WritePrecision
+from influxdb_client.client.influxdb_client import InfluxDBClient as _InfluxDBClient
+from influxdb_client.client.write.point import Point as _Point
 from influxdb_client.client.write_api import SYNCHRONOUS
+from influxdb_client.domain.write_precision import WritePrecision
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +48,47 @@ _QUALITY_TAG: dict[int, str] = {
 }
 
 
+class PointLike(Protocol):
+    """Typed subset of the fluent Point API used in this module."""
+
+    def tag(self, key: str, value: str) -> PointLike: ...
+
+    def field(self, key: str, value: bool | int | float | str) -> PointLike: ...
+
+    def time(self, time_value: int, write_precision: object) -> PointLike: ...
+
+
+class WriteApiLike(Protocol):
+    """Minimal synchronous write API surface used by InfluxWriter."""
+
+    def write(self, *, bucket: str, record: PointLike | list[PointLike]) -> object: ...
+
+
+class InfluxDBClientLike(Protocol):
+    """Minimal client surface used by InfluxWriter."""
+
+    def write_api(self, *, write_options: object) -> WriteApiLike: ...
+
+    def close(self) -> None: ...
+
+
+def _new_point(measurement: str) -> PointLike:
+    """Create a Point while containing the untyped third-party constructor."""
+    return cast(PointLike, _Point(measurement))  # type: ignore[no-untyped-call]
+
+
+def _new_client(url: str, token: str, org: str) -> InfluxDBClientLike:
+    """Create an InfluxDB client while containing the untyped constructor."""
+    return cast(
+        InfluxDBClientLike,
+        _InfluxDBClient(url=url, token=token, org=org),
+    )
+
+
 # ─── Point builders ───────────────────────────────────────────────────────────
 
 
-def build_boiler_point(msg: pb.BoilerStateMsg) -> Point:
+def build_boiler_point(msg: pb.BoilerStateMsg) -> PointLike:
     """
     Build an InfluxDB Point from a BoilerStateMsg protobuf message.
 
@@ -65,7 +105,7 @@ def build_boiler_point(msg: pb.BoilerStateMsg) -> Point:
     quality_tag = _QUALITY_TAG.get(msg.quality, "unknown")
 
     return (
-        Point(MEASUREMENT_BOILER)
+        _new_point(MEASUREMENT_BOILER)
         .tag("quality", quality_tag)
         .field("pressure_pa", msg.pressure_pa)
         .field("water_level_m", msg.water_level_m)
@@ -76,7 +116,7 @@ def build_boiler_point(msg: pb.BoilerStateMsg) -> Point:
     )
 
 
-def build_turbine_point(msg: pb.TurbineStateMsg) -> Point:
+def build_turbine_point(msg: pb.TurbineStateMsg) -> PointLike:
     """
     Build an InfluxDB Point from a TurbineStateMsg protobuf message.
 
@@ -91,13 +131,14 @@ def build_turbine_point(msg: pb.TurbineStateMsg) -> Point:
     ts_ns = msg.timestamp_ms * 1_000_000
 
     return (
-        Point(MEASUREMENT_TURBINE)
+        _new_point(MEASUREMENT_TURBINE)
         .field("electrical_power_w", msg.electrical_power_w)
         .field("shaft_power_w", msg.shaft_power_w)
         .field("enthalpy_in_j_kg", msg.enthalpy_in_j_kg)
         .field("enthalpy_out_j_kg", msg.enthalpy_out_j_kg)
         .field("exhaust_pressure_pa", msg.exhaust_pressure_pa)
         .field("steam_flow_kg_s", msg.steam_flow_kg_s)
+        .field("steam_temp_in_k", msg.steam_temp_in_k)
         .time(ts_ns, WritePrecision.NS)
     )
 
@@ -128,7 +169,7 @@ class InfluxWriter:
     ) -> None:
         self._bucket = bucket
         self._org = org
-        self._client = InfluxDBClient(url=url, token=token, org=org)
+        self._client: InfluxDBClientLike = _new_client(url=url, token=token, org=org)
         self._write_api = self._client.write_api(write_options=SYNCHRONOUS)
         self._written: int = 0
         self._errors: int = 0
@@ -141,7 +182,7 @@ class InfluxWriter:
     def errors(self) -> int:
         return self._errors
 
-    def write_point(self, point: Point) -> None:
+    def write_point(self, point: PointLike) -> None:
         """Write a single Point to InfluxDB. Errors are counted, not raised."""
         try:
             self._write_api.write(bucket=self._bucket, record=point)
@@ -149,6 +190,17 @@ class InfluxWriter:
         except Exception as exc:
             self._errors += 1
             logger.warning("InfluxDB write error: %s", exc)
+
+    def write_points(self, points: list[PointLike]) -> None:
+        """Write a batch of points to InfluxDB in one call."""
+        if not points:
+            return
+        try:
+            self._write_api.write(bucket=self._bucket, record=points)
+            self._written += len(points)
+        except Exception as exc:
+            self._errors += len(points)
+            logger.warning("InfluxDB batch write error: %s", exc)
 
     def close(self) -> None:
         """Flush and close the InfluxDB client."""

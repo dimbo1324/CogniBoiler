@@ -8,8 +8,10 @@ Split into two classes:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import AsyncGenerator
+from dataclasses import replace
 
 import cogniboiler_pb2 as pb2
 import cogniboiler_pb2_grpc as pb2_grpc
@@ -17,6 +19,10 @@ import grpc
 import grpc.aio
 import pytest
 import pytest_asyncio
+from physics_engine.models import BoilerParameters
+from physics_engine.runtime import PhysicsRuntime, PhysicsRuntimeConfig
+from physics_engine.server import PhysicsServicer
+from plc_controller.client import PhysicsClient, PhysicsClientConfig
 from plc_controller.server import PLCServicer
 from plc_controller.service import (
     PRESSURE_SETPOINT_MAX_PA,
@@ -121,16 +127,48 @@ class TestPLCGrpc:
 
     @pytest_asyncio.fixture(autouse=True)
     async def setup_server(self) -> AsyncGenerator[None, None]:
-        """Start an async gRPC server on a free OS port."""
+        """Start PhysicsService and PLCService on free OS ports."""
+        self.physics_runtime = PhysicsRuntime(
+            PhysicsRuntimeConfig(
+                speed_factor=250.0,
+                dt=1.0,
+            )
+        )
+        await self.physics_runtime.start()
+
+        self.physics_server = grpc.aio.server()
+        pb2_grpc.add_PhysicsServiceServicer_to_server(
+            PhysicsServicer(self.physics_runtime),
+            self.physics_server,
+        )
+        physics_port = self.physics_server.add_insecure_port("[::]:0")
+        await self.physics_server.start()
+        self.physics_channel = grpc.aio.insecure_channel(f"localhost:{physics_port}")
+        self.physics_stub = pb2_grpc.PhysicsServiceStub(self.physics_channel)
+
+        plc_service = PLCService(
+            physics_client=PhysicsClient(
+                PhysicsClientConfig(target=f"localhost:{physics_port}")
+            ),
+            control_interval_s=0.05,
+            enable_alert_publishing=False,
+        )
+        await plc_service.start()
         self.server = grpc.aio.server()
-        pb2_grpc.add_PLCServiceServicer_to_server(PLCServicer(), self.server)
+        pb2_grpc.add_PLCServiceServicer_to_server(
+            PLCServicer(plc_service),
+            self.server,
+        )
         port = self.server.add_insecure_port("[::]:0")  # OS picks free port
         await self.server.start()
         self.channel = grpc.aio.insecure_channel(f"localhost:{port}")
         self.stub = pb2_grpc.PLCServiceStub(self.channel)
         yield
         await self.channel.close()
+        await self.physics_channel.close()
         await self.server.stop(grace=0)
+        await self.physics_server.stop(grace=0)
+        await self.physics_runtime.stop()
 
     @pytest.mark.asyncio
     async def test_health_returns_running(self) -> None:
@@ -164,6 +202,24 @@ class TestPLCGrpc:
         ack = await self.stub.SendCommand(cmd)
         assert not ack.accepted
         assert "fuel_valve" in ack.reason
+
+    @pytest.mark.asyncio
+    async def test_plc_command_reaches_live_physics_runtime(self) -> None:
+        before = await self.physics_stub.GetSystemState(pb2.Empty())
+        ack = await self.stub.SendCommand(
+            pb2.ControlCommandMsg(
+                fuel_valve=0.1,
+                feedwater_valve=0.4,
+                steam_valve=0.0,
+                source=pb2.CommandSource.OPERATOR,
+                operator_id="operator-42",
+            )
+        )
+        assert ack.accepted
+
+        await asyncio.sleep(0.2)
+        after = await self.physics_stub.GetSystemState(pb2.Empty())
+        assert after.turbine.electrical_power_w < before.turbine.electrical_power_w
 
     @pytest.mark.asyncio
     async def test_get_setpoints_returns_defaults(self) -> None:
@@ -227,3 +283,76 @@ class TestPLCGrpc:
         )
         after_ms = int(time.time() * 1000)
         assert before_ms <= ack.timestamp_ms <= after_ms + 100
+
+    @pytest.mark.asyncio
+    async def test_auto_control_holds_nominal_state_for_ten_minutes_simulated(
+        self,
+    ) -> None:
+        deadline = time.monotonic() + 10.0
+        while self.physics_runtime._sim_time < 600.0 and time.monotonic() < deadline:  # noqa: SLF001
+            await asyncio.sleep(0.05)
+
+        state = await self.physics_stub.GetSystemState(pb2.Empty())
+        assert abs(state.boiler.pressure_pa - 140.0e5) <= 20.0e5
+        assert abs(state.boiler.water_level_m - 4.8) <= 0.8
+
+    @pytest.mark.asyncio
+    async def test_estop_trips_in_runtime_on_low_water_level(self) -> None:
+        params = BoilerParameters()
+        low_level_state = replace(params.nominal_initial_state(), water_level=0.4)
+
+        physics_runtime = PhysicsRuntime(
+            PhysicsRuntimeConfig(
+                speed_factor=200.0,
+                dt=1.0,
+                initial_state=low_level_state,
+            )
+        )
+        await physics_runtime.start()
+
+        physics_server = grpc.aio.server()
+        pb2_grpc.add_PhysicsServiceServicer_to_server(
+            PhysicsServicer(physics_runtime),
+            physics_server,
+        )
+        physics_port = physics_server.add_insecure_port("[::]:0")
+        await physics_server.start()
+
+        plc_service = PLCService(
+            physics_client=PhysicsClient(
+                PhysicsClientConfig(target=f"localhost:{physics_port}")
+            ),
+            control_interval_s=0.05,
+            enable_alert_publishing=False,
+        )
+        await plc_service.start()
+
+        plc_server = grpc.aio.server()
+        pb2_grpc.add_PLCServiceServicer_to_server(
+            PLCServicer(plc_service),
+            plc_server,
+        )
+        plc_port = plc_server.add_insecure_port("[::]:0")
+        await plc_server.start()
+        channel = grpc.aio.insecure_channel(f"localhost:{plc_port}")
+        stub = pb2_grpc.PLCServiceStub(channel)
+
+        try:
+            deadline = time.monotonic() + 5.0
+            control_status = pb2.PLCStatusMsg()
+            while time.monotonic() < deadline:
+                control_status = await stub.GetControlStatus(pb2.Empty())
+                if control_status.emergency_stop_active:
+                    break
+                await asyncio.sleep(0.05)
+
+            assert control_status.emergency_stop_active
+            assert control_status.mode == pb2.ControlMode.ESTOP
+            assert control_status.trip_count >= 1
+            assert control_status.latest_command.source == pb2.CommandSource.SAFETY
+        finally:
+            await channel.close()
+            await plc_server.stop(grace=0)
+            await plc_service.close()
+            await physics_server.stop(grace=0)
+            await physics_runtime.stop()

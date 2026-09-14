@@ -76,7 +76,7 @@ class TestPhysics:
         # Pressure at end must be higher than at start
         assert pressure[-1] > pressure[0], (
             f"Pressure did not rise with full fuel: "
-            f"P_start={pressure[0]/1e5:.1f} bar, P_end={pressure[-1]/1e5:.1f} bar"
+            f"P_start={pressure[0] / 1e5:.1f} bar, P_end={pressure[-1] / 1e5:.1f} bar"
         )
 
     def test_water_level_drops_with_zero_feedwater(
@@ -151,7 +151,7 @@ class TestPhysics:
         temp = result.y[4]  # T_water [K]
         assert temp[-1] < temp[0], (
             f"Temperature did not drop with zero fuel: "
-            f"T_start={temp[0]-273.15:.1f}°C, T_end={temp[-1]-273.15:.1f}°C"
+            f"T_start={temp[0] - 273.15:.1f}°C, T_end={temp[-1] - 273.15:.1f}°C"
         )
 
     def test_internal_energy_increases_with_full_fuel_no_steam(
@@ -205,13 +205,13 @@ class TestEvents:
         result = model.simulate(initial_state, controls, t_span=(0, 3600), dt=1.0)
 
         # status=1 means a terminal event was triggered
-        assert (
-            result.status == 1
-        ), f"Expected terminal event, got status={result.status}: {result.message}"
+        assert result.status == 1, (
+            f"Expected terminal event, got status={result.status}: {result.message}"
+        )
         termination = model.check_result(result)
-        assert (
-            "PRESSURE HIGH" in termination
-        ), f"Expected PRESSURE HIGH alarm, got: {termination}"
+        assert "PRESSURE HIGH" in termination, (
+            f"Expected PRESSURE HIGH alarm, got: {termination}"
+        )
 
     def test_drum_dry_event_fires(
         self,
@@ -228,9 +228,9 @@ class TestEvents:
         )
         result = model.simulate(initial_state, controls, t_span=(0, 3600), dt=1.0)
 
-        assert (
-            result.status == 1
-        ), f"Expected terminal event, got status={result.status}: {result.message}"
+        assert result.status == 1, (
+            f"Expected terminal event, got status={result.status}: {result.message}"
+        )
         termination = model.check_result(result)
         assert "DRUM DRY" in termination, f"Expected DRUM DRY alarm, got: {termination}"
 
@@ -249,13 +249,13 @@ class TestEvents:
         )
         result = model.simulate(initial_state, controls, t_span=(0, 3600), dt=1.0)
 
-        assert (
-            result.status == 1
-        ), f"Expected terminal event, got status={result.status}: {result.message}"
+        assert result.status == 1, (
+            f"Expected terminal event, got status={result.status}: {result.message}"
+        )
         termination = model.check_result(result)
-        assert (
-            "DRUM OVERFLOW" in termination
-        ), f"Expected DRUM OVERFLOW alarm, got: {termination}"
+        assert "DRUM OVERFLOW" in termination, (
+            f"Expected DRUM OVERFLOW alarm, got: {termination}"
+        )
 
 
 # ─── Numerical stability tests ────────────────────────────────────────────────
@@ -295,9 +295,9 @@ class TestNumerics:
         result = model.simulate(initial_state, nominal_controls, t_span=(0, 60), dt=1.0)
 
         assert result.y.ndim == 2, "result.y must be 2D array"
-        assert (
-            result.y.shape[0] == 5
-        ), f"Expected 5 state variables, got {result.y.shape[0]}"
+        assert result.y.shape[0] == 5, (
+            f"Expected 5 state variables, got {result.y.shape[0]}"
+        )
 
     def test_state_values_are_physically_plausible(
         self,

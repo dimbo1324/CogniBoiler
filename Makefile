@@ -2,6 +2,7 @@
 
 UV := uv
 PYTHON := $(UV) run python
+PYTEST := $(UV) run pytest
 RUFF := $(UV) run ruff
 MYPY := $(UV) run mypy
 
@@ -21,15 +22,15 @@ format-check:
 	$(RUFF) format --check .
 
 typecheck:
-	$(UV) run mypy apps/ shared/
+	$(MYPY)
 
 check: lint format-check typecheck
 
 test:
-	$(UV) run pytest tests/ -v
+	$(PYTEST) -v
 
 test-cov:
-	$(UV) run pytest tests/ -v --cov=apps --cov-report=html --cov-report=term-missing
+	$(PYTEST) -v --cov=apps --cov-report=html --cov-report=term-missing
 
 pre-commit-install:
 	$(UV) run pre-commit install

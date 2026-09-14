@@ -25,6 +25,7 @@ Payload structure:
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 import jwt
 
@@ -61,7 +62,7 @@ def _public_key() -> str:
     """
     if not settings.jwt_public_key:
         raise RuntimeError(
-            "jwt_public_key is not set. " "Set JWT_PUBLIC_KEY in your .env file."
+            "jwt_public_key is not set. Set JWT_PUBLIC_KEY in your .env file."
         )
     return settings.jwt_public_key
 
@@ -90,13 +91,12 @@ def create_access_token(user_id: int, role: str) -> str:
         "sub": str(user_id),
         "role": role,
         "type": "access",
+        "jti": str(uuid4()),
         "exp": int(expire.timestamp()),
         "iat": int(now.timestamp()),
     }
 
-    return jwt.encode(  # type: ignore[no-any-return]
-        payload, _private_key(), algorithm=settings.jwt_algorithm
-    )
+    return jwt.encode(payload, _private_key(), algorithm=settings.jwt_algorithm)
 
 
 def create_refresh_token(user_id: int, role: str) -> str:
@@ -121,13 +121,12 @@ def create_refresh_token(user_id: int, role: str) -> str:
         "sub": str(user_id),
         "role": role,
         "type": "refresh",
+        "jti": str(uuid4()),
         "exp": int(expire.timestamp()),
         "iat": int(now.timestamp()),
     }
 
-    return jwt.encode(  # type: ignore[no-any-return]
-        payload, _private_key(), algorithm=settings.jwt_algorithm
-    )
+    return jwt.encode(payload, _private_key(), algorithm=settings.jwt_algorithm)
 
 
 # ─── Token verification ───────────────────────────────────────────────────────
@@ -149,7 +148,7 @@ def decode_token(token: str) -> TokenData:
         jwt.ExpiredSignatureError: Token has expired.
         jwt.InvalidTokenError:     Signature invalid or malformed token.
     """
-    return jwt.decode(  # type: ignore[no-any-return]
+    return jwt.decode(
         token,
         _public_key(),
         algorithms=[settings.jwt_algorithm],

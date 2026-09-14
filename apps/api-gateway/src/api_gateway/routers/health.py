@@ -14,7 +14,7 @@ from api_gateway.config import settings
 router = APIRouter(tags=["health"])
 
 
-@router.get("/health")  # type: ignore[misc]
+@router.get("/health")
 async def health_check() -> dict[str, str]:
     """
     Liveness probe endpoint.

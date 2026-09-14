@@ -16,6 +16,7 @@ import cogniboiler_pb2_grpc as pb2_grpc
 import grpc
 import grpc.aio
 
+from plc_controller.client import PhysicsClient, PhysicsClientConfig
 from plc_controller.service import PLCService
 
 logger = logging.getLogger(__name__)
@@ -26,17 +27,18 @@ DEFAULT_PORT: int = 50051
 class PLCServicer(pb2_grpc.PLCServiceServicer):  # type: ignore[misc]
     """gRPC servicer: bridges gRPC calls to PLCService business logic."""
 
-    def __init__(self) -> None:
-        self._svc = PLCService()
+    def __init__(self, service: PLCService | None = None) -> None:
+        self._svc = service or PLCService()
 
     async def Health(  # noqa: N802
         self,
         request: pb2.Empty,
         context: grpc.aio.ServicerContext,
     ) -> pb2.HealthStatus:
+        status = await self._svc.physics_status()
         return pb2.HealthStatus(
             service="plc-controller",
-            status="running",
+            status=status,
             version=PLCService.VERSION,
             uptime_seconds=self._svc.uptime_seconds,
         )
@@ -46,10 +48,12 @@ class PLCServicer(pb2_grpc.PLCServiceServicer):  # type: ignore[misc]
         request: pb2.ControlCommandMsg,
         context: grpc.aio.ServicerContext,
     ) -> pb2.CommandAck:
-        result = self._svc.validate_command(
+        result = await self._svc.send_command(
             fuel_valve=request.fuel_valve,
             feedwater_valve=request.feedwater_valve,
             steam_valve=request.steam_valve,
+            source=request.source,
+            operator_id=request.operator_id,
         )
         logger.info(
             "Command received: fv=%.2f fw=%.2f sv=%.2f -> %s",
@@ -93,6 +97,25 @@ class PLCServicer(pb2_grpc.PLCServiceServicer):  # type: ignore[misc]
             timestamp_ms=int(time.time() * 1000),
         )
 
+    async def GetControlStatus(  # noqa: N802
+        self,
+        request: pb2.Empty,
+        context: grpc.aio.ServicerContext,
+    ) -> pb2.PLCStatusMsg:
+        return await self._svc.get_control_status()
+
+    async def ResetEmergencyStop(  # noqa: N802
+        self,
+        request: pb2.ResetRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> pb2.CommandAck:
+        result = await self._svc.reset_emergency_stop(request.operator_id or "unknown")
+        return pb2.CommandAck(
+            accepted=result.accepted,
+            reason=result.reason,
+            timestamp_ms=int(time.time() * 1000),
+        )
+
     async def StreamCommands(  # noqa: N802
         self,
         request: pb2.StreamRequest,
@@ -101,20 +124,34 @@ class PLCServicer(pb2_grpc.PLCServiceServicer):  # type: ignore[misc]
         """Stream control commands at the requested interval."""
         interval = max(request.interval_s, 0.1)
         while context.is_active():
+            latest = self._svc.latest_command()
             yield pb2.ControlCommandMsg(
-                fuel_valve=0.5,
-                feedwater_valve=0.5,
-                steam_valve=0.5,
-                timestamp_ms=int(time.time() * 1000),
-                source=pb2.CommandSource.PID,
+                fuel_valve=latest.fuel_valve,
+                feedwater_valve=latest.feedwater_valve,
+                steam_valve=latest.steam_valve,
+                timestamp_ms=latest.timestamp_ms,
+                source=latest.source,
+                operator_id=latest.operator_id,
             )
             await asyncio.sleep(interval)
 
 
-async def serve(port: int = DEFAULT_PORT) -> None:
+async def serve(
+    port: int = DEFAULT_PORT,
+    *,
+    physics_target: str = "localhost:50052",
+    mqtt_host: str = "localhost",
+    mqtt_port: int = 1883,
+) -> None:
     """Start gRPC server and block until KeyboardInterrupt."""
+    service = PLCService(
+        physics_client=PhysicsClient(PhysicsClientConfig(target=physics_target)),
+        mqtt_host=mqtt_host,
+        mqtt_port=mqtt_port,
+    )
+    await service.start()
     server = grpc.aio.server()
-    pb2_grpc.add_PLCServiceServicer_to_server(PLCServicer(), server)
+    pb2_grpc.add_PLCServiceServicer_to_server(PLCServicer(service), server)
     listen_addr = f"[::]:{port}"
     server.add_insecure_port(listen_addr)
     await server.start()
@@ -123,6 +160,7 @@ async def serve(port: int = DEFAULT_PORT) -> None:
         await server.wait_for_termination()
     finally:
         await server.stop(grace=5)
+        await service.close()
 
 
 if __name__ == "__main__":

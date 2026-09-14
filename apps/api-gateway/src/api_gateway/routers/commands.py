@@ -1,28 +1,19 @@
-"""
-Operator command endpoints.
-
-POST /api/v1/commands/valve     — set valve positions (operator+)
-POST /api/v1/commands/setpoint  — set PID setpoints  (engineer+)
-
-In production these forward commands to the PLC Controller via gRPC.
-For Phase 5.1 they validate input and return a stub acknowledgement.
-
-Role requirements:
-    valve    → minimum: operator
-    setpoint → minimum: engineer
-"""
+"""Operator command endpoints backed by the live PLC service."""
 
 from __future__ import annotations
 
-import time
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+import cogniboiler_pb2 as pb2
+import grpc
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from api_gateway.auth.jwt_handler import TokenData
 from api_gateway.auth.rbac import require_role
+from api_gateway.clients import PLCGatewayClient
 from api_gateway.schemas.command import (
     CommandAckResponse,
+    ResetRequest,
     SetpointRequest,
     ValveCommandRequest,
 )
@@ -30,42 +21,88 @@ from api_gateway.schemas.command import (
 router = APIRouter(prefix="/api/v1/commands", tags=["commands"])
 
 
-@router.post("/valve", response_model=CommandAckResponse)  # type: ignore[misc]
+def _plc_client(request: Request) -> PLCGatewayClient:
+    """Resolve the shared PLC client from application state."""
+    return request.app.state.plc_client  # type: ignore[no-any-return]
+
+
+@router.post("/valve", response_model=CommandAckResponse)
 async def send_valve_command(
+    request: Request,
     body: ValveCommandRequest,
-    _: Annotated[TokenData, Depends(require_role("operator"))],
+    token: Annotated[TokenData, Depends(require_role("operator"))],
 ) -> CommandAckResponse:
-    """
-    Send valve position commands to the PLC controller.
+    """Send a live manual valve command to the PLC controller."""
+    try:
+        ack = await _plc_client(request).send_command(
+            pb2.ControlCommandMsg(
+                fuel_valve=body.fuel_valve,
+                feedwater_valve=body.feedwater_valve,
+                steam_valve=body.steam_valve,
+                source=pb2.CommandSource.OPERATOR,
+                operator_id=str(token["sub"]),
+            )
+        )
+    except grpc.RpcError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"PLCService unavailable: {exc}",
+        ) from exc
 
-    Requires: operator role or above.
-    All three valve positions [0.0–1.0] must be provided together.
-
-    TODO (Phase 5.4): forward to PLCService via gRPC.
-    """
     return CommandAckResponse(
-        accepted=True,
-        reason="",
-        timestamp_ms=int(time.time() * 1000),
+        accepted=ack.accepted,
+        reason=ack.reason,
+        timestamp_ms=ack.timestamp_ms,
     )
 
 
-@router.post("/setpoint", response_model=CommandAckResponse)  # type: ignore[misc]
+@router.post("/setpoint", response_model=CommandAckResponse)
 async def update_setpoints(
+    request: Request,
     body: SetpointRequest,
-    _: Annotated[TokenData, Depends(require_role("engineer"))],
+    token: Annotated[TokenData, Depends(require_role("engineer"))],
 ) -> CommandAckResponse:
-    """
-    Update PID controller setpoints.
+    """Update live PLC setpoints and return the acceptance status."""
+    try:
+        ack = await _plc_client(request).update_setpoints(
+            pb2.SetpointsMsg(
+                pressure_pa=body.pressure_pa,
+                water_level_m=body.water_level_m,
+                steam_temp_k=body.steam_temp_k,
+                timestamp_ms=0,
+            )
+        )
+    except grpc.RpcError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"PLCService unavailable: {exc}",
+        ) from exc
 
-    Requires: engineer role or above.
-    Setpoint values are validated against safe operating ranges by
-    Pydantic before this function is called (see SetpointRequest).
-
-    TODO (Phase 5.4): forward to PLCService via gRPC.
-    """
     return CommandAckResponse(
-        accepted=True,
-        reason="",
-        timestamp_ms=int(time.time() * 1000),
+        accepted=ack.accepted,
+        reason=ack.reason,
+        timestamp_ms=ack.timestamp_ms,
+    )
+
+
+@router.post("/reset", response_model=CommandAckResponse)
+async def reset_emergency_stop(
+    request: Request,
+    body: ResetRequest,
+    token: Annotated[TokenData, Depends(require_role("engineer"))],
+) -> CommandAckResponse:
+    """Reset the PLC emergency stop latch and return to AUTO mode."""
+    operator_id = body.operator_id or str(token["sub"])
+    try:
+        ack = await _plc_client(request).reset_emergency_stop(operator_id)
+    except grpc.RpcError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"PLCService unavailable: {exc}",
+        ) from exc
+
+    return CommandAckResponse(
+        accepted=ack.accepted,
+        reason=ack.reason,
+        timestamp_ms=ack.timestamp_ms,
     )

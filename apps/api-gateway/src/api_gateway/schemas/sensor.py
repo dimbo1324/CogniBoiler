@@ -41,6 +41,10 @@ class TurbineStatusResponse(BaseModel):
     exhaust_pressure_pa: float = Field(..., description="Condenser back-pressure [Pa].")
     steam_flow_kg_s: float = Field(..., description="Steam mass flow [kg/s].")
     timestamp_ms: int = Field(..., description="UTC epoch milliseconds.")
+    steam_temp_in_k: float = Field(
+        default=0.0,
+        description="Turbine inlet superheated steam temperature [K].",
+    )
 
 
 class SystemStatusResponse(BaseModel):

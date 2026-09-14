@@ -158,6 +158,21 @@ class ControlInputs:
         self.feedwater_valve.step(dt)
         self.steam_valve.step(dt)
 
+    def copy(self) -> "ControlInputs":
+        """Return a deep copy preserving both commands and actuator positions."""
+        clone = ControlInputs(
+            fuel_valve_command=self.fuel_valve_command,
+            feedwater_valve_command=self.feedwater_valve_command,
+            steam_valve_command=self.steam_valve_command,
+        )
+        clone.fuel_valve.position = self.fuel_valve.position
+        clone.feedwater_valve.position = self.feedwater_valve.position
+        clone.steam_valve.position = self.steam_valve.position
+        clone.fuel_valve.rate_limit = self.fuel_valve.rate_limit
+        clone.feedwater_valve.rate_limit = self.feedwater_valve.rate_limit
+        clone.steam_valve.rate_limit = self.steam_valve.rate_limit
+        return clone
+
 
 @dataclass
 class BoilerParameters:

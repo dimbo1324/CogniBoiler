@@ -19,12 +19,19 @@ Topic contract:
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 
 import cogniboiler_pb2 as pb
-from asyncio_mqtt import Client, MqttError
+from aiomqtt import Client
 
-from historian.writer import InfluxWriter, build_boiler_point, build_turbine_point
+from historian.writer import (
+    InfluxWriter,
+    PointLike,
+    build_boiler_point,
+    build_turbine_point,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +57,17 @@ class HistorianSubscriber:
         writer: InfluxWriter,
         mqtt_host: str = "localhost",
         mqtt_port: int = 1883,
+        *,
+        batch_size: int = 1,
+        flush_interval_s: float = 2.0,
     ) -> None:
         self._writer = writer
         self._host = mqtt_host
         self._port = mqtt_port
+        self._batch_size = max(batch_size, 1)
+        self._buffer: list[PointLike] = []
+        self._flush_interval_s = max(flush_interval_s, 0.1)
+        self._last_flush_at = time.monotonic()
         self._received: int = 0
         self._stored: int = 0
         self._skipped: int = 0
@@ -89,9 +103,7 @@ class HistorianSubscriber:
                 self._skipped += 1
                 logger.warning("Protobuf decode error on %s: %s", topic, exc)
                 return
-            point = build_boiler_point(msg)
-            self._writer.write_point(point)
-            self._stored += 1
+            await self._store_point(build_boiler_point(msg))
             return
 
         if topic == TOPIC_TURBINE:
@@ -102,20 +114,38 @@ class HistorianSubscriber:
                 self._skipped += 1
                 logger.warning("Protobuf decode error on %s: %s", topic, exc)
                 return
-            point = build_turbine_point(msg)
-            self._writer.write_point(point)
-            self._stored += 1
+            await self._store_point(build_turbine_point(msg))
             return
 
         # Unknown topic — not part of our schema
         self._skipped += 1
         logger.debug("No handler for topic: %s", topic)
 
+    async def _store_point(self, point: PointLike) -> None:
+        """Append to the current batch and flush when needed."""
+        self._buffer.append(point)
+        if len(self._buffer) >= self._batch_size:
+            await self._flush()
+            return
+
+        if time.monotonic() - self._last_flush_at >= self._flush_interval_s:
+            await self._flush()
+            return
+
+    async def _flush(self) -> None:
+        """Flush the current telemetry batch to InfluxDB."""
+        if not self._buffer:
+            return
+        batch = list(self._buffer)
+        self._buffer.clear()
+        self._last_flush_at = time.monotonic()
+        if len(batch) == 1:
+            self._writer.write_point(batch[0])
+        else:
+            self._writer.write_points(batch)
+        self._stored += len(batch)
+
     async def run(self) -> None:
-        """
-        Subscribe to sensors/# and persist to InfluxDB indefinitely.
-        Reconnects automatically on broker disconnect.
-        """
         while True:
             try:
                 async with Client(
@@ -127,12 +157,13 @@ class HistorianSubscriber:
                         self._host,
                         self._port,
                     )
-                    async with client.filtered_messages(SUBSCRIBE_TOPIC) as messages:
-                        await client.subscribe(SUBSCRIBE_TOPIC)
-                        async for message in messages:
-                            await self._handle_message(
-                                message.topic,
-                                message.payload,
-                            )
-            except MqttError as exc:
+                    await client.subscribe(SUBSCRIBE_TOPIC)
+                    async for message in client.messages:
+                        await self._handle_message(
+                            str(message.topic),
+                            message.payload,
+                        )
+            except Exception as exc:
                 logger.warning("Historian MQTT error: %s — retrying in 5s", exc)
+                await self._flush()
+                await asyncio.sleep(5.0)

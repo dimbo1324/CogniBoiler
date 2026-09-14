@@ -10,6 +10,8 @@ dependencies = [
     "structlog>=24.0.0",
     "grpcio>=1.62.0",
     "protobuf>=4.25.0",
+    "aiomqtt>=2.5.1",
+    "physics-engine",
 ]
 
 [build-system]
@@ -18,3 +20,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/plc_controller"]
+
+[tool.uv.sources]
+physics-engine = { workspace = true }

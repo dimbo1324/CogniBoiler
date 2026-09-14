@@ -20,11 +20,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from physics_engine.boiler import BoilerModel
 from physics_engine.combustion import CombustionModel
 from physics_engine.controller import BoilerController, BoilerSetpoints
 from physics_engine.models import BoilerParameters, BoilerState, ControlInputs
-from physics_engine.turbine import TurbineModel, TurbineParameters
+from physics_engine.system import BoilerTurbineSystem
+from physics_engine.turbine import TurbineParameters
 
 # ─── Type aliases (for readability in _run signature) ─────────────────────────
 
@@ -113,8 +113,9 @@ class ScenarioRunner:
     ) -> None:
         self.boiler_params = boiler_params or BoilerParameters()
         self.turbine_params = turbine_params or TurbineParameters()
-        self.boiler = BoilerModel(self.boiler_params)
-        self.turbine = TurbineModel(self.turbine_params)
+        self.system = BoilerTurbineSystem(self.boiler_params, self.turbine_params)
+        self.boiler = self.system.boiler
+        self.turbine = self.system.turbine
 
     def _run(
         self,
@@ -166,9 +167,11 @@ class ScenarioRunner:
         )
 
         # Initial valve positions
-        fuel_cmd = 0.5
-        feedwater_cmd = 0.5
-        steam_cmd = 0.5
+        controls = ControlInputs(
+            fuel_valve_command=0.5,
+            feedwater_valve_command=0.5,
+            steam_valve_command=0.5,
+        )
 
         for i in range(n):
             t = i * dt
@@ -180,28 +183,26 @@ class ScenarioRunner:
             water_temps[i] = state.water_temp
             flue_temps[i] = state.flue_gas_temp
             energies[i] = state.internal_energy
-            fuel_valves[i] = fuel_cmd
-            feedwater_valves[i] = feedwater_cmd
-            steam_valves[i] = steam_cmd
+            fuel_valves[i] = controls.fuel_valve.position
+            feedwater_valves[i] = controls.feedwater_valve.position
+            steam_valves[i] = controls.steam_valve.position
 
             # ── Turbine power at current state ────────────────────────────────
-            turbine_state = self.turbine.calculate(
-                steam_temp_in=state.water_temp,
-                steam_pressure_in=state.pressure,
-                steam_flow=self.boiler._steam_flow(state.pressure, steam_cmd),
-            )
-            powers[i] = turbine_state.electrical_power
+            system_state = self.system.evaluate_at(state, controls, time=t)
+            powers[i] = system_state.turbine.electrical_power
 
             # ── Controller step ───────────────────────────────────────────────
             setpoints = setpoints_fn(t)
-            feedwater_flow = self.boiler._feedwater_flow(feedwater_cmd)
-            comb = combustion.calculate(fuel_valve=fuel_cmd)
+            feedwater_flow = self.boiler._feedwater_flow(
+                controls.feedwater_valve.position
+            )
+            comb = combustion.calculate(fuel_valve=controls.fuel_valve.position)
 
             ctrl_output = controller.step(
                 setpoints=setpoints,
                 pressure=state.pressure,
                 water_level=state.water_level,
-                steam_temp=state.water_temp,
+                steam_temp=system_state.turbine.steam_temp_in,
                 fuel_flow=comb.fuel_flow,
                 feedwater_flow=feedwater_flow,
                 dt=dt,
@@ -212,16 +213,13 @@ class ScenarioRunner:
 
             # ── Apply steam valve override if provided ────────────────────────
             sv = steam_valve_fn(t)
-            fuel_cmd = ctrl_output.fuel_valve
-            feedwater_cmd = ctrl_output.feedwater_valve
-            steam_cmd = sv if sv is not None else ctrl_output.steam_valve
+            controls.fuel_valve_command = ctrl_output.fuel_valve
+            controls.feedwater_valve_command = ctrl_output.feedwater_valve
+            controls.steam_valve_command = (
+                sv if sv is not None else ctrl_output.steam_valve
+            )
 
             # ── Advance boiler ODE by one dt ──────────────────────────────────
-            controls = ControlInputs(
-                fuel_valve_command=fuel_cmd,
-                feedwater_valve_command=feedwater_cmd,
-                steam_valve_command=steam_cmd,
-            )
             # t_span end slightly past t+dt so t_eval = [t, t+dt] (two points, not one)
             sim_result = self.boiler.simulate(
                 state, controls, t_span=(t, t + dt + 1e-9), dt=dt
@@ -377,9 +375,11 @@ class ScenarioRunner:
         combustion = CombustionModel(
             max_fuel_flow=self.boiler_params.max_fuel_flow,
         )
-        fuel_cmd = 0.5
-        feedwater_cmd = 0.5
-        steam_cmd = 0.5
+        controls = ControlInputs(
+            fuel_valve_command=0.5,
+            feedwater_valve_command=0.5,
+            steam_valve_command=0.5,
+        )
 
         for i in range(n):
             t = i * dt
@@ -390,26 +390,24 @@ class ScenarioRunner:
             water_temps[i] = state.water_temp
             flue_temps[i] = state.flue_gas_temp
             energies[i] = state.internal_energy
-            fuel_valves[i] = fuel_cmd
-            feedwater_valves[i] = feedwater_cmd
-            steam_valves[i] = steam_cmd
+            fuel_valves[i] = controls.fuel_valve.position
+            feedwater_valves[i] = controls.feedwater_valve.position
+            steam_valves[i] = controls.steam_valve.position
 
-            turbine_state = self.turbine.calculate(
-                steam_temp_in=state.water_temp,
-                steam_pressure_in=state.pressure,
-                steam_flow=self.boiler._steam_flow(state.pressure, steam_cmd),
-            )
-            powers[i] = turbine_state.electrical_power
+            system_state = self.system.evaluate_at(state, controls, time=t)
+            powers[i] = system_state.turbine.electrical_power
 
             setpoints = BoilerSetpoints(pressure=140.0e5, water_level=4.8)
-            feedwater_flow = self.boiler._feedwater_flow(feedwater_cmd)
-            comb = combustion.calculate(fuel_valve=fuel_cmd)
+            feedwater_flow = self.boiler._feedwater_flow(
+                controls.feedwater_valve.position
+            )
+            comb = combustion.calculate(fuel_valve=controls.fuel_valve.position)
 
             ctrl_output = controller_trip.step(
                 setpoints=setpoints,
                 pressure=state.pressure,
                 water_level=state.water_level,
-                steam_temp=state.water_temp,
+                steam_temp=system_state.turbine.steam_temp_in,
                 fuel_flow=comb.fuel_flow,
                 feedwater_flow=feedwater_flow,
                 dt=dt,
@@ -419,15 +417,9 @@ class ScenarioRunner:
             level_errors[i] = ctrl_output.level_error
 
             # ── Fuel trip: override fuel valve to zero after t_trip ───────────
-            fuel_cmd = 0.0 if t >= t_trip else ctrl_output.fuel_valve
-            feedwater_cmd = ctrl_output.feedwater_valve
-            steam_cmd = ctrl_output.steam_valve
-
-            controls = ControlInputs(
-                fuel_valve_command=fuel_cmd,
-                feedwater_valve_command=feedwater_cmd,
-                steam_valve_command=steam_cmd,
-            )
+            controls.fuel_valve_command = 0.0 if t >= t_trip else ctrl_output.fuel_valve
+            controls.feedwater_valve_command = ctrl_output.feedwater_valve
+            controls.steam_valve_command = ctrl_output.steam_valve
             # t_span end slightly past t+dt so t_eval = [t, t+dt] (two points, not one)
             sim_result = self.boiler.simulate(
                 state, controls, t_span=(t, t + dt + 1e-9), dt=dt
@@ -449,5 +441,124 @@ class ScenarioRunner:
             pressure_error=pressure_errors,
             level_error=level_errors,
             scenario_name="fuel_trip",
+            dt=dt,
+        )
+
+    def cold_start(
+        self,
+        duration: float = 3600.0,
+        dt: float = 1.0,
+    ) -> ScenarioResult:
+        """
+        Cold start from ambient conditions to nominal operating point.
+
+        Three phases:
+            Phase 1 — Warmup    (0 -> 20% of duration):
+                Fuel valve ramps 0 -> 0.3. Steam valve closed.
+                Pressure builds from 2 bar toward 40 bar.
+
+            Phase 2 — Pressure buildup (20% -> 60% of duration):
+                Fuel valve ramps 0.3 -> 0.7. Steam valve opens slightly.
+                Controller takes over pressure and level loops.
+
+            Phase 3 — Load acceptance (60% -> 100% of duration):
+                Controller maintains 140 bar / 4.8 m.
+                Steam valve opens to nominal 0.5.
+
+        Starting conditions:
+            - Pressure:    2 bar  (steam-tight drum, not vacuum)
+            - Water level: nominal (drum pre-filled before ignition)
+            - Water temp:  100°C  (just above ambient — cold metal)
+            - Flue gas:    ambient temperature (furnace not ignited yet)
+            - All valves:  closed / minimum
+
+        Args:
+            duration: Total cold start duration [s]. Default 3600 s (1 hour).
+            dt:       Time step [s].
+        """
+        from physics_engine import steam_tables
+        from physics_engine.constants import (
+            DRUM_CROSS_SECTION,
+            DRUM_HEIGHT,
+            TEMP_AMBIENT,
+        )
+
+        # ── Cold initial state ────────────────────────────────────────────────
+        # Pressure: 2 bar — drum is sealed but not yet at steam pressure
+        # Water level: 60% of drum height (pre-filled with cold water)
+        # Water temp: 100°C — just above ambient, cold metal
+        # Flue gas: ambient — furnace not yet ignited
+
+        cold_pressure = 2.0e5  # Pa — 2 bar
+        cold_water_temp = 373.15  # K — 100°C
+        cold_water_level = DRUM_HEIGHT * 0.6
+
+        cold_water_density = steam_tables.water_density(
+            temp_k=cold_water_temp,
+            pressure_pa=cold_pressure,
+        )
+        cold_water_mass = cold_water_density * DRUM_CROSS_SECTION * cold_water_level
+        cold_internal_energy = cold_water_mass * steam_tables.water_enthalpy(
+            cold_water_temp, cold_pressure
+        )
+
+        from physics_engine.models import BoilerState
+
+        cold_state = BoilerState(
+            internal_energy=cold_internal_energy,
+            pressure=cold_pressure,
+            water_level=cold_water_level,
+            flue_gas_temp=TEMP_AMBIENT,
+            water_temp=cold_water_temp,
+        )
+
+        controller = BoilerController()
+
+        # ── Phase boundaries ──────────────────────────────────────────────────
+        t_phase2 = duration * 0.20  # warmup ends
+        t_phase3 = duration * 0.60  # pressure buildup ends
+
+        def setpoints_fn(t: float) -> BoilerSetpoints:
+            """
+            Gradually increase pressure setpoint as boiler warms up.
+
+            Low setpoint in early phases prevents controller from
+            demanding maximum fuel before the furnace is hot.
+            """
+            if t < t_phase2:
+                # Phase 1: target low pressure — let the boiler warm up
+                return BoilerSetpoints(pressure=30.0e5, water_level=4.8)
+            elif t < t_phase3:
+                # Phase 2: ramp pressure setpoint toward nominal
+                alpha = (t - t_phase2) / (t_phase3 - t_phase2)
+                target_pressure = 30.0e5 + alpha * (140.0e5 - 30.0e5)
+                return BoilerSetpoints(pressure=target_pressure, water_level=4.8)
+            else:
+                # Phase 3: hold nominal operating point
+                return BoilerSetpoints(pressure=140.0e5, water_level=4.8)
+
+        def steam_valve_fn(t: float) -> float | None:
+            """
+            Keep steam valve closed until pressure is sufficient.
+
+            Opening the steam valve too early collapses pressure before
+            the furnace has enough heat output to sustain steam generation.
+            """
+            if t < t_phase2:
+                return 0.0  # Phase 1: fully closed — build pressure
+            elif t < t_phase3:
+                # Phase 2: crack open proportionally to phase progress
+                alpha = (t - t_phase2) / (t_phase3 - t_phase2)
+                return alpha * 0.3  # open up to 30%
+            else:
+                return None  # Phase 3: controller manages steam valve
+
+        return self._run(
+            scenario_name="cold_start",
+            initial_state=cold_state,
+            controller=controller,
+            setpoints_fn=setpoints_fn,
+            steam_valve_fn=steam_valve_fn,
+            duration=duration,
             dt=dt,
         )

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 
-from asyncua import Server, ua
+from asyncua import Server, ua, uamethod
 from asyncua.common.node import Node
 
 from opcua_server.address_space import (
@@ -37,6 +37,7 @@ from opcua_server.address_space import (
     TURBINE_VARIABLES,
     VariableDescriptor,
 )
+from opcua_server.client import PLCControlClient
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +53,18 @@ class CogniBoilerOPCServer:
         await server.stop()    # graceful shutdown
     """
 
-    def __init__(self, endpoint: str = DEFAULT_ENDPOINT) -> None:
+    def __init__(
+        self,
+        endpoint: str = DEFAULT_ENDPOINT,
+        *,
+        plc_target: str = "localhost:50051",
+    ) -> None:
         self._endpoint = endpoint
         self._server = Server()
         self._ns: int = NS_IDX
         self._nodes: dict[int, Node] = {}  # node_id -> asyncua Node
         self._started: bool = False
+        self._plc = PLCControlClient(plc_target)
 
     # ─── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -99,6 +106,42 @@ class CogniBoilerOPCServer:
             node = await self._create_variable(turbine_folder, desc)
             self._nodes[desc.node_id] = node
 
+        @uamethod  # type: ignore[untyped-decorator]
+        async def reset_emergency_stop(parent: object) -> bool:
+            return await self._plc.reset_estop()
+
+        @uamethod  # type: ignore[untyped-decorator]
+        async def apply_valve_command(
+            parent: object,
+            fuel_valve: float,
+            feedwater_valve: float,
+            steam_valve: float,
+        ) -> bool:
+            return await self._plc.apply_manual_command(
+                fuel_valve=fuel_valve,
+                feedwater_valve=feedwater_valve,
+                steam_valve=steam_valve,
+            )
+
+        await root_folder.add_method(
+            self._ns,
+            "ResetEmergencyStop",
+            reset_emergency_stop,
+            [],
+            [ua.VariantType.Boolean],
+        )
+        await root_folder.add_method(
+            self._ns,
+            "ApplyValveCommand",
+            apply_valve_command,
+            [
+                ua.VariantType.Double,
+                ua.VariantType.Double,
+                ua.VariantType.Double,
+            ],
+            [ua.VariantType.Boolean],
+        )
+
         await self._server.start()
         self._started = True
         logger.info("OPC UA server started at %s", self._endpoint)
@@ -109,6 +152,7 @@ class CogniBoilerOPCServer:
             await self._server.stop()
             self._started = False
             logger.info("OPC UA server stopped")
+        await self._plc.close()
 
     # ─── Variable creation ────────────────────────────────────────────────────
 

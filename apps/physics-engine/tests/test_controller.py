@@ -117,27 +117,27 @@ class TestPID:
         Physics: u = Kp × (SP − PV) = 1.0 × (10.0 − 7.0) = 3.0
         """
         output = simple_pid.step(setpoint=10.0, measurement=7.0, dt=1.0)
-        assert (
-            abs(output - 3.0) < 1e-9
-        ), f"Proportional output wrong: expected 3.0, got {output:.6f}"
+        assert abs(output - 3.0) < 1e-9, (
+            f"Proportional output wrong: expected 3.0, got {output:.6f}"
+        )
 
     def test_output_clamped_at_max(self, simple_pid: PIDController) -> None:
         """
         Output must not exceed output_max even with large error.
         """
         output = simple_pid.step(setpoint=100.0, measurement=0.0, dt=1.0)
-        assert (
-            output <= simple_pid.params.output_max
-        ), f"Output exceeded max: {output:.3f} > {simple_pid.params.output_max}"
+        assert output <= simple_pid.params.output_max, (
+            f"Output exceeded max: {output:.3f} > {simple_pid.params.output_max}"
+        )
 
     def test_output_clamped_at_min(self, simple_pid: PIDController) -> None:
         """
         Output must not go below output_min even with negative error.
         """
         output = simple_pid.step(setpoint=0.0, measurement=100.0, dt=1.0)
-        assert (
-            output >= simple_pid.params.output_min
-        ), f"Output below min: {output:.3f} < {simple_pid.params.output_min}"
+        assert output >= simple_pid.params.output_min, (
+            f"Output below min: {output:.3f} < {simple_pid.params.output_min}"
+        )
 
     def test_integral_eliminates_steady_state_error(
         self, integrating_pid: PIDController
@@ -177,9 +177,9 @@ class TestPID:
             pid.step(setpoint=100.0, measurement=0.0, dt=1.0)
 
         # Integral must be clamped — not hundreds of accumulated error
-        assert (
-            pid.state.integral <= params.output_max + 1.0
-        ), f"Integrator wound up: integral={pid.state.integral:.1f}"
+        assert pid.state.integral <= params.output_max + 1.0, (
+            f"Integrator wound up: integral={pid.state.integral:.1f}"
+        )
 
     def test_manual_mode_returns_fixed_output(self, simple_pid: PIDController) -> None:
         """
@@ -188,9 +188,9 @@ class TestPID:
         """
         simple_pid.set_manual(0.7)
         output = simple_pid.step(setpoint=100.0, measurement=0.0, dt=1.0)
-        assert (
-            abs(output - 0.7) < 1e-9
-        ), f"MANUAL mode output wrong: expected 0.7, got {output:.6f}"
+        assert abs(output - 0.7) < 1e-9, (
+            f"MANUAL mode output wrong: expected 0.7, got {output:.6f}"
+        )
 
     def test_auto_resumes_after_manual(self, simple_pid: PIDController) -> None:
         """
@@ -384,6 +384,35 @@ class TestController:
             f"last={outputs[-1].feedwater_valve:.4f}"
         )
 
+    def test_low_steam_temp_closes_steam_valve(
+        self,
+        controller: BoilerController,
+        setpoints: BoilerSetpoints,
+    ) -> None:
+        """
+        Steam temperature below setpoint must reduce steam valve opening.
+
+        The temperature loop is reverse-acting: colder steam should keep steam
+        in the boiler longer, not dump more of it through the turbine.
+        """
+        outputs = [
+            controller.step(
+                setpoints=setpoints,
+                pressure=140.0e5,
+                water_level=4.8,
+                steam_temp=780.0,
+                fuel_flow=5.0,
+                feedwater_flow=150.0,
+                dt=1.0,
+            )
+            for _ in range(10)
+        ]
+        assert outputs[-1].steam_valve < outputs[0].steam_valve, (
+            f"Steam valve did not close under low steam temp: "
+            f"first={outputs[0].steam_valve:.4f}, "
+            f"last={outputs[-1].steam_valve:.4f}"
+        )
+
     def test_manual_mode_freezes_fuel_valve(
         self,
         controller: BoilerController,
@@ -403,9 +432,9 @@ class TestController:
                 feedwater_flow=150.0,
                 dt=1.0,
             )
-        assert (
-            abs(output.fuel_valve - 0.6) < 1e-6
-        ), f"MANUAL fuel valve drifted: {output.fuel_valve:.6f}"
+        assert abs(output.fuel_valve - 0.6) < 1e-6, (
+            f"MANUAL fuel valve drifted: {output.fuel_valve:.6f}"
+        )
 
     def test_reset_clears_integrators(
         self,
@@ -512,18 +541,20 @@ class TestScenarios:
 
         assert pressure_after_trip < pressure_before_trip, (
             f"Pressure did not drop after fuel trip: "
-            f"before={pressure_before_trip/1e5:.1f} bar, "
-            f"after={pressure_after_trip/1e5:.1f} bar"
+            f"before={pressure_before_trip / 1e5:.1f} bar, "
+            f"after={pressure_after_trip / 1e5:.1f} bar"
         )
 
     def test_fuel_valve_zero_after_trip(self, runner: ScenarioRunner) -> None:
         """
-        After fuel trip, fuel valve must be forced to zero.
+        After fuel trip, the fuel valve command is forced to zero and the
+        physical actuator must ramp closed within a few scan intervals.
         """
         t_trip = 60.0
         result = runner.fuel_trip(t_trip=t_trip, duration=120.0, dt=1.0)
 
-        trip_index = int(t_trip) + 5  # a few steps after trip
-        assert (
-            result.fuel_valve[trip_index] == 0.0
-        ), f"Fuel valve not zero after trip: {result.fuel_valve[trip_index]:.4f}"
+        trip_index = int(t_trip) + 10
+        assert result.fuel_valve[trip_index] <= 0.05, (
+            f"Fuel valve did not ramp nearly closed after trip: "
+            f"{result.fuel_valve[trip_index]:.4f}"
+        )

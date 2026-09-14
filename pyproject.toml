@@ -57,8 +57,13 @@ indent-style = "space"
 quote-style = "double"
 
 [tool.mypy]
-exclude = ["shared/generated/", "ml/datasets/"]
+exclude = [
+  "(^|[\\\\/])shared[\\\\/]generated([\\\\/]|$)",
+  "(^|[\\\\/])ml[\\\\/]datasets([\\\\/]|$)",
+  "(^|[\\\\/])tests([\\\\/]|$)",
+]
 explicit_package_bases = true
+files = ["apps", "shared"]
 ignore_missing_imports = true
 python_version = "3.12"
 strict = true
@@ -69,11 +74,7 @@ warn_unused_configs = true
 ignore_errors = true
 module = ["cogniboiler_pb2", "cogniboiler_pb2_grpc"]
 
-[[tool.mypy.overrides]]
-disallow_untyped_decorators = false
-module = ["apps.plc-controller.tests.*", "tests.*"]
-
 [tool.pytest.ini_options]
 addopts = "--cov --cov-report=term-missing"
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["apps"]

@@ -8,13 +8,13 @@ serialization.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class ServiceStatus(str, Enum):
+class ServiceStatus(StrEnum):
     """Operational status of a microservice."""
 
     STARTING = "starting"
@@ -23,7 +23,7 @@ class ServiceStatus(str, Enum):
     STOPPED = "stopped"
 
 
-class SensorQuality(str, Enum):
+class SensorQuality(StrEnum):
     """Data quality indicator for sensor readings.
 
     Follows OPC UA quality codes convention:

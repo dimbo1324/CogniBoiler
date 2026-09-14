@@ -19,9 +19,9 @@ from pwdlib.hashers.argon2 import Argon2Hasher
 
 # ─── Hasher instance ─────────────────────────────────────────────────────────
 # Argon2id is the recommended variant:
-#   - Argon2i  → side-channel attack resistant (password hashing)
-#   - Argon2d  → GPU brute-force resistant
-#   - Argon2id → hybrid; resistant to both
+#   - Argon2i  -> side-channel attack resistant (password hashing)
+#   - Argon2d  -> GPU brute-force resistant
+#   - Argon2id -> hybrid; resistant to both
 #
 # These parameters follow OWASP recommendations for interactive logins:
 #   time_cost=2, memory_cost=65536 (64 MB), parallelism=2
@@ -42,7 +42,7 @@ def hash_password(plain: str) -> str:
     Returns:
         Argon2id encoded hash string, safe to store in the database.
     """
-    return _hasher.hash(plain)  # type: ignore[no-any-return]
+    return _hasher.hash(plain)
 
 
 def verify_password(plain: str, hashed: str) -> bool:
@@ -60,7 +60,7 @@ def verify_password(plain: str, hashed: str) -> bool:
         True if the password matches, False otherwise.
     """
     try:
-        return _hasher.verify(plain, hashed)  # type: ignore[no-any-return]
+        return _hasher.verify(plain, hashed)
     except Exception:
         # Malformed hash or unsupported algorithm — treat as mismatch
         return False

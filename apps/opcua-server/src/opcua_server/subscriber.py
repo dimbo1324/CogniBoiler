@@ -19,10 +19,11 @@ Topic contract:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import cogniboiler_pb2 as pb
-from asyncio_mqtt import Client, MqttError
+from aiomqtt import Client
 
 from opcua_server.address_space import BOILER_FIELD_TO_NODEID, TURBINE_FIELD_TO_NODEID
 from opcua_server.server import CogniBoilerOPCServer
@@ -132,10 +133,6 @@ class MQTTOPCBridge:
         self._messages_mapped += 1
 
     async def run(self) -> None:
-        """
-        Subscribe to sensors/# and forward to OPC UA indefinitely.
-        Reconnects automatically on broker disconnect.
-        """
         while True:
             try:
                 async with Client(
@@ -143,16 +140,16 @@ class MQTTOPCBridge:
                     port=self._port,
                 ) as client:
                     logger.info(
-                        "MQTT->OPC bridge connected to %s:%d",
+                        "MQTT→OPC bridge connected to %s:%d",
                         self._host,
                         self._port,
                     )
-                    async with client.filtered_messages(SUBSCRIBE_TOPIC) as messages:
-                        await client.subscribe(SUBSCRIBE_TOPIC)
-                        async for message in messages:
-                            await self._handle_message(
-                                message.topic,
-                                message.payload,
-                            )
-            except MqttError as exc:
+                    await client.subscribe(SUBSCRIBE_TOPIC)
+                    async for message in client.messages:
+                        await self._handle_message(
+                            str(message.topic),
+                            message.payload,
+                        )
+            except Exception as exc:
                 logger.warning("Bridge MQTT error: %s — retrying in 5s", exc)
+                await asyncio.sleep(5.0)

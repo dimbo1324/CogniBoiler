@@ -61,6 +61,18 @@ wheels = [
 ]
 
 [[package]]
+name = "aiomqtt"
+version = "2.5.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "paho-mqtt" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/70/44/cfc58272783a11729462dc6df5adbfeabd084f840f609054ac772ae98c19/aiomqtt-2.5.1.tar.gz", hash = "sha256:25a0a47d157e8f158d2da1110ea4786c0615518751e94f7b04976c977a8ff20d", size = 86641, upload-time = "2026-03-05T18:28:56.421Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/01/9e/5089fa596220bf0dc73deeb23db27904e4b3504986caf08571f6f5cb84a8/aiomqtt-2.5.1-py3-none-any.whl", hash = "sha256:fd58c3593160e4d475d90ce911cdfc4239cd64de96b0ba22edf6c86bd7afa278", size = 16051, upload-time = "2026-03-05T18:28:55.14Z" },
+]
+
+[[package]]
 name = "aiosqlite"
 version = "0.22.1"
 source = { registry = "https://pypi.org/simple" }
@@ -88,6 +100,7 @@ name = "alert-manager"
 version = "0.1.0"
 source = { editable = "apps/alert-manager" }
 dependencies = [
+    { name = "aiomqtt" },
     { name = "alembic" },
     { name = "asyncio-mqtt" },
     { name = "asyncpg" },
@@ -100,6 +113,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiomqtt", specifier = ">=2.5.1" },
     { name = "alembic", specifier = ">=1.13.0" },
     { name = "asyncio-mqtt", specifier = ">=0.16.0" },
     { name = "asyncpg", specifier = ">=0.29.0" },
@@ -146,11 +160,14 @@ name = "api-gateway"
 version = "0.1.0"
 source = { editable = "apps/api-gateway" }
 dependencies = [
+    { name = "alembic" },
+    { name = "alert-manager" },
     { name = "asyncpg" },
     { name = "bcrypt" },
     { name = "cryptography" },
     { name = "fastapi" },
     { name = "grpcio" },
+    { name = "influxdb-client" },
     { name = "protobuf" },
     { name = "pwdlib", extra = ["argon2"] },
     { name = "pydantic" },
@@ -163,16 +180,20 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "aiosqlite" },
     { name = "httpx" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "alembic", specifier = ">=1.18.4" },
+    { name = "alert-manager", editable = "apps/alert-manager" },
     { name = "asyncpg", specifier = ">=0.29.0" },
     { name = "bcrypt", specifier = ">=4.1.0" },
     { name = "cryptography", specifier = ">=42.0.0" },
     { name = "fastapi", specifier = ">=0.110.0" },
     { name = "grpcio", specifier = ">=1.62.0" },
+    { name = "influxdb-client", specifier = ">=1.49.0" },
     { name = "protobuf", specifier = ">=4.25.0" },
     { name = "pwdlib", extras = ["argon2"], specifier = ">=0.3.0" },
     { name = "pydantic", specifier = ">=2.6.0" },
@@ -184,7 +205,10 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "httpx", specifier = ">=0.28.1" }]
+dev = [
+    { name = "aiosqlite", specifier = ">=0.22.1" },
+    { name = "httpx", specifier = ">=0.28.1" },
+]
 
 [[package]]
 name = "apscheduler"
@@ -1190,6 +1214,7 @@ name = "historian"
 version = "0.1.0"
 source = { editable = "apps/historian" }
 dependencies = [
+    { name = "aiomqtt" },
     { name = "asyncio-mqtt" },
     { name = "influxdb-client" },
     { name = "protobuf" },
@@ -1199,6 +1224,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiomqtt", specifier = ">=2.5.1" },
     { name = "asyncio-mqtt", specifier = ">=0.16.0" },
     { name = "influxdb-client", specifier = ">=1.40.0" },
     { name = "protobuf", specifier = ">=4.25.0" },
@@ -1974,8 +2000,10 @@ name = "opcua-server"
 version = "0.1.0"
 source = { editable = "apps/opcua-server" }
 dependencies = [
+    { name = "aiomqtt" },
     { name = "asyncio-mqtt" },
     { name = "asyncua" },
+    { name = "grpcio" },
     { name = "protobuf" },
     { name = "pydantic" },
     { name = "structlog" },
@@ -1983,8 +2011,10 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiomqtt", specifier = ">=2.5.1" },
     { name = "asyncio-mqtt", specifier = ">=0.16.0" },
     { name = "asyncua", specifier = ">=1.1.0" },
+    { name = "grpcio", specifier = ">=1.62.0" },
     { name = "protobuf", specifier = ">=4.25.0" },
     { name = "pydantic", specifier = ">=2.6.0" },
     { name = "structlog", specifier = ">=24.0.0" },
@@ -2121,12 +2151,15 @@ name = "physics-engine"
 version = "0.1.0"
 source = { editable = "apps/physics-engine" }
 dependencies = [
+    { name = "aiomqtt" },
     { name = "asyncio-mqtt" },
     { name = "grpcio" },
     { name = "grpcio-tools" },
     { name = "iapws" },
     { name = "numpy" },
+    { name = "pandas" },
     { name = "protobuf" },
+    { name = "pyarrow" },
     { name = "pydantic" },
     { name = "scipy" },
     { name = "structlog" },
@@ -2134,12 +2167,15 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiomqtt", specifier = ">=2.5.1" },
     { name = "asyncio-mqtt", specifier = ">=0.16.0" },
     { name = "grpcio", specifier = ">=1.62.0" },
     { name = "grpcio-tools", specifier = ">=1.62.0" },
     { name = "iapws", specifier = ">=1.5.0" },
     { name = "numpy", specifier = ">=1.26.0" },
+    { name = "pandas", specifier = ">=2.3.3" },
     { name = "protobuf", specifier = ">=4.25.0" },
+    { name = "pyarrow", specifier = ">=23.0.1" },
     { name = "pydantic", specifier = ">=2.6.0" },
     { name = "scipy", specifier = ">=1.12.0" },
     { name = "structlog", specifier = ">=24.0.0" },
@@ -2228,8 +2264,10 @@ name = "plc-controller"
 version = "0.1.0"
 source = { editable = "apps/plc-controller" }
 dependencies = [
+    { name = "aiomqtt" },
     { name = "grpcio" },
     { name = "numpy" },
+    { name = "physics-engine" },
     { name = "protobuf" },
     { name = "pydantic" },
     { name = "pyyaml" },
@@ -2238,8 +2276,10 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiomqtt", specifier = ">=2.5.1" },
     { name = "grpcio", specifier = ">=1.62.0" },
     { name = "numpy", specifier = ">=1.26.0" },
+    { name = "physics-engine", editable = "apps/physics-engine" },
     { name = "protobuf", specifier = ">=4.25.0" },
     { name = "pydantic", specifier = ">=2.6.0" },
     { name = "pyyaml", specifier = ">=6.0.0" },

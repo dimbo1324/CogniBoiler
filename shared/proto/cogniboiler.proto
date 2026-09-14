@@ -17,6 +17,12 @@ enum CommandSource {
   SCHEDULER = 3;
 }
 
+enum ControlMode {
+  AUTO = 0;
+  MANUAL = 1;
+  ESTOP = 2;
+}
+
 // ─── Core messages ───────────────────────────────────────────────────────────
 
 message Empty {}
@@ -48,11 +54,23 @@ message TurbineStateMsg {
   double exhaust_pressure_pa = 5; // Condenser pressure [Pa]
   double steam_flow_kg_s = 6; // Steam mass flow [kg/s]
   int64 timestamp_ms = 7;
+  double steam_temp_in_k = 8; // Turbine inlet steam temperature [K]
+}
+
+message ActuatorStateMsg {
+  double fuel_valve_command = 1;
+  double fuel_valve_position = 2;
+  double feedwater_valve_command = 3;
+  double feedwater_valve_position = 4;
+  double steam_valve_command = 5;
+  double steam_valve_position = 6;
 }
 
 message SystemStateMsg {
   BoilerStateMsg boiler = 1;
   TurbineStateMsg turbine = 2;
+  ActuatorStateMsg actuators = 3;
+  double simulation_time_s = 4;
 }
 
 // ─── Control messages ─────────────────────────────────────────────────────────
@@ -79,6 +97,29 @@ message CommandAck {
   int64 timestamp_ms = 3;
 }
 
+message ResetRequest {
+  string operator_id = 1;
+}
+
+message SafetyEventMsg {
+  int64 timestamp_ms = 1;
+  string parameter = 2;
+  double value = 3;
+  double threshold = 4;
+  string level = 5;
+  string action = 6;
+}
+
+message PLCStatusMsg {
+  ControlMode mode = 1;
+  bool emergency_stop_active = 2;
+  SetpointsMsg setpoints = 3;
+  ControlCommandMsg latest_command = 4;
+  int64 warning_count = 5;
+  int64 trip_count = 6;
+  SafetyEventMsg active_trip = 7;
+}
+
 // ─── Streaming ────────────────────────────────────────────────────────────────
 
 message StreamRequest {
@@ -93,12 +134,15 @@ service PLCService {
   rpc SendCommand(ControlCommandMsg) returns (CommandAck);
   rpc GetSetpoints(Empty) returns (SetpointsMsg);
   rpc UpdateSetpoints(SetpointsMsg) returns (CommandAck);
+  rpc GetControlStatus(Empty) returns (PLCStatusMsg);
+  rpc ResetEmergencyStop(ResetRequest) returns (CommandAck);
   rpc StreamCommands(StreamRequest) returns (stream ControlCommandMsg);
 }
 
-// PhysicsService: exposes boiler/turbine state (used in Phase 4.2+)
+// PhysicsService: owns the live process state and applies validated commands.
 service PhysicsService {
   rpc Health(Empty) returns (HealthStatus);
   rpc GetSystemState(Empty) returns (SystemStateMsg);
   rpc StreamSystemState(StreamRequest) returns (stream SystemStateMsg);
+  rpc ApplyControlCommand(ControlCommandMsg) returns (CommandAck);
 }

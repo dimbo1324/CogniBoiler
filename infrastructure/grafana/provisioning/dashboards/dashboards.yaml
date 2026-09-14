@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: CogniBoiler
+    orgId: 1
+    folder: CogniBoiler
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/dashboards

@@ -200,6 +200,7 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+.codex/
 
 # Marimo
 marimo/_static/
@@ -427,3 +428,7 @@ pip-wheel-metadata/
 **/.cache/
 **/node_modules/   # на случай mixed-проектов
 helper.txt
+AGENTS.md
+# Key material is never committed; dev keys live in .env
+certs/*.pem
+certs/*.key

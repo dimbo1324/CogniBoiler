@@ -48,8 +48,7 @@ class TestTurbinePhysics:
         """
         mw = nominal_state.electrical_power_mw
         assert 100.0 < mw < 400.0, (
-            f"Nominal electrical power out of range: {mw:.1f} MW "
-            f"(expected 100–300 MW)"
+            f"Nominal electrical power out of range: {mw:.1f} MW (expected 100–300 MW)"
         )
 
     def test_actual_work_less_than_ideal(self, nominal_state: TurbineState) -> None:
@@ -59,8 +58,8 @@ class TestTurbinePhysics:
         Physics: η_is < 1 -> W_actual = η_is × W_ideal < W_ideal
         """
         assert nominal_state.specific_work_actual < nominal_state.specific_work_ideal, (
-            f"Actual work ({nominal_state.specific_work_actual/1e3:.1f} kJ/kg) "
-            f">= ideal work ({nominal_state.specific_work_ideal/1e3:.1f} kJ/kg)"
+            f"Actual work ({nominal_state.specific_work_actual / 1e3:.1f} kJ/kg) "
+            f">= ideal work ({nominal_state.specific_work_ideal / 1e3:.1f} kJ/kg)"
         )
 
     def test_enthalpy_drops_across_turbine(self, nominal_state: TurbineState) -> None:
@@ -71,8 +70,8 @@ class TestTurbinePhysics:
         """
         assert nominal_state.enthalpy_out_actual < nominal_state.enthalpy_in, (
             f"Enthalpy did not drop: "
-            f"h_in={nominal_state.enthalpy_in/1e3:.1f} kJ/kg, "
-            f"h_out={nominal_state.enthalpy_out_actual/1e3:.1f} kJ/kg"
+            f"h_in={nominal_state.enthalpy_in / 1e3:.1f} kJ/kg, "
+            f"h_out={nominal_state.enthalpy_out_actual / 1e3:.1f} kJ/kg"
         )
 
     def test_power_increases_with_steam_flow(self, turbine: TurbineModel) -> None:
@@ -151,9 +150,9 @@ class TestTurbineLimits:
             steam_pressure_in=140e5,
             steam_flow=0.0,
         )
-        assert (
-            state.shaft_power == 0.0
-        ), f"Expected zero power at zero flow, got {state.shaft_power_mw:.3f} MW"
+        assert state.shaft_power == 0.0, (
+            f"Expected zero power at zero flow, got {state.shaft_power_mw:.3f} MW"
+        )
 
     def test_exhaust_pressure_correct(self, nominal_state: TurbineState) -> None:
         """
@@ -169,9 +168,9 @@ class TestTurbineLimits:
         """
         Electrical power must be less than shaft power due to mechanical losses.
         """
-        assert (
-            nominal_state.electrical_power < nominal_state.shaft_power
-        ), "Electrical power must be less than shaft power"
+        assert nominal_state.electrical_power < nominal_state.shaft_power, (
+            "Electrical power must be less than shaft power"
+        )
 
 
 # ─── Boiler-turbine system tests ──────────────────────────────────────────────
@@ -205,9 +204,9 @@ class TestSystem:
             feedwater_valve=0.5,
             steam_valve=0.6,
         )
-        assert (
-            state.electrical_power_mw > 0.0
-        ), f"System produced no power: {state.electrical_power_mw:.1f} MW"
+        assert state.electrical_power_mw > 0.0, (
+            f"System produced no power: {state.electrical_power_mw:.1f} MW"
+        )
 
     def test_more_steam_valve_more_power(self, system: BoilerTurbineSystem) -> None:
         """

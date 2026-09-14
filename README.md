@@ -1,301 +1,503 @@
-<div align="center">
+# CogniBoiler
 
-```
-   ██████╗ ██████╗  ██████╗ ███╗   ██╗██╗██████╗  ██████╗ ██╗██╗     ███████╗██████╗
-  ██╔════╝██╔═══██╗██╔════╝ ████╗  ██║██║██╔══██╗██╔═══██╗██║██║     ██╔════╝██╔══██╗
-  ██║     ██║   ██║██║  ███╗██╔██╗ ██║██║██████╔╝██║   ██║██║██║     █████╗  ██████╔╝
-  ██║     ██║   ██║██║   ██║██║╚██╗██║██║██╔══██╗██║   ██║██║██║     ██╔══╝  ██╔══██╗
-  ╚██████╗╚██████╔╝╚██████╔╝██║ ╚████║██║██████╔╝╚██████╔╝██║███████╗███████╗██║  ██║
-   ╚═════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═╝╚═════╝  ╚═════╝ ╚═╝╚══════╝╚══════╝╚═╝  ╚═╝
-```
+**An AI-driven digital twin platform for industrial steam boiler and turbine systems.**
 
-### AI-Driven Digital Twin Platform for Industrial Steam Power Generation
+CogniBoiler is a software project that brings together **physics simulation**, **industrial control logic**, **real-time telemetry**, **historical data storage**, **web APIs**, and **machine learning** into one coherent platform.
 
-*A production-grade simulation and intelligence platform for steam boilers,*
-*turbines, and virtual PLC control — built for real-world deployment.*
+In simple terms, it is a digital environment that can **simulate how a large industrial steam power unit behaves**, **control it like a real plant**, **stream and store operational data**, and eventually **analyse that data with AI** to detect abnormal behaviour, improve efficiency, and support predictive maintenance.
+
+This project is designed to feel much closer to a real industrial system than to a classroom demo. It uses the same types of concepts and technologies that appear in modern automation and energy systems: microservices, MQTT, gRPC, OPC UA, time-series databases, web gateways, role-based security, and ML-based operational intelligence.
 
 ---
 
-[![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org)
-[![uv](https://img.shields.io/badge/uv-workspace-DE5FE9?style=flat-square)](https://docs.astral.sh/uv)
-[![License](https://img.shields.io/badge/License-Apache_2.0-green?style=flat-square)](LICENSE)
-[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-F7B500?style=flat-square)](https://docs.astral.sh/ruff)
-[![Typed: mypy](https://img.shields.io/badge/typed-mypy%20strict-2A6DB5?style=flat-square)](https://mypy-lang.org)
-[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-FAB040?style=flat-square&logo=pre-commit)](https://pre-commit.com)
-[![Status](https://img.shields.io/badge/status-in%20development-orange?style=flat-square)]()
+## Table of Contents
 
-</div>
+- [What is CogniBoiler?](#what-is-cogniboiler)
+- [The Big Idea](#the-big-idea)
+- [What Problem the Project Solves](#what-problem-the-project-solves)
+- [How to Think About the Platform](#how-to-think-about-the-platform)
+- [Core Capabilities](#core-capabilities)
+- [System Architecture](#system-architecture)
+- [Main Components](#main-components)
+- [AI Layer](#ai-layer)
+- [Industrial Communication and Data Flow](#industrial-communication-and-data-flow)
+- [Security and Reliability Philosophy](#security-and-reliability-philosophy)
+- [Who This Project Is For](#who-this-project-is-for)
+- [Typical Use Cases](#typical-use-cases)
+- [Technology Overview](#technology-overview)
+- [Project Status](#project-status)
+- [Design Principles](#design-principles)
+- [Long-Term Direction](#long-term-direction)
+- [Final Note](#final-note)
 
 ---
 
 ## What is CogniBoiler?
 
-CogniBoiler is a **digital twin platform** that simulates the complete thermodynamic cycle of a modern 300 MW gas-fired steam power plant — boiler, turbine, and virtual PLC — enriched with an AI layer for anomaly detection, efficiency optimization, and predictive maintenance.
+CogniBoiler is an **industrial digital twin platform** focused on a steam boiler–turbine system.
 
-The project is designed from the ground up to reflect real industrial software: it follows IEC standards, uses the same protocols found on actual plant floors (OPC UA, MQTT), and is built to be deployable on real infrastructure via Kubernetes.
+A **digital twin** is a software representation of a real physical system. In this case, the goal is to represent the behaviour of equipment commonly found in steam power generation and process industries:
 
-This is not a toy simulation. The physics model is derived from real thermodynamic equations. The AI models train on that physics — not random noise. The security model follows NERC CIP and IEC 62443 conventions. Every architectural decision maps to something you would find in production at a utility company.
+- the **boiler**, where fuel is converted into thermal energy;
+- the **steam system**, where pressure, temperature, and flow must be controlled;
+- the **turbine**, where steam energy is converted into useful mechanical and electrical output;
+- the **control layer**, which behaves like a virtual industrial PLC;
+- the **data layer**, which records system history and makes it observable;
+- the **AI layer**, which interprets behaviour and supports decision-making.
 
-> **Target markets:** United States · Uruguay · Argentina
-
----
-
-## Architecture Overview
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        EXTERNAL CLIENTS                         │
-│              Browser  ·  REST API  ·  OPC UA Clients            │
-└────────────────────────────┬────────────────────────────────────┘
-                             │ HTTPS / WebSocket
-                    ┌────────▼────────┐
-                    │   API GATEWAY   │  FastAPI · JWT · RBAC
-                    │  (auth & route) │  TLS 1.3 · Rate Limiting
-                    └──┬──────┬───┬──┘
-               gRPC    │      │   │    gRPC
-        ┌──────────────┘      │   └──────────────┐
-        │                     │                  │
-┌───────▼──────┐    ┌─────────▼──────┐   ┌──────▼───────┐
-│   PHYSICS    │    │ PLC CONTROLLER │   │ AI PREDICTOR │
-│   ENGINE     │    │                │   │              │
-│  ODE Solver  │    │ Cascade PID    │   │ LSTM Autoenc.│
-│  Boiler+     │    │ Safety Layer   │   │ Transformer  │
-│  Turbine     │    │ Interlocks     │   │ GRU + Weibull│
-└──────┬───────┘    └────────────────┘   └──────┬───────┘
-       │                                         │
-       └──────────────┬──────────────────────────┘
-                      │
-         ┌────────────▼────────────┐
-         │      MESSAGE BUS        │
-         │  MQTT (Mosquitto 2.x)   │
-         │  Protocol Buffers       │
-         └──┬──────────────────┬───┘
-            │                  │
-   ┌────────▼──────┐  ┌────────▼──────┐
-   │  OPC UA       │  │   HISTORIAN   │
-   │  SERVER       │  │               │
-   │  IEC 62541    │  │  InfluxDB     │
-   │  Field level  │  │  PostgreSQL   │
-   └───────────────┘  └───────┬───────┘
-                               │
-                      ┌────────▼───────┐
-                      │    GRAFANA     │
-                      │  Dashboards    │
-                      │  Prometheus    │
-                      │  Loki · OTel   │
-                      └────────────────┘
-```
-
-**Data flows:**
-- **Sensor stream** (1–10 Hz): Physics Engine -> MQTT -> Historian -> InfluxDB -> Grafana
-- **Control commands**: Operator -> API Gateway -> PLC -> MQTT -> Physics Engine
-- **AI analysis** (scheduled): InfluxDB -> AI Predictor -> Alert Manager -> PostgreSQL
-- **Observability** (continuous): All services -> OpenTelemetry -> Prometheus + Loki -> Grafana
+This means CogniBoiler is not just “a simulator” and not just “an AI project”. It is a **complete software architecture** that tries to represent how a modern industrial system can be modeled, controlled, observed, and analysed.
 
 ---
 
-## Technology Stack
+## The Big Idea
 
-| Layer | Technologies |
-|---|---|
-| **Language** | Python 3.12+ |
-| **Package management** | uv (workspace monorepo) |
-| **Web framework** | FastAPI, uvicorn |
-| **Physics simulation** | NumPy, SciPy (ODE solver RK45) |
-| **AI / ML** | PyTorch, scikit-learn, Pandas, MLflow |
-| **Protocols** | MQTT 5.0 (Mosquitto), OPC UA (asyncua), gRPC |
-| **Serialization** | Protocol Buffers (protobuf) |
-| **Time-series DB** | InfluxDB 2.x (Flux) |
-| **Relational DB** | PostgreSQL 16 (SQLAlchemy async, asyncpg) |
-| **Migrations** | Alembic |
-| **Security** | PyJWT (RS256), cryptography (AES-256, RSA), bcrypt |
-| **Visualization** | Grafana, Matplotlib |
-| **Observability** | OpenTelemetry, Prometheus, Loki, Promtail |
-| **Containers** | Docker (multi-stage builds) |
-| **Orchestration** | Kubernetes, Helm 3 |
-| **CI/CD** | GitHub Actions |
-| **Code quality** | ruff, mypy (strict), pre-commit |
+The central idea behind CogniBoiler is straightforward:
+
+> Build one platform that can simulate an industrial steam system, operate like a real control environment, and eventually provide intelligent insight about efficiency, risk, and maintenance.
+
+That idea turns into several layers working together:
+
+1. A **physics layer** produces realistic process behaviour.
+2. A **control layer** acts like an industrial controller.
+3. A **communication layer** moves data between services.
+4. A **storage and observability layer** records and visualises everything.
+5. A **security layer** protects access and actions.
+6. An **AI layer** learns from system history and helps interpret what is happening.
 
 ---
 
-## Services
+## What Problem the Project Solves
 
-The platform is structured as a microservice workspace. Each service is an independent Python package with its own dependencies, tests, and Dockerfile.
+Industrial systems are complex.
 
-```
-apps/
-├── physics-engine/     Thermodynamic ODE model of boiler + turbine
-├── plc-controller/     Virtual PLC with cascade PID and safety interlocks
-├── api-gateway/        FastAPI gateway — auth, routing, WebSocket
-├── historian/          MQTT subscriber -> InfluxDB time-series writer
-├── alert-manager/      Alarm management and immutable audit log
-├── opcua-server/       OPC UA field-level server (IEC 62541)
-└── ai-predictor/       PyTorch inference: anomaly · efficiency · maintenance
-```
+A large steam unit is not something you can understand from one sensor or one graph. Pressure, temperature, water level, steam flow, valve positions, fuel input, and turbine output all influence each other. Real systems also require:
 
----
+- safe control logic;
+- reliable communication between subsystems;
+- structured historical storage;
+- monitoring and alarms;
+- clear access control;
+- explainable operational insight.
 
-## AI Capabilities
+CogniBoiler addresses this by creating a software platform where all of those concerns can live together.
 
-Three independent neural network models run on a continuous inference schedule:
+At a high level, the project helps answer questions like these:
 
-**Anomaly Detector** — LSTM Autoencoder trained exclusively on normal operating data. Detects deviations via reconstruction error. Targets: burner fouling, steam leaks, turbine blade wear.
-
-**Efficiency Advisor** — Temporal Transformer that takes 30 minutes of plant history and recommends optimal setpoints for the next 15 minutes. Includes a physical constraint layer to ensure all recommendations are thermodynamically feasible.
-
-**Predictive Maintenance** — GRU network computing a health score (0–100) for each component, combined with Weibull Survival Analysis to estimate time-to-failure probability. Output: prioritized maintenance schedule with confidence intervals.
-
-All three models train on **synthetic data generated by the physics engine itself** — making the project fully self-contained and reproducible without access to real plant data.
+- What does a realistic industrial steam system look like in software?
+- How can a digital twin be structured as a modern microservice platform?
+- How can control, telemetry, storage, APIs, and AI coexist in one architecture?
+- How can simulation data be turned into useful signals for anomaly detection and maintenance planning?
 
 ---
 
-## Physical Model
+## How to Think About the Platform
 
-The boiler is described by a system of ODEs solved numerically (Runge-Kutta 4/5):
+The easiest way to understand CogniBoiler is to imagine a **virtual industrial plant** built out of software services.
 
-```
-Thermal balance:    dU/dt  = Q_fuel - Q_steam - Q_loss
-Steam pressure:     dP/dt  = f(T, m_water, V_drum)
-Drum water level:   dh/dt  = (m_feed - m_steam) / (ρ · A)
-Flue gas temp:      dT_g/dt = f(Q_fuel, m_air, η_combustion)
-Turbine power:      W_elec = η_turbine · m_steam · (h_in - h_out)
-```
+Each service has a specific job.
 
-**Nominal parameters** (300 MW class gas boiler):
+Some services are responsible for **simulating the physical process**.
+Some are responsible for **control and commands**.
+Some move data between layers using **industrial protocols**.
+Some store the system’s history.
+Some expose information through a web API.
+Some will analyse the data with machine learning.
 
-| Parameter | Value |
-|---|---|
-| Steam pressure | 100 – 180 bar |
-| Steam temperature | 540 – 565 °C |
-| Steam flow | 500 – 1000 t/h |
-| Electrical output | 100 – 300 MW |
-| Boiler efficiency | 88 – 93 % |
+Together, they form a system that behaves like a miniature industrial ecosystem.
 
-Control is implemented as a **cascade PID system** — the industrial standard for boiler control:
-- `PID_1` Master: power setpoint -> pressure setpoint
-- `PID_2` Slave: pressure setpoint -> fuel valve position
-- `PID_3` Independent: water level -> feedwater valve
-- `PID_4` Independent: steam temperature -> desuperheater spray
+You can think of CogniBoiler as a combination of:
+
+- a **physics simulator**;
+- a **virtual automation stack**;
+- a **data platform**;
+- an **AI-assisted monitoring system**.
 
 ---
 
-## Security Model
+## Core Capabilities
 
-Security is implemented at every layer independently — compromise of one layer does not grant access to the next.
+CogniBoiler is being designed to provide the following broad capabilities.
 
-```
-Transport:   TLS 1.3 (all HTTP)  ·  mTLS (MQTT, OPC UA, gRPC)
-Identity:    JWT RS256 · 15-min access tokens · 7-day refresh rotation
-Passwords:   bcrypt (cost 12) — plaintext never stored
-Data at rest: AES-256-GCM for sensitive fields
-Audit log:   INSERT-only PostgreSQL table — physically immutable
-Network:     Kubernetes NetworkPolicy — zero-trust between namespaces
-Scanning:    Trivy (images) · Bandit (Python source)
-```
+### 1. Physics-based process simulation
 
-RBAC roles: `viewer` · `operator` · `engineer` · `admin`
+The platform models boiler and turbine behaviour using engineering and thermodynamic logic rather than arbitrary fake numbers. The purpose is to generate system states that behave like a real process and respond to control actions in a realistic way.
+
+### 2. Virtual industrial control
+
+The project includes a virtual control layer intended to resemble PLC-style behaviour. This includes actuator logic, operating constraints, and safety-oriented decision paths.
+
+### 3. Real-time telemetry streaming
+
+The system is built to move process data in near real time between components, allowing live monitoring, state distribution, and downstream processing.
+
+### 4. Historical recording
+
+Operational data can be recorded as time series so the platform has memory. This is essential for dashboards, diagnostics, model training, and later analysis.
+
+### 5. External access through APIs
+
+A web gateway provides a structured way for external clients to read system state, retrieve history, and submit controlled actions.
+
+### 6. Industrial protocol integration
+
+The architecture includes technologies commonly used in industrial and plant environments, which makes the project relevant beyond pure software experimentation.
+
+### 7. AI-assisted operational intelligence
+
+The platform is designed to support anomaly detection, efficiency guidance, and predictive maintenance based on simulated operational history.
+
+---
+
+## System Architecture
+
+CogniBoiler follows a **microservice-oriented architecture**.
+
+That means the platform is split into multiple focused services rather than one giant application. Each service owns a specific responsibility and communicates with others through explicit contracts.
+
+At a conceptual level, the architecture looks like this:
+
+- **Process simulation services** generate the operational state.
+- **Control services** interpret commands and enforce operating logic.
+- **Messaging services** move data through the system.
+- **Historical storage services** record process behaviour over time.
+- **Integration services** expose data using industrial protocols.
+- **API services** provide external access for dashboards and clients.
+- **AI services** consume historical and real-time data to produce higher-level insight.
+
+This kind of structure helps keep the platform modular, understandable, and extensible.
+
+---
+
+## Main Components
+
+### Physics Engine
+
+The Physics Engine is the heart of the digital twin.
+
+Its job is to simulate how the boiler and turbine behave over time. Instead of using random placeholder numbers, it is intended to model relationships between physical quantities such as:
+
+- pressure;
+- temperature;
+- water level;
+- energy balance;
+- steam flow;
+- turbine output.
+
+This makes it possible to generate realistic operating scenarios and use them as the foundation for monitoring, control, and AI training.
+
+### PLC Controller
+
+The PLC Controller is the virtual control layer.
+
+In real industrial environments, PLCs and related control systems are responsible for turning high-level goals into low-level actions. CogniBoiler mirrors that idea in software.
+
+The controller layer is meant to:
+
+- receive commands or target values;
+- manage actuators such as valves;
+- apply operating logic;
+- respect safety constraints;
+- keep the simulated process within acceptable limits.
+
+### API Gateway
+
+The API Gateway acts as the main external entry point.
+
+It is responsible for exposing the platform to clients through a controlled and structured HTTP/WebSocket interface. This is where status queries, command submission, authentication, and future web integrations naturally belong.
+
+### Historian
+
+The Historian stores process history.
+
+Industrial systems are heavily dependent on historical trends. You usually do not understand a boiler from a single value; you understand it from how values change over time.
+
+The Historian is designed to:
+
+- consume live telemetry;
+- store it as time-series data;
+- support trend visualisation;
+- enable retrospective analysis;
+- feed future AI models.
+
+### OPC UA Server
+
+The OPC UA Server is the industrial interoperability layer.
+
+OPC UA is widely used in automation and industrial environments to expose machine state and structured variables. In CogniBoiler, this layer allows the digital twin to behave more like an industrial-grade system and less like a simple software-only experiment.
+
+### Alert Manager
+
+The Alert Manager is intended to handle abnormal events and structured alarm workflows.
+
+Its role is to centralise operational signals such as warnings, alarms, and event records so they can be stored, reviewed, and acted upon in a disciplined way.
+
+### AI Predictor
+
+The AI Predictor is the intelligence layer of the platform.
+
+It is designed to transform raw plant history into higher-level interpretation. Rather than only answering “what is the current pressure?”, it aims to answer questions like:
+
+- Is the current behaviour normal?
+- Is the system drifting away from an efficient operating point?
+- Does this pattern suggest future maintenance risk?
+
+---
+
+## AI Layer
+
+One of the defining ideas of CogniBoiler is that machine learning should not be an isolated add-on. It should be part of the broader operational architecture.
+
+The planned AI layer is centered around three major classes of intelligence.
+
+### Anomaly Detection
+
+This part of the platform is intended to identify behaviour that deviates from learned normal operating patterns.
+
+In practical terms, anomaly detection helps answer:
+
+- Is the plant behaving in a way that looks unusual?
+- Does this pattern resemble drift, instability, or degradation?
+- Should this be surfaced as an operational concern?
+
+### Efficiency Advisory
+
+This part of the platform is intended to estimate or recommend operating targets that improve efficiency while respecting physical and operational constraints.
+
+The purpose is not to replace the control system directly, but to support better decisions by highlighting more effective operating regions.
+
+### Predictive Maintenance
+
+This part of the platform is intended to infer component health and estimate future maintenance risk from observed behaviour over time.
+
+Instead of only reacting when something fails, the goal is to recognise gradual degradation early enough to act before failure becomes critical.
+
+### Why the AI Layer Matters
+
+The AI features are especially interesting because they are designed to be trained from the digital twin itself.
+
+That means the physics and data layers are not just for visualisation. They also create the foundation for model development, experimentation, and intelligent diagnostics.
+
+---
+
+## Industrial Communication and Data Flow
+
+CogniBoiler is not just about calculations inside one Python process. It is designed as a connected system where information flows between services.
+
+At a broad level, the expected data movement looks like this:
+
+### Process data flow
+
+1. The simulation layer generates system state.
+2. That state is published into the internal communication backbone.
+3. Storage and integration services consume the data.
+4. Dashboards and APIs expose current and historical state.
+
+### Command flow
+
+1. A user or client issues a command through the gateway.
+2. The command is validated and routed to the relevant control layer.
+3. The control logic updates the process or the virtual actuators.
+4. The resulting process state is propagated back through telemetry.
+
+### AI flow
+
+1. Historical and/or live data is collected.
+2. The AI layer evaluates the behaviour.
+3. The result is converted into events, recommendations, or maintenance-oriented signals.
+4. Those results can be surfaced through APIs, dashboards, or alerting paths.
+
+This architecture reflects an important engineering idea: **information is a first-class part of the system**, not an afterthought.
+
+---
+
+## Security and Reliability Philosophy
+
+CogniBoiler is designed with the assumption that industrial-style systems should not be open by default.
+
+Even though the project is still evolving, its direction clearly includes structured security principles such as:
+
+- authentication before sensitive operations;
+- role-based access control;
+- separation of concerns between services;
+- auditability of actions;
+- secure communication between components;
+- operational logging and observability.
+
+This matters because a realistic industrial platform is not only about simulating physics. It is also about representing how real systems are governed, monitored, and protected.
+
+Reliability is treated as part of the design as well. That includes ideas such as:
+
+- clear service boundaries;
+- explicit contracts between components;
+- structured telemetry;
+- historical storage;
+- validation and tests;
+- support for monitoring and operational visibility.
+
+---
+
+## Who This Project Is For
+
+CogniBoiler can be interesting to several different audiences.
+
+### Software engineers
+
+Developers can use it as an example of how to build a serious multi-service system with APIs, messaging, storage, observability, and security.
+
+### Industrial and control engineers
+
+Automation-oriented readers can use it as a software interpretation of process control, telemetry flow, and industrial integration concepts.
+
+### Data and ML practitioners
+
+People working in machine learning can view it as a self-contained environment for building models on top of synthetic operational data.
+
+### Students and learners
+
+Anyone trying to understand what a modern industrial software system looks like can use the project as a structured learning artifact.
+
+### Employers and technical reviewers
+
+As a portfolio project, CogniBoiler demonstrates not only coding ability, but also architectural thinking, system design, and domain modeling.
+
+---
+
+## Typical Use Cases
+
+Although the platform is not yet positioned as a finished commercial product, its architecture naturally supports several meaningful use cases.
+
+### Educational demonstration
+
+The project can help explain how a boiler-turbine system, control layer, communication stack, and AI layer fit together.
+
+### Portfolio-grade systems engineering
+
+CogniBoiler shows the ability to design and implement a complex technical system that crosses several disciplines at once.
+
+### Simulation-driven experimentation
+
+It can be used as a sandbox for testing control logic, telemetry designs, storage models, and AI methods without requiring a real industrial plant.
+
+### Synthetic data generation
+
+The project can generate realistic operational data for downstream analytics and machine learning experiments.
+
+### Industrial software prototyping
+
+The architecture can serve as a prototype for ideas related to digital twins, remote monitoring, predictive analytics, or process optimisation.
+
+---
+
+## Technology Overview
+
+CogniBoiler combines several technology domains into one platform.
+
+### Application and service layer
+
+Python is used as the main implementation language, with a monorepo layout managed through `uv`.
+
+### API and backend layer
+
+FastAPI and related backend technologies support structured external access and service orchestration.
+
+### Simulation and numerical computation
+
+Scientific Python tooling supports modeling, numerical processing, and dataset generation.
+
+### Messaging and contracts
+
+Protobuf, gRPC, and MQTT provide typed contracts and service communication.
+
+### Industrial integration
+
+OPC UA brings the project closer to real automation and plant-style interoperability.
+
+### Data storage and visualisation
+
+Time-series and relational storage, combined with dashboarding tools, support both operational visibility and historical analysis.
+
+### AI and model lifecycle
+
+Machine learning frameworks and model-management tooling support future development of intelligent diagnostics and advisory systems.
+
+The significance of this stack is not just that it is “modern”. It is that each part supports a real responsibility in the platform.
 
 ---
 
 ## Project Status
 
-This project is under active development following a structured 7-phase roadmap.
+CogniBoiler is **under active development**.
 
-| Phase | Description | Status |
-|---|---|---|
-| 1 | Project foundation — uv workspace, tooling, structure | ✅ Complete |
-| 2 | Physics Engine — ODE boiler and turbine model | 🔄 Up next |
-| 3 | Virtual PLC — cascade PID, safety interlocks | ⏳ Planned |
-| 4 | Communication — protobuf, gRPC, MQTT, OPC UA, InfluxDB | ⏳ Planned |
-| 5 | API Gateway — FastAPI, JWT, TLS, PostgreSQL | ⏳ Planned |
-| 6 | AI/ML — PyTorch models, MLflow, inference service | ⏳ Planned |
-| 7 | Infrastructure — Docker, Kubernetes, Helm, CI/CD | ⏳ Planned |
+It should be understood as a growing platform rather than a finished end-user product.
 
----
+At this stage, the project is best described as:
 
-## Getting Started
+- architecturally ambitious;
+- technically serious;
+- already structured around real service boundaries;
+- still evolving toward a more complete end-to-end system.
 
-> The project is in early development. Full quick-start instructions will be added when Phase 2 is complete. For now, you can explore the workspace structure and tooling setup.
+Some parts of the platform already represent concrete implementation work, while other parts are still being expanded or refined.
 
-**Prerequisites:** Python 3.12+, [uv](https://docs.astral.sh/uv/getting-started/installation/), Git
-
-```bash
-# Clone the repository
-git clone https://github.com/YOUR_USERNAME/cogniboiler.git
-cd cogniboiler
-
-# Install all workspace dependencies
-uv sync --all-packages
-
-# Verify the environment
-uv run python -c "import numpy; print('NumPy', numpy.__version__)"
-uv run python -c "import fastapi; print('FastAPI', fastapi.__version__)"
-
-# Run code quality checks
-make check
-```
+For that reason, this README focuses on **what the project is**, **what it is meant to become**, and **how the architecture is organized**, rather than giving rigid production-style operating instructions.
 
 ---
 
-## Development
+## Design Principles
 
-```bash
-make install        # Install all dependencies
-make lint           # Run ruff linter
-make format         # Format code with ruff
-make typecheck      # Run mypy strict type checking
-make check          # All quality checks at once
-make test           # Run test suite
-make test-cov       # Run tests with coverage report
-make clean          # Remove caches and build artifacts
-```
+Several principles define the spirit of the project.
 
-Pre-commit hooks run automatically on every `git commit`:
-ruff lint · ruff format · mypy · trailing whitespace · YAML/TOML validation · debug statement detection
+### 1. Realism over toy simplification
 
----
+The platform aims to reflect how industrial software is actually structured.
 
-## Repository Structure
+### 2. Clear boundaries between responsibilities
 
-```
-cogniboiler/
-├── apps/                   Microservices (7 services)
-├── shared/                 Cross-service code (models, proto, crypto)
-├── ml/                     Training scripts, datasets, saved models
-├── infrastructure/         Docker, Kubernetes, Helm, Grafana dashboards
-├── scripts/                Development and operational scripts
-├── tests/                  Top-level integration tests
-├── docs/                   Architecture and deployment documentation
-├── certs/                  TLS certificates (dev environment only)
-├── pyproject.toml          uv workspace root
-├── uv.lock                 Deterministic dependency lock file
-└── Makefile                Development automation
-```
+Each service should have an understandable purpose and a controlled interface.
+
+### 3. Data should be useful, not decorative
+
+Telemetry, historical storage, and model outputs should all support meaningful analysis.
+
+### 4. AI should be grounded in system behaviour
+
+The AI layer is intended to learn from the behaviour of the simulated system rather than from disconnected synthetic randomness.
+
+### 5. Engineering clarity matters
+
+The system is meant to be understandable, inspectable, and explainable to humans.
+
+### 6. Security and observability are part of the architecture
+
+They are not “extra polish”; they are part of what makes a system realistic and trustworthy.
 
 ---
 
-## Roadmap Highlights
+## Long-Term Direction
 
-Features planned for future phases:
+CogniBoiler is designed with room to grow.
 
-- **Reinforcement Learning controller** — compare RL agent vs classic PID in real time
-- **3D plant visualization** — WebGL dashboard showing live sensor state on 3D boiler model
-- **Real OPC UA integration** — connect to an actual DCS or SCADA system
-- **NERC CIP compliance module** — automated compliance reporting for US utilities
-- **Multi-unit simulation** — scale to simulate an entire power plant with multiple boilers
+The broader vision includes a platform that can eventually support:
+
+- richer physical simulation;
+- more advanced control strategies;
+- stronger industrial interoperability;
+- deeper observability and diagnostics;
+- more capable AI-driven analysis;
+- clearer operational and educational interfaces.
+
+In other words, the long-term goal is not just to model one machine. It is to build a convincing software environment around how such a machine would be simulated, controlled, observed, and analysed in a modern engineering context.
 
 ---
 
-## License
+## Final Note
 
-Licensed under the [Apache License 2.0](LICENSE).
+CogniBoiler is a project about **systems thinking**.
 
----
+It connects physics, software architecture, control logic, industrial communication, historical data, security, and AI into one design.
 
-<div align="center">
+Even in its current evolving state, the project already represents a clear idea:
 
-*Built with precision. Designed for industry.*
+> a digital twin should not only imitate a machine — it should also imitate the environment around that machine: its control layer, data layer, integration layer, and decision-support layer.
 
-**CogniBoiler** · AI-Driven Digital Twin Platform
-
-</div>
+That is what CogniBoiler is trying to build.

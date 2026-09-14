@@ -86,3 +86,13 @@ class CommandAckResponse(BaseModel):
         description="Rejection reason. Empty string when accepted=True.",
     )
     timestamp_ms: int = Field(..., description="UTC epoch milliseconds.")
+
+
+class ResetRequest(BaseModel):
+    """Request body for POST /api/v1/commands/reset."""
+
+    operator_id: str = Field(
+        default="",
+        max_length=128,
+        description="Operator identifier recorded in the reset audit trail.",
+    )
