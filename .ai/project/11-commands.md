@@ -47,6 +47,15 @@ pnpm --dir apps/web install                   # frontend dependencies, once
 Service-by-service run commands, ports, topics and platform notes are in
 `14-command-reference.md`.
 
+## Publishing
+
+- No pull requests (owner decision 2026-09-15). A task branch is merged into `main`
+  locally with `git merge --ff-only` after a green full gate, then published with
+  `git push origin main`. Agents push only when the owner asked for it in the current task.
+- `main` on GitHub must not require pull requests; force pushes and non-fast-forward
+  updates stay blocked. If a rule declines a push to `main`, stop and tell the owner —
+  do not route around it with a side branch.
+
 ## Gate policy
 
 - The full gate is green before any merge to `main`; `--quick` is the minimum before a

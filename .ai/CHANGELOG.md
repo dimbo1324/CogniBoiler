@@ -6,6 +6,19 @@ History of changes to the AI assistant rule system (`.ai/`, `CLAUDE.md`, `AGENTS
 
 Format: date, what changed, why, who decided. Newest first.
 
+## 2026-09-15 — Publishing without pull requests
+
+**What changed.** `project/11-commands.md` gains a Publishing section: a task branch is
+merged into `main` locally with `git merge --ff-only` after a green gate and pushed; no pull
+requests; a push declined by a GitHub rule is reported to the owner, not worked around with
+a side branch.
+
+**Why.** Publishing this project's first task hit a GitHub ruleset requiring pull requests
+for `main`, and the commits went to a side branch as a workaround. The owner decided to work
+with pushes and merges only.
+
+**Decided by.** Owner, 2026-09-15 (recorded in `docs/__arch__/open-questions.md`).
+
 ## 2026-09-14 — The rule system arrives, adapted from codepack
 
 **What changed.** CogniBoiler gains the assistant rule system the owner already runs in
