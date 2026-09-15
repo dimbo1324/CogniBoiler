@@ -25,7 +25,7 @@ Additional unit tests:
 from __future__ import annotations
 
 import pytest
-from physics_engine.safety import (
+from plc_controller.safety import (
     PRESSURE_LIMITS,
     PRESSURE_RATE_TRIP,
     PRESSURE_RATE_WARN,

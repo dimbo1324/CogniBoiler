@@ -47,6 +47,7 @@ from api_gateway.routers import (
     commands,
     health,
     history,
+    plc,
     status,
     websocket,
 )
@@ -184,6 +185,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(status.router)
     app.include_router(commands.router)
+    app.include_router(plc.router)
     app.include_router(history.router)
     app.include_router(alarms.router)
     app.include_router(audit.router)

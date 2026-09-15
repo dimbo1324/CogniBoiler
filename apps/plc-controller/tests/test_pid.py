@@ -1,19 +1,13 @@
 """
-Unit tests for PIDController, CascadePIDController and BoilerController.
+Unit tests for PIDController and CascadePIDController.
 
 Test categories:
     TestPID         — single PID correctness and edge cases
     TestCascadePID  — cascade PID coupling and mode switching
-    TestController  — BoilerController three-loop behavior
 """
 
 import pytest
-from physics_engine.controller import (
-    BoilerController,
-    BoilerSetpoints,
-    ControllerOutput,
-)
-from physics_engine.pid import (
+from plc_controller.pid import (
     CascadePIDController,
     CascadePIDParameters,
     PIDController,
@@ -73,22 +67,6 @@ def cascade() -> CascadePIDController:
         slave_setpoint_max=5.0,
     )
     return CascadePIDController(params)
-
-
-@pytest.fixture  # type: ignore[misc]
-def controller() -> BoilerController:
-    """BoilerController with default tunings."""
-    return BoilerController()
-
-
-@pytest.fixture  # type: ignore[misc]
-def setpoints() -> BoilerSetpoints:
-    """Nominal boiler setpoints."""
-    return BoilerSetpoints(
-        pressure=140.0e5,
-        water_level=4.8,
-        steam_temp=825.65,
-    )
 
 
 # ─── PID tests ────────────────────────────────────────────────────────────────
@@ -272,187 +250,3 @@ class TestCascadePID:
         assert (
             cascade.params.slave.output_min <= out <= cascade.params.slave.output_max
         ), f"Output out of slave bounds: {out:.4f}"
-
-
-# ─── BoilerController tests ───────────────────────────────────────────────────
-
-
-class TestController:
-    """
-    Verify BoilerController three-loop behavior.
-    """
-
-    def test_step_returns_controller_output(
-        self,
-        controller: BoilerController,
-        setpoints: BoilerSetpoints,
-    ) -> None:
-        """
-        step() must return a ControllerOutput instance.
-        """
-        output = controller.step(
-            setpoints=setpoints,
-            pressure=140.0e5,
-            water_level=4.8,
-            steam_temp=825.65,
-            fuel_flow=5.0,
-            feedwater_flow=150.0,
-            dt=1.0,
-        )
-        assert isinstance(output, ControllerOutput)
-
-    def test_all_outputs_within_bounds(
-        self,
-        controller: BoilerController,
-        setpoints: BoilerSetpoints,
-    ) -> None:
-        """
-        All valve commands must be within [0, 1].
-        """
-        output = controller.step(
-            setpoints=setpoints,
-            pressure=130.0e5,  # below setpoint — controller should open fuel
-            water_level=4.0,  # below setpoint — controller should open feedwater
-            steam_temp=820.0,
-            fuel_flow=4.0,
-            feedwater_flow=100.0,
-            dt=1.0,
-        )
-        assert 0.0 <= output.fuel_valve <= 1.0
-        assert 0.0 <= output.feedwater_valve <= 1.0
-        assert 0.0 <= output.steam_valve <= 1.0
-
-    def test_low_pressure_increases_fuel_valve(
-        self,
-        controller: BoilerController,
-        setpoints: BoilerSetpoints,
-    ) -> None:
-        """
-        Pressure below setpoint must cause fuel valve to open over time.
-
-        Physics: error > 0 -> integral accumulates -> fuel valve opens.
-        """
-        outputs = [
-            controller.step(
-                setpoints=setpoints,
-                pressure=120.0e5,  # 20 bar below setpoint
-                water_level=4.8,
-                steam_temp=825.65,
-                fuel_flow=3.0,
-                feedwater_flow=150.0,
-                dt=1.0,
-            )
-            for _ in range(30)
-        ]
-        assert outputs[-1].fuel_valve > outputs[0].fuel_valve, (
-            f"Fuel valve did not open under low pressure: "
-            f"first={outputs[0].fuel_valve:.4f}, last={outputs[-1].fuel_valve:.4f}"
-        )
-
-    def test_low_level_increases_feedwater_valve(
-        self,
-        controller: BoilerController,
-        setpoints: BoilerSetpoints,
-    ) -> None:
-        """
-        Level below setpoint must cause feedwater valve to open over time.
-        """
-        outputs = [
-            controller.step(
-                setpoints=setpoints,
-                pressure=140.0e5,
-                water_level=3.0,  # 1.8 m below setpoint
-                steam_temp=825.65,
-                fuel_flow=5.0,
-                feedwater_flow=50.0,
-                dt=1.0,
-            )
-            for _ in range(30)
-        ]
-        assert outputs[-1].feedwater_valve > outputs[0].feedwater_valve, (
-            f"Feedwater valve did not open under low level: "
-            f"first={outputs[0].feedwater_valve:.4f}, "
-            f"last={outputs[-1].feedwater_valve:.4f}"
-        )
-
-    def test_low_steam_temp_closes_steam_valve(
-        self,
-        controller: BoilerController,
-        setpoints: BoilerSetpoints,
-    ) -> None:
-        """
-        Steam temperature below setpoint must reduce steam valve opening.
-
-        The temperature loop is reverse-acting: colder steam should keep steam
-        in the boiler longer, not dump more of it through the turbine. The loop
-        starts primed at mid-stroke, as the PLC primes it from the live valve
-        position: an unprimed loop is already clamped at 0.0 on its first step,
-        so a closing valve could never be observed.
-        """
-        controller.temp_loop.reset(initial_output=0.5)
-        outputs = [
-            controller.step(
-                setpoints=setpoints,
-                pressure=140.0e5,
-                water_level=4.8,
-                steam_temp=780.0,
-                fuel_flow=5.0,
-                feedwater_flow=150.0,
-                dt=1.0,
-            )
-            for _ in range(10)
-        ]
-        assert outputs[-1].steam_valve < outputs[0].steam_valve, (
-            f"Steam valve did not close under low steam temp: "
-            f"first={outputs[0].steam_valve:.4f}, "
-            f"last={outputs[-1].steam_valve:.4f}"
-        )
-
-    def test_manual_mode_freezes_fuel_valve(
-        self,
-        controller: BoilerController,
-        setpoints: BoilerSetpoints,
-    ) -> None:
-        """
-        In MANUAL mode for pressure loop, fuel valve must be fixed.
-        """
-        controller.set_pressure_manual(0.6)
-        for _ in range(10):
-            output = controller.step(
-                setpoints=setpoints,
-                pressure=100.0e5,  # large error — but MANUAL ignores it
-                water_level=4.8,
-                steam_temp=825.65,
-                fuel_flow=5.0,
-                feedwater_flow=150.0,
-                dt=1.0,
-            )
-        assert abs(output.fuel_valve - 0.6) < 1e-6, (
-            f"MANUAL fuel valve drifted: {output.fuel_valve:.6f}"
-        )
-
-    def test_reset_clears_integrators(
-        self,
-        controller: BoilerController,
-        setpoints: BoilerSetpoints,
-    ) -> None:
-        """
-        After reset(), controller state must be cleared.
-        """
-        # Wind up integrators
-        for _ in range(50):
-            controller.step(
-                setpoints=setpoints,
-                pressure=100.0e5,
-                water_level=2.0,
-                steam_temp=800.0,
-                fuel_flow=1.0,
-                feedwater_flow=10.0,
-                dt=1.0,
-            )
-
-        controller.reset()
-
-        # After reset, integral must be zero
-        assert controller.pressure_loop.master.state.integral == 0.0
-        assert controller.level_loop.master.state.integral == 0.0

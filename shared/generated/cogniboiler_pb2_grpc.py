@@ -72,6 +72,16 @@ class PLCServiceStub(object):
                 request_serializer=cogniboiler__pb2.StreamRequest.SerializeToString,
                 response_deserializer=cogniboiler__pb2.ControlCommandMsg.FromString,
                 _registered_method=True)
+        self.SetLoadDemand = channel.unary_unary(
+                '/cogniboiler.PLCService/SetLoadDemand',
+                request_serializer=cogniboiler__pb2.LoadDemandRequest.SerializeToString,
+                response_deserializer=cogniboiler__pb2.CommandAck.FromString,
+                _registered_method=True)
+        self.SetControlMode = channel.unary_unary(
+                '/cogniboiler.PLCService/SetControlMode',
+                request_serializer=cogniboiler__pb2.ControlModeRequest.SerializeToString,
+                response_deserializer=cogniboiler__pb2.CommandAck.FromString,
+                _registered_method=True)
 
 
 class PLCServiceServicer(object):
@@ -122,6 +132,18 @@ class PLCServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SetLoadDemand(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SetControlMode(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_PLCServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -159,6 +181,16 @@ def add_PLCServiceServicer_to_server(servicer, server):
                     servicer.StreamCommands,
                     request_deserializer=cogniboiler__pb2.StreamRequest.FromString,
                     response_serializer=cogniboiler__pb2.ControlCommandMsg.SerializeToString,
+            ),
+            'SetLoadDemand': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetLoadDemand,
+                    request_deserializer=cogniboiler__pb2.LoadDemandRequest.FromString,
+                    response_serializer=cogniboiler__pb2.CommandAck.SerializeToString,
+            ),
+            'SetControlMode': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetControlMode,
+                    request_deserializer=cogniboiler__pb2.ControlModeRequest.FromString,
+                    response_serializer=cogniboiler__pb2.CommandAck.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -353,6 +385,60 @@ class PLCService(object):
             '/cogniboiler.PLCService/StreamCommands',
             cogniboiler__pb2.StreamRequest.SerializeToString,
             cogniboiler__pb2.ControlCommandMsg.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetLoadDemand(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cogniboiler.PLCService/SetLoadDemand',
+            cogniboiler__pb2.LoadDemandRequest.SerializeToString,
+            cogniboiler__pb2.CommandAck.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetControlMode(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cogniboiler.PLCService/SetControlMode',
+            cogniboiler__pb2.ControlModeRequest.SerializeToString,
+            cogniboiler__pb2.CommandAck.FromString,
             options,
             channel_credentials,
             insecure,

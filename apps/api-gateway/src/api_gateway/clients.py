@@ -131,6 +131,18 @@ class PLCGatewayClient:
             timeout=self.config.timeout_s,
         )
 
+    async def set_load_demand(self, load_w: float, operator_id: str) -> pb2.CommandAck:
+        return await self._stub.SetLoadDemand(
+            pb2.LoadDemandRequest(load_w=load_w, operator_id=operator_id),
+            timeout=self.config.timeout_s,
+        )
+
+    async def set_control_mode(self, mode: int, operator_id: str) -> pb2.CommandAck:
+        return await self._stub.SetControlMode(
+            pb2.ControlModeRequest(mode=mode, operator_id=operator_id),
+            timeout=self.config.timeout_s,
+        )
+
 
 NANOSECONDS_PER_MILLISECOND = 1_000_000
 

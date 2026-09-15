@@ -11,6 +11,11 @@ dependencies = [
     "grpcio>=1.75.1",
     "protobuf>=6.31.1",
     "aiomqtt>=2.5.1",
+]
+
+# The PLC talks to the plant only over gRPC; the in-process plant is a test fixture.
+[dependency-groups]
+dev = [
     "physics-engine",
 ]
 

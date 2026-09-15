@@ -6,15 +6,11 @@ Implements a discrete-time PID controller with:
     - Output clamping
     - Derivative filtering (low-pass)
     - Bumpless transfer between AUTO and MANUAL modes
+    - Back-calculation when the caller limits the output further
 
 Cascade PID connects two PID controllers in series:
     - Master (outer): slow loop, computes setpoint for slave
     - Slave (inner):  fast loop, drives the actuator directly
-
-Typical boiler control loops:
-    Pressure    -> master: pressure PID   / slave: fuel flow PID
-    Drum level  -> master: level PID      / slave: feedwater flow PID
-    Steam temp  -> single PID             / output: spray valve position
 """
 
 from dataclasses import dataclass
@@ -137,8 +133,20 @@ class PIDController:
             initial_output: Pre-load the integrator to this output value.
                             Avoids a large transient on first AUTO step.
         """
-        self.state = PIDState(integral=initial_output)
+        self.state = PIDState(integral=initial_output, prev_output=initial_output)
         self._manual_output = None
+
+    def constrain(self, limited_output: float) -> None:
+        """
+        Back-calculate the integrator after the caller limited this step's output.
+
+        Loops whose output is limited outside the PID — a feedforward added to it, a
+        guard, an actuator range — call this so the integrator does not wind up.
+        """
+        delta = limited_output - self.state.prev_output
+        if delta != 0.0:
+            self.state.integral += delta
+            self.state.prev_output = limited_output
 
     # ─── Main step ────────────────────────────────────────────────────────────
 

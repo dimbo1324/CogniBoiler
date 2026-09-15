@@ -70,6 +70,7 @@ message BoilerStateMsg {
   double heat_release_w = 15;
   double boiler_efficiency = 16; // heat to water and steam over fuel LHV, 0..1
   double feedwater_temp_k = 17;
+  double relief_flow_kg_s = 18; // discharged by the drum safety valves
 }
 
 message TurbineStateMsg {
@@ -194,6 +195,7 @@ message SetpointsMsg {
   double water_level_m = 2; // Target water level [m]
   double steam_temp_k = 3; // Target steam temperature [K]
   int64 timestamp_ms = 4;
+  string operator_id = 5; // who changed them; empty in responses
 }
 
 message CommandAck {
@@ -215,14 +217,53 @@ message SafetyEventMsg {
   string action = 6;
 }
 
+// One control loop at the end of the latest AUTO scan.
+message ControlLoopMsg {
+  string name = 1; // load | pressure | fuel_flow | drum_level | feedwater_flow | steam_temp
+  double setpoint = 2; // working (ramped) setpoint
+  double measurement = 3;
+  double output = 4; // valve position or the demand passed to the inner loop
+  string unit = 5; // unit of setpoint and measurement
+}
+
+// An alarm condition the PLC currently detects.
+message AlarmConditionMsg {
+  string key = 1; // plc-controller:<parameter>:<high|low>:<warning|critical>
+  string parameter = 2;
+  string severity = 3; // warning | critical
+  string direction = 4; // high | low
+  double value = 5;
+  double threshold = 6;
+  string message = 7;
+  int64 since_ms = 8;
+}
+
 message PLCStatusMsg {
   ControlMode mode = 1;
   bool emergency_stop_active = 2;
-  SetpointsMsg setpoints = 3;
+  SetpointsMsg setpoints = 3; // targets
   ControlCommandMsg latest_command = 4;
   int64 warning_count = 5;
   int64 trip_count = 6;
-  SafetyEventMsg active_trip = 7;
+  SafetyEventMsg active_trip = 7; // cause of the latched trip; empty when not latched
+  double load_demand_w = 8; // operator's target
+  double load_setpoint_w = 9; // ramped working setpoint
+  SetpointsMsg active_setpoints = 10; // ramped working setpoints
+  bool reset_permitted = 11;
+  repeated string reset_blockers = 12; // why a reset would be refused now
+  repeated AlarmConditionMsg active_conditions = 13;
+  repeated ControlLoopMsg loops = 14;
+  int64 run_id = 15; // plant run the PLC is following
+}
+
+message LoadDemandRequest {
+  double load_w = 1; // electrical load target [W]
+  string operator_id = 2;
+}
+
+message ControlModeRequest {
+  ControlMode mode = 1; // AUTO | MANUAL | ESTOP (a manual trip)
+  string operator_id = 2;
 }
 
 // ─── Simulation control messages ──────────────────────────────────────────────
@@ -302,6 +343,8 @@ service PLCService {
   rpc GetControlStatus(Empty) returns (PLCStatusMsg);
   rpc ResetEmergencyStop(ResetRequest) returns (CommandAck);
   rpc StreamCommands(StreamRequest) returns (stream ControlCommandMsg);
+  rpc SetLoadDemand(LoadDemandRequest) returns (CommandAck);
+  rpc SetControlMode(ControlModeRequest) returns (CommandAck);
 }
 
 // PhysicsService: owns the live process state and applies validated commands.

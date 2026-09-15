@@ -104,6 +104,7 @@ def boiler_to_proto(snapshot: PlantSnapshot) -> pb.BoilerStateMsg:
     message.feedwater_flow_kg_s = snapshot.measured(SensorId.FEEDWATER_FLOW)
     message.drum_steam_flow_kg_s = snapshot.flows.drum_steam
     message.spray_flow_kg_s = snapshot.flows.spray
+    message.relief_flow_kg_s = snapshot.flows.relief
     message.superheater_outlet_temp_k = snapshot.heat.superheater_outlet_temp
     message.economizer_outlet_temp_k = snapshot.heat.economizer_outlet_temp
     message.stack_temp_k = snapshot.heat.stack_temp

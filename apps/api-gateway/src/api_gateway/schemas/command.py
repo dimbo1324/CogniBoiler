@@ -7,6 +7,8 @@ Setpoint values use SI units throughout.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -36,8 +38,41 @@ class ValveCommandRequest(BaseModel):
         ...,
         ge=0.0,
         le=1.0,
-        description="Steam bypass valve position [0.0 – 1.0].",
+        description="Turbine admission valve position [0.0 – 1.0].",
         examples=[0.5],
+    )
+    spray_valve: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Attemperator spray valve position [0.0 – 1.0]; omitted keeps it.",
+        examples=[0.25],
+    )
+
+
+class LoadDemandRequest(BaseModel):
+    """
+    Request body for POST /api/v1/commands/load.
+    Requires minimum role: operator. The unit ramps to the new load at 30 MW/min.
+    """
+
+    load_w: float = Field(
+        ...,
+        ge=0.0,
+        le=300.0e6,
+        description="Electrical load target [W], 0 – 300 MW.",
+        examples=[300.0e6],
+    )
+
+
+class ControlModeRequest(BaseModel):
+    """
+    Request body for POST /api/v1/commands/mode.
+    Requires minimum role: operator. "estop" is a manual trip; only a reset clears it.
+    """
+
+    mode: Literal["auto", "manual", "estop"] = Field(
+        ..., description="PLC operating mode to switch to."
     )
 
 

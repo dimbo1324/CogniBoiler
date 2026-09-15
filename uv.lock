@@ -966,11 +966,15 @@ dependencies = [
     { name = "aiomqtt" },
     { name = "grpcio" },
     { name = "numpy" },
-    { name = "physics-engine" },
     { name = "protobuf" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "structlog" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "physics-engine" },
 ]
 
 [package.metadata]
@@ -978,12 +982,14 @@ requires-dist = [
     { name = "aiomqtt", specifier = ">=2.5.1" },
     { name = "grpcio", specifier = ">=1.75.1" },
     { name = "numpy", specifier = ">=2.3.2" },
-    { name = "physics-engine", editable = "apps/physics-engine" },
     { name = "protobuf", specifier = ">=6.31.1" },
     { name = "pydantic", specifier = ">=2.12.0" },
     { name = "pyyaml", specifier = ">=6.0.0" },
     { name = "structlog", specifier = ">=24.0.0" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "physics-engine", editable = "apps/physics-engine" }]
 
 [[package]]
 name = "pluggy"

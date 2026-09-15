@@ -1,36 +1,34 @@
 """
-Safety Interlock Layer for the CogniBoiler simulation.
+Safety interlocks of the virtual PLC.
 
-Implements three independent protection classes that operate on top of
-the PID controller. The safety layer has higher authority than the
-controller — it can override any control output.
+The interlock layer has more authority than control: whatever the controller or an
+operator asks for, a trip shuts the fuel and latches until an explicit reset.
 
-Architecture:
-    Operator command
-        |
-    BoilerController (PID)
-        |
-    SafetyInterlock.check()   ← checks all parameters
-        |
-    RateOfChangeLimiter.check() ← checks rate of change
-        |
-    EmergencyStop (if trip)   ← overrides all outputs to safe state
-        |
-    Physics Engine
-
-Protection levels (per parameter):
+Protection levels per parameter:
     WARN_LOW  / WARN_HIGH  — advisory, operator notification only
     TRIP_LOW  / TRIP_HIGH  — immediate emergency stop, no delay
 
-Logging:
-    All safety events are logged as structured JSON via structlog.
-    The log contains: timestamp, parameter, value, threshold, action.
+Some protections are meaningful only in an operating state and are armed by it, as in a
+burner management system — this is protection logic, not a way to switch it off:
+    low drum pressure        armed while the turbine is on line
+    low furnace temperature  armed once the flame is proven (firing for 10 s)
+    high steam temperature   armed while the turbine is on line
+A failed drum pressure or level instrument trips the unit: it can no longer be protected.
+
+What a trip does depends on its cause. Fuel and spray always shut. The turbine valve
+opens fully only to relieve high drum pressure; otherwise it closes to keep the water
+and heat in the boiler. Feedwater stops only for a high drum level; otherwise level
+control keeps the drum wet.
+
+Thresholds are code constants covered by tests; no configuration changes them.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -66,7 +64,7 @@ class ParameterLimits:
     Four-level protection limits for a single process parameter.
 
     All values must be in SI units (Pa, K, m, etc.) — same units
-    as the physics engine outputs.
+    as the physics engine outputs. An infinite limit leaves that side unprotected.
 
     Attributes:
         warn_low:  Advisory low limit. Below this -> WARNING.
@@ -148,8 +146,10 @@ class SafetyStatus:
         safe:   True if all parameters are within normal limits.
         level:  Worst SafetyLevel seen across all parameters.
         events: List of all events triggered this cycle.
-        fuel_valve_override: If not None, override fuel valve to this value.
-        steam_valve_override: If not None, override steam valve to this value.
+        fuel_valve_override:      If not None, force the fuel valve to this value.
+        steam_valve_override:     If not None, force the turbine valve to this value.
+        feedwater_valve_override: If not None, force the feedwater valve to this value.
+        spray_valve_override:     If not None, force the spray valve to this value.
     """
 
     safe: bool
@@ -157,6 +157,29 @@ class SafetyStatus:
     events: list[SafetyEvent] = field(default_factory=list)
     fuel_valve_override: float | None = None
     steam_valve_override: float | None = None
+    feedwater_valve_override: float | None = None
+    spray_valve_override: float | None = None
+
+
+@dataclass(frozen=True)
+class ArmingState:
+    """Operating state that arms state-dependent protections."""
+
+    on_line: bool = True
+    firing_proven: bool = True
+
+
+ALL_ARMED = ArmingState()
+
+
+@dataclass(frozen=True)
+class TripOverrides:
+    """Valve positions a latched trip imposes; None leaves the valve to control."""
+
+    fuel: float = 0.0
+    steam: float = 0.0
+    feedwater: float | None = None
+    spray: float = 0.0
 
 
 # ─── Default safety limits ────────────────────────────────────────────────────
@@ -193,9 +216,76 @@ FLUE_GAS_TEMP_LIMITS = ParameterLimits(
     trip_high=1700.0,  # 1427°C — furnace critically hot
 )
 
+# Turbine inlet steam temperature limits [K]: 565 °C warns, 580 °C trips — beyond it
+# superheater tubes and the turbine inlet creep far faster than designed.
+STEAM_TEMP_LIMITS = ParameterLimits(
+    warn_low=-math.inf,
+    warn_high=838.15,
+    trip_low=-math.inf,
+    trip_high=853.15,
+)
+
 # Rate of change limits [Pa/s] for pressure
 PRESSURE_RATE_WARN = 5.0e5  # 5 bar/s — warning
 PRESSURE_RATE_TRIP = 10.0e5  # 10 bar/s — trip
+PRESSURE_RATE_LIMITS = ParameterLimits(
+    warn_low=-math.inf,
+    warn_high=PRESSURE_RATE_WARN,
+    trip_low=-math.inf,
+    trip_high=PRESSURE_RATE_TRIP,
+)
+
+# Arming thresholds
+ON_LINE_STEAM_FLOW_KG_S: float = 24.5  # 10 % of rated turbine steam flow
+FLAME_FUEL_FLOW_KG_S: float = 1.0
+FLAME_PROVING_S: float = 10.0
+
+# Instruments whose failure trips the unit, and their quality codes (SensorQuality).
+TRIP_SENSORS: tuple[str, ...] = ("drum_pressure", "drum_level")
+QUALITY_UNCERTAIN: int = 1
+QUALITY_BAD: int = 2
+
+
+def trip_overrides(event: SafetyEvent | None) -> TripOverrides:
+    """Valve positions a latched trip imposes, by its cause."""
+    if event is None:
+        return TripOverrides()
+    high_side = event.value >= event.threshold
+    vent = event.parameter == "pressure_pa" and high_side
+    feedwater = 0.0 if event.parameter == "water_level_m" and high_side else None
+    return TripOverrides(steam=1.0 if vent else 0.0, feedwater=feedwater)
+
+
+# ─── Arming ───────────────────────────────────────────────────────────────────
+
+
+class ArmingTracker:
+    """Derives the arming state from steam and fuel flow over time."""
+
+    def __init__(self) -> None:
+        self._firing_s = 0.0
+        self._state = ArmingState(on_line=False, firing_proven=False)
+
+    @property
+    def state(self) -> ArmingState:
+        return self._state
+
+    def update(
+        self, steam_flow_kg_s: float, fuel_flow_kg_s: float, dt: float
+    ) -> ArmingState:
+        if fuel_flow_kg_s >= FLAME_FUEL_FLOW_KG_S:
+            self._firing_s += max(dt, 0.0)
+        else:
+            self._firing_s = 0.0
+        self._state = ArmingState(
+            on_line=steam_flow_kg_s >= ON_LINE_STEAM_FLOW_KG_S,
+            firing_proven=self._firing_s >= FLAME_PROVING_S,
+        )
+        return self._state
+
+    def reset(self) -> None:
+        self._firing_s = 0.0
+        self._state = ArmingState(on_line=False, firing_proven=False)
 
 
 # ─── Rate-of-change limiter ───────────────────────────────────────────────────
@@ -232,13 +322,20 @@ class RateOfChangeLimiter:
         self.warn_rate = warn_rate
         self.trip_rate = trip_rate
         self._prev_value: float | None = None
+        self._last_rate: float | None = None
+
+    @property
+    def last_rate(self) -> float | None:
+        """Absolute rate computed by the latest check, None without history."""
+        return self._last_rate
 
     def check(self, value: float, dt: float) -> SafetyLevel:
         """
         Compute rate of change and check against thresholds.
 
         On the first call (no history) always returns NORMAL —
-        no rate can be computed without a previous value.
+        no rate can be computed without a previous value. A zero interval keeps the
+        previous rate and reports NORMAL.
 
         Args:
             value: Current measurement (SI units).
@@ -248,11 +345,13 @@ class RateOfChangeLimiter:
             SafetyLevel: NORMAL, WARNING, or TRIP.
         """
         if self._prev_value is None or dt <= 0.0:
-            self._prev_value = value
+            if self._prev_value is None:
+                self._prev_value = value
             return SafetyLevel.NORMAL
 
         rate = abs(value - self._prev_value) / dt
         self._prev_value = value
+        self._last_rate = rate
 
         if rate >= self.trip_rate:
             return SafetyLevel.TRIP
@@ -263,6 +362,7 @@ class RateOfChangeLimiter:
     def reset(self) -> None:
         """Clear history (call after emergency stop or restart)."""
         self._prev_value = None
+        self._last_rate = None
 
 
 # ─── Emergency stop ───────────────────────────────────────────────────────────
@@ -272,14 +372,9 @@ class EmergencyStop:
     """
     Emergency stop state machine.
 
-    When triggered, the emergency stop:
-      1. Forces fuel valve to 0.0 (cuts all heat input immediately)
-      2. Forces steam valve to 1.0 (dumps steam to reduce pressure)
-      3. Locks the system — restart requires explicit operator reset()
-
-    The system cannot be restarted without calling reset() — this
-    prevents automatic restart after a trip, which is standard in
-    industrial safety systems (IEC 61511).
+    When triggered, the emergency stop latches: the unit is held in its trip state
+    and cannot restart until an explicit reset() — standard for industrial safety
+    systems (IEC 61511).
 
     Usage:
         estop = EmergencyStop()
@@ -384,7 +479,6 @@ class SafetyInterlock:
     Usage:
         interlock = SafetyInterlock()
 
-        # In the control loop, after controller.step():
         status = interlock.check(
             pressure=state.pressure,
             water_level=state.water_level,
@@ -394,8 +488,7 @@ class SafetyInterlock:
         )
 
         if not status.safe:
-            fuel_valve = status.fuel_valve_override   # 0.0
-            steam_valve = status.steam_valve_override  # 1.0
+            fuel_valve = status.fuel_valve_override   # 0.0 on a trip
     """
 
     def __init__(
@@ -404,11 +497,13 @@ class SafetyInterlock:
         water_level_limits: ParameterLimits = WATER_LEVEL_LIMITS,
         water_temp_limits: ParameterLimits = WATER_TEMP_LIMITS,
         flue_gas_temp_limits: ParameterLimits = FLUE_GAS_TEMP_LIMITS,
+        steam_temp_limits: ParameterLimits = STEAM_TEMP_LIMITS,
     ) -> None:
         self._pressure_limits = pressure_limits
         self._water_level_limits = water_level_limits
         self._water_temp_limits = water_temp_limits
         self._flue_gas_temp_limits = flue_gas_temp_limits
+        self._steam_temp_limits = steam_temp_limits
 
         self._pressure_rate = RateOfChangeLimiter(
             parameter="pressure_pa",
@@ -435,8 +530,13 @@ class SafetyInterlock:
 
     @property
     def trip_count(self) -> int:
-        """Total number of checks that resulted in TRIP."""
+        """Total number of trips, automatic or manual."""
         return self._trip_count
+
+    @property
+    def last_pressure_rate(self) -> float | None:
+        """Absolute drum pressure rate of change [Pa/s] from the latest check."""
+        return self._pressure_rate.last_rate
 
     # ─── Permissive check ─────────────────────────────────────────────────────
 
@@ -465,174 +565,170 @@ class SafetyInterlock:
         water_temp: float,
         flue_gas_temp: float,
         dt: float = 1.0,
+        *,
+        steam_temp: float | None = None,
+        arming: ArmingState = ALL_ARMED,
+        sensor_qualities: Mapping[str, int] | None = None,
     ) -> SafetyStatus:
         """
         Run one safety check cycle against all parameters.
 
-        If the emergency stop is already active, immediately returns
-        a TRIP status with overrides — no further evaluation needed.
+        If the emergency stop is already active, returns a TRIP status with the
+        overrides of the latched cause — no further evaluation is needed.
 
         Args:
-            pressure:      Drum pressure [Pa].
-            water_level:   Water level in drum [m].
-            water_temp:    Bulk water temperature [K].
-            flue_gas_temp: Flue gas temperature [K].
-            dt:            Time step since last call [s].
+            pressure:         Drum pressure [Pa].
+            water_level:      Water level in drum [m].
+            water_temp:       Bulk water temperature [K].
+            flue_gas_temp:    Flue gas temperature [K].
+            dt:               Time step since last call [s].
+            steam_temp:       Turbine inlet steam temperature [K], if measured.
+            arming:           Operating state arming state-dependent protections.
+            sensor_qualities: Instrument quality codes by sensor id.
 
         Returns:
             SafetyStatus with safe flag, worst level, events, and overrides.
         """
         self._check_count += 1
 
-        # If E-stop already active — return immediately
         if self.emergency_stop.is_active:
+            self._pressure_rate.check(pressure, dt)
+            overrides = trip_overrides(self.emergency_stop.trigger_event)
             return SafetyStatus(
                 safe=False,
                 level=SafetyLevel.TRIP,
-                fuel_valve_override=0.0,
-                steam_valve_override=1.0,
+                fuel_valve_override=overrides.fuel,
+                steam_valve_override=overrides.steam,
+                feedwater_valve_override=overrides.feedwater,
+                spray_valve_override=overrides.spray,
             )
 
         events: list[SafetyEvent] = []
-        worst_level = SafetyLevel.NORMAL
 
-        # ── Helper: evaluate one parameter ────────────────────────────────────
-        def _evaluate(
-            param_name: str,
+        def record(
+            parameter: str,
             value: float,
-            limits: ParameterLimits,
+            threshold: float,
             level: SafetyLevel,
         ) -> None:
-            nonlocal worst_level
-            if level == SafetyLevel.NORMAL:
-                return
-
-            # Determine which threshold was crossed
-            if level == SafetyLevel.TRIP:
-                threshold = (
-                    limits.trip_low if value < limits.warn_low else limits.trip_high
-                )
-                action = SafetyAction.EMERGENCY_STOP
-            else:
-                threshold = (
-                    limits.warn_low if value < limits.warn_low else limits.warn_high
-                )
-                action = SafetyAction.WARN
-
+            action = (
+                SafetyAction.EMERGENCY_STOP
+                if level is SafetyLevel.TRIP
+                else SafetyAction.WARN
+            )
             event = SafetyEvent(
                 timestamp_ms=int(time.time() * 1000),
-                parameter=param_name,
+                parameter=parameter,
                 value=value,
                 threshold=threshold,
                 level=level,
                 action=action,
             )
             events.append(event)
-
-            if level.value > worst_level.value:
-                worst_level = level
-
             logger.warning("Safety event: %s", event.to_dict())
 
+        def evaluate(
+            parameter: str,
+            value: float,
+            limits: ParameterLimits,
+            *,
+            low_armed: bool = True,
+            high_armed: bool = True,
+        ) -> None:
+            level = limits.check(value)
+            if level is SafetyLevel.NORMAL:
+                return
+            low_side = value <= limits.warn_low
+            if not (low_armed if low_side else high_armed):
+                return
+            if level is SafetyLevel.TRIP:
+                threshold = limits.trip_low if low_side else limits.trip_high
+            else:
+                threshold = limits.warn_low if low_side else limits.warn_high
+            record(parameter, value, threshold, level)
+
         # ── Check each parameter ──────────────────────────────────────────────
-        _evaluate(
-            "pressure_pa",
-            pressure,
-            self._pressure_limits,
-            self._pressure_limits.check(pressure),
+        evaluate(
+            "pressure_pa", pressure, self._pressure_limits, low_armed=arming.on_line
         )
-        _evaluate(
-            "water_level_m",
-            water_level,
-            self._water_level_limits,
-            self._water_level_limits.check(water_level),
-        )
-        _evaluate(
-            "water_temp_k",
-            water_temp,
-            self._water_temp_limits,
-            self._water_temp_limits.check(water_temp),
-        )
-        _evaluate(
+        evaluate("water_level_m", water_level, self._water_level_limits)
+        evaluate("water_temp_k", water_temp, self._water_temp_limits)
+        evaluate(
             "flue_gas_temp_k",
             flue_gas_temp,
             self._flue_gas_temp_limits,
-            self._flue_gas_temp_limits.check(flue_gas_temp),
+            low_armed=arming.firing_proven,
         )
+        if steam_temp is not None:
+            evaluate(
+                "steam_temp_k",
+                steam_temp,
+                self._steam_temp_limits,
+                high_armed=arming.on_line,
+            )
 
         # ── Rate-of-change check for pressure ─────────────────────────────────
         rate_level = self._pressure_rate.check(pressure, dt)
-        if rate_level != SafetyLevel.NORMAL:
-            rate = abs(pressure - (self._pressure_rate._prev_value or pressure))
-            threshold = (
+        if rate_level is not SafetyLevel.NORMAL:
+            record(
+                "pressure_rate_pa_s",
+                self._pressure_rate.last_rate or 0.0,
                 PRESSURE_RATE_TRIP
-                if rate_level == SafetyLevel.TRIP
-                else PRESSURE_RATE_WARN
+                if rate_level is SafetyLevel.TRIP
+                else PRESSURE_RATE_WARN,
+                rate_level,
             )
-            action = (
-                SafetyAction.EMERGENCY_STOP
-                if rate_level == SafetyLevel.TRIP
-                else SafetyAction.WARN
-            )
-            event = SafetyEvent(
-                timestamp_ms=int(time.time() * 1000),
-                parameter="pressure_rate_pa_s",
-                value=rate,
-                threshold=threshold,
-                level=rate_level,
-                action=action,
-            )
-            events.append(event)
-            if rate_level.value > worst_level.value:
-                worst_level = rate_level
-            logger.warning("Rate-of-change event: %s", event.to_dict())
+
+        # ── Instruments the unit cannot be protected without ──────────────────
+        for sensor in TRIP_SENSORS:
+            quality = (sensor_qualities or {}).get(sensor, 0)
+            if quality >= QUALITY_BAD:
+                record(f"{sensor}_quality", quality, QUALITY_BAD, SafetyLevel.TRIP)
+            elif quality >= QUALITY_UNCERTAIN:
+                record(
+                    f"{sensor}_quality", quality, QUALITY_UNCERTAIN, SafetyLevel.WARNING
+                )
 
         # ── Permissive: block fuel if drum is dry ─────────────────────────────
         if not self.fuel_permitted(water_level):
-            event = SafetyEvent(
-                timestamp_ms=int(time.time() * 1000),
-                parameter="fuel_permissive",
-                value=water_level,
-                threshold=self._water_level_limits.trip_low,
-                level=SafetyLevel.TRIP,
-                action=SafetyAction.EMERGENCY_STOP,
-            )
-            events.append(event)
-            worst_level = SafetyLevel.TRIP
-            logger.error(
-                "Fuel permissive DENIED — drum level too low: %s", event.to_dict()
+            record(
+                "fuel_permissive",
+                water_level,
+                self._water_level_limits.trip_low,
+                SafetyLevel.TRIP,
             )
 
         # ── Update counters and trigger E-stop if needed ──────────────────────
-        if worst_level == SafetyLevel.WARNING:
-            self._warning_count += 1
-
-        if worst_level == SafetyLevel.TRIP:
+        trips = [e for e in events if e.level is SafetyLevel.TRIP]
+        if trips:
             self._trip_count += 1
-            # Find the worst event to pass to emergency stop
-            trip_events = [e for e in events if e.level == SafetyLevel.TRIP]
-            if trip_events:
-                worst = trip_events[0]
-                self.emergency_stop.trigger(
-                    parameter=worst.parameter,
-                    value=worst.value,
-                    threshold=worst.threshold,
-                )
+            worst = trips[0]
+            event = self.emergency_stop.trigger(
+                parameter=worst.parameter,
+                value=worst.value,
+                threshold=worst.threshold,
+            )
+            overrides = trip_overrides(event)
             return SafetyStatus(
                 safe=False,
                 level=SafetyLevel.TRIP,
                 events=events,
-                fuel_valve_override=0.0,
-                steam_valve_override=1.0,
+                fuel_valve_override=overrides.fuel,
+                steam_valve_override=overrides.steam,
+                feedwater_valve_override=overrides.feedwater,
+                spray_valve_override=overrides.spray,
             )
 
-        return SafetyStatus(
-            safe=worst_level == SafetyLevel.NORMAL,
-            level=worst_level,
-            events=events,
-            fuel_valve_override=None,
-            steam_valve_override=None,
-        )
+        if events:
+            self._warning_count += 1
+            return SafetyStatus(safe=False, level=SafetyLevel.WARNING, events=events)
+
+        return SafetyStatus(safe=True, level=SafetyLevel.NORMAL)
+
+    def trip(self, parameter: str, value: float, threshold: float) -> SafetyEvent:
+        """Latch the E-Stop on request (a manual trip)."""
+        self._trip_count += 1
+        return self.emergency_stop.trigger(parameter, value, threshold)
 
     def reset(self, operator_id: str = "unknown") -> None:
         """
@@ -645,4 +741,8 @@ class SafetyInterlock:
             operator_id: Operator performing the reset (for audit log).
         """
         self.emergency_stop.reset(operator_id=operator_id)
+        self._pressure_rate.reset()
+
+    def reset_rate_history(self) -> None:
+        """Forget the previous pressure, e.g. when the plant jumps to a new run."""
         self._pressure_rate.reset()

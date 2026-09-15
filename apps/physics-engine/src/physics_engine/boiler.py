@@ -62,9 +62,18 @@ ODE_RTOL: float = 1e-4
 ODE_ATOL: float = 1e-6
 ODE_MAX_STEP: float = 5.0  # seconds
 
-# Flue gas thermal mass in furnace [kg] and Cp [J/(kg·K)]
-FURNACE_GAS_MASS: float = 5000.0
+# Flue gas inventory of the furnace [kg] — about 10 000 m³ at ~0.25 kg/m³ — and its Cp
+# [J/(kg·K)]. After a fuel trip this gas gives its heat to the water walls, so an
+# oversized inventory would make the drum pressure climb long after the flame is out.
+FURNACE_GAS_MASS: float = 2500.0
 FURNACE_GAS_CP: float = CP_FLUE_GAS
+
+# Spring-loaded drum safety valves: mechanical protection that acts without the PLC.
+# They start to lift at 172 bar and discharge their rated capacity at 178 bar, which
+# holds a boiler with the turbine isolated and a hot furnace below the 185 bar trip.
+SAFETY_VALVE_SET_PRESSURE: float = 172.0e5  # Pa
+SAFETY_VALVE_FULL_LIFT_PRESSURE: float = 178.0e5  # Pa
+SAFETY_VALVE_CAPACITY: float = 90.0  # kg/s
 
 # Pressure response time constant [s]: how fast drum pressure tracks the saturation
 # pressure of the water. It stands in for the steam-space dynamics the lumped drum
@@ -103,6 +112,7 @@ class BoilerBalance:
     drum_steam_flow: float  # kg/s — raised in the drum
     spray_flow: float  # kg/s — attemperator water
     leak_flow: float  # kg/s — steam lost through a leak
+    relief_flow: float  # kg/s — steam discharged by the drum safety valves
     feedwater_flow: float  # kg/s — into the drum
     furnace_to_water: float  # W
     superheater_heat: float  # W
@@ -256,6 +266,12 @@ class BoilerModel:
             self._feedwater_flow(controls.feedwater_valve.position, pump)
             * feed_headroom
         )
+        lift = (pressure - SAFETY_VALVE_SET_PRESSURE) / (
+            SAFETY_VALVE_FULL_LIFT_PRESSURE - SAFETY_VALVE_SET_PRESSURE
+        )
+        relief_flow = (
+            SAFETY_VALVE_CAPACITY * min(max(lift, 0.0), 1.0) * water_availability
+        )
 
         # ── Gas path ──────────────────────────────────────────────────────────
         q_walls = p.heat_transfer_coeff * (gas_temp - water_temp)
@@ -287,7 +303,7 @@ class BoilerModel:
 
         # ── Derivatives ───────────────────────────────────────────────────────
         q_drum = q_walls + bank.heat_transferred - q_loss
-        steam_out = drum_steam + leak_flow
+        steam_out = drum_steam + leak_flow + relief_flow
         du_dt = q_drum + feedwater * h_economizer_out - steam_out * h_vapor
         heat_capacity = water_mass * cp_water + p.storage_heat_capacity
         dt_water_dt = (
@@ -311,6 +327,7 @@ class BoilerModel:
             drum_steam_flow=drum_steam,
             spray_flow=spray_flow,
             leak_flow=leak_flow,
+            relief_flow=relief_flow,
             feedwater_flow=feedwater,
             furnace_to_water=q_walls,
             superheater_heat=sh.heat_transferred,

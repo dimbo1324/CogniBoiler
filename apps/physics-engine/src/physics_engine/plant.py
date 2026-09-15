@@ -81,6 +81,7 @@ class PlantFlows:
     turbine_steam: float
     spray: float
     leak: float
+    relief: float
 
 
 @dataclass(frozen=True)
@@ -402,6 +403,7 @@ class PlantSimulator:
                 turbine_steam=balance.turbine_steam_flow,
                 spray=balance.spray_flow,
                 leak=balance.leak_flow,
+                relief=balance.relief_flow,
             ),
             heat=PlantHeat(
                 heat_release=balance.heat_release,

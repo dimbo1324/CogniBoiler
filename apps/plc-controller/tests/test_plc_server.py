@@ -284,20 +284,15 @@ class TestPLCGrpc:
         after_ms = int(time.time() * 1000)
         assert before_ms <= ack.timestamp_ms <= after_ms + 100
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Known defect accepted by the owner on 2026-09-14: the nominal boiler "
-            "state is not an equilibrium at nominal valve positions and the pressure "
-            "PID is too slow to hold it. Tracked in docs/__arch__/ROADMAP.md."
-        ),
-    )
     @pytest.mark.asyncio
     async def test_auto_control_holds_nominal_state_for_ten_minutes_simulated(
         self,
     ) -> None:
         deadline = time.monotonic() + 10.0
-        while self.physics_runtime._sim_time < 600.0 and time.monotonic() < deadline:  # noqa: SLF001
+        while (
+            self.physics_runtime.snapshot.simulation_time_s < 600.0
+            and time.monotonic() < deadline
+        ):
             await asyncio.sleep(0.05)
 
         state = await self.physics_stub.GetSystemState(pb2.Empty())
