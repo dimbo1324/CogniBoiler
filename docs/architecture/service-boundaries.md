@@ -1,48 +1,39 @@
 # CogniBoiler Service Boundaries
 
-This document is the current source of truth for service ownership while Phase 3-5 logic is being split into stable microservice boundaries.
+Which service owns which responsibility. New logic goes to the owning service and is never
+duplicated across services. Invariants I1–I3 in `invariants.md` rest on this table.
 
-## Target split
+## Ownership
 
 | Service | Owns | Must not own |
 | --- | --- | --- |
-| `physics-engine` | Physical process state, integration step, live simulator runtime, MQTT telemetry publishing, `PhysicsService` gRPC state API | PID policy, operator auth, alarm routing |
-| `plc-controller` | PID loops, safety policy, validated operator commands, setpoints, command forwarding to physics | Canonical process state, HTTP/auth, telemetry storage |
-| `historian` | Time-series ingestion from telemetry and persistence to InfluxDB | Control decisions, alarm policy |
-| `opcua-server` | Projection of current process state to industrial clients | Control ownership, persistence |
-| `api-gateway` | Edge API, auth, RBAC, audit, client-facing orchestration | Physics integration step, PLC internals |
-| `alert-manager` | Alarm rules, deduplication, severity, notification fan-out | Physics state ownership, authentication |
+| `physics-engine` | Process state, the integration step, the live runtime, MQTT telemetry, `PhysicsService` | Control policy, operator auth, alarm routing |
+| `plc-controller` | Control intent: setpoints, AUTO/MANUAL/ESTOP, PID loops, safety interlocks, E-Stop latch, validated command forwarding, alarm publishing | Canonical process state, HTTP/auth, telemetry storage |
+| `alert-manager` | Alarm persistence, deduplication and (planned) lifecycle: acknowledge, return to normal | Process state, authentication, control |
+| `historian` | Time-series ingestion into InfluxDB | Control decisions, alarm policy |
+| `opcua-server` | Projection of live state to OPC UA clients | Control ownership (writes, when added, go through the PLC), persistence |
+| `api-gateway` | The edge for people: authentication, RBAC, audit, REST, WebSocket, orchestration of calls | The integration step, PLC internals, alarm state |
+| `web` (planned, `apps/web`) | Presentation: screens, unit conversion for display | Business rules, authorization decisions |
 
 ## Command and state flow
 
-1. `api-gateway` authenticates the caller and forwards a control request to `plc-controller`.
-2. `plc-controller` validates the command, applies PID/safety policy, and forwards the accepted command to `physics-engine`.
-3. `physics-engine` updates the live simulator state and exposes the resulting process snapshot through `PhysicsService`.
-4. `historian` and `opcua-server` consume state as downstream observers only.
-5. `alert-manager` evaluates alarms from state/telemetry; it never mutates the simulator.
+1. `api-gateway` authenticates and authorizes the caller, audits the request, and forwards a
+   control request to `plc-controller`.
+2. `plc-controller` validates it, applies the interlocks, and forwards the accepted command
+   to `physics-engine`.
+3. `physics-engine` applies it on the next step and exposes the resulting state through
+   `PhysicsService` and MQTT.
+4. `historian` and `opcua-server` consume telemetry as observers only.
+5. `plc-controller` publishes alarm events; `alert-manager` stores them. Nobody but the
+   physics engine mutates the simulator.
 
-## What stays where now
+## Recorded boundary debt
 
-- `physics-engine` remains the owner of:
-  - live boiler/turbine state
-  - physics integration and MQTT publishing
-  - the new `PhysicsService`
-- `plc-controller` remains the owner of:
-  - command validation
-  - setpoint storage
-  - forwarding accepted commands to `PhysicsService`
-- `historian`, `opcua-server`, `api-gateway`, and `alert-manager` keep their existing responsibilities unchanged.
+These cross the table above today. They are debt with a planned fix, not a pattern to copy —
+add no new cross-service imports.
 
-## What moves next
-
-- Move PID ownership from `apps/physics-engine/src/physics_engine/controller.py` into `plc-controller`.
-- Move protection ownership from `apps/physics-engine/src/physics_engine/safety.py` into `plc-controller`.
-- Replace `api-gateway` status/command stubs with real gRPC clients to `plc-controller` and `physics-engine`.
-- Add alarm evaluation and storage flow in `alert-manager`.
-
-## Non-negotiable rules
-
-- `physics-engine` is the single source of truth for live process state.
-- `plc-controller` is the single source of truth for control intent and setpoints.
-- Downstream services consume state; they do not rewrite it.
-- New logic must be added to the owning service, not duplicated across services.
+| Debt | Where | Planned fix |
+| --- | --- | --- |
+| PID and safety code live in `physics_engine.controller`, `physics_engine.pid` and `physics_engine.safety`, imported by the PLC | `apps/plc-controller/src/plc_controller/service.py` | move into `plc_controller` (roadmap S3) |
+| The gateway imports `alert_manager.models` and reads `alarm_events` directly | `apps/api-gateway/src/api_gateway/routers/alarms.py`, `db_init.py` | an `AlarmService` gRPC API owned by alert-manager (roadmap S4) |
+| `alarm_events` is created with `create_all` outside the Alembic chain | `apps/alert-manager/src/alert_manager/db.py` | one migration chain applied by a `migrate` job (roadmap S1/S4) |
