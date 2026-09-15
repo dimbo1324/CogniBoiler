@@ -1,0 +1,12 @@
+# Project-scoped Codex defaults for CogniBoiler.
+# Personal credentials, plugin authorization and machine-specific absolute paths belong
+# in ~/.codex/config.toml or .codex/config.local.toml, never in this repository.
+
+model = "gpt-5.5"
+model_reasoning_effort = "high"
+service_tier = "default"
+
+[agents]
+max_threads = 6
+max_depth = 1
+job_max_runtime_seconds = 3600
