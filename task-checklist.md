@@ -58,9 +58,11 @@ Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 + End-to-end smoke: 11/11 against the running stack, after fixing two causes of HTTP 500 on
   `/api/v1/history` and a broken historian log line found by the first run
 + Doctor script reports the toolchain; README quick start matches reality
-- CI workflow written (gate job + stack job with smoke) but never run: nothing was pushed
++ CI green on GitHub: run 34990048447 (gate + stack with smoke), pushed to
+  `feat/foundation-stack-and-agent-rules` because the `main` ruleset accepts pull requests only
 
 ## Completion
 
 + Checklist filled honestly with `+` and `-`
-- Final report in Russian; push only on the owner's command — the report is written, the push is not done
++ Final report in Russian; pushed on the owner's command to a branch — merging the pull
+  request into `main` is left to the owner
