@@ -20,6 +20,8 @@ repos:
         args: [--markdown-linebreak-ext=md]
       - id: end-of-file-fixer
       - id: check-yaml
+        # pnpm-lock.yaml is a multi-document YAML stream since pnpm 11.
+        args: [--allow-multiple-documents]
       - id: check-toml
       - id: check-merge-conflict
       - id: check-added-large-files

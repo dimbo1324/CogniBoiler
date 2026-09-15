@@ -425,7 +425,7 @@ pip-wheel-metadata/
 # SAFETY: общие кэш-директории (никогда не коммитить)
 # =========================
 **/.cache/
-**/node_modules/   # на случай mixed-проектов
+**/node_modules/
 helper.txt
 AGENTS.md
 # Key material is never committed; dev keys live in .env
