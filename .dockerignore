@@ -1,11 +1,27 @@
 .git
-.gitignore
+.venv
+**/__pycache__
+**/*.py[cod]
 .pytest_cache
 .mypy_cache
 .ruff_cache
 htmlcov
-.venv
-__pycache__
-*.pyc
-*.pyo
-*.pyd
+.coverage
+
+# Secrets never enter an image; services receive them from Compose.
+.env
+certs
+
+# Not needed by the Python services
+**/node_modules
+apps/web
+apps/ai-predictor
+ml
+docs
+.ai
+.claude
+.codex
+.github
+AGENTS.md
+CLAUDE.md
+task-checklist.md

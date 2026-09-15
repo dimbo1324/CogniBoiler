@@ -1,0 +1,16 @@
+{
+  "_comment": "Users are the demo accounts the gateway seeds from DEMO_*_PASSWORD. The setpoints are the PLC defaults, so the one write this check makes changes nothing.",
+  "base_url": "http://localhost:8000",
+  "env_file": ".env",
+  "history_wait_s": 60,
+  "users": {
+    "admin": { "username": "admin", "password_env": "DEMO_ADMIN_PASSWORD" },
+    "engineer": { "username": "engineer", "password_env": "DEMO_ENGINEER_PASSWORD" },
+    "operator": { "username": "operator", "password_env": "DEMO_OPERATOR_PASSWORD" }
+  },
+  "nominal_setpoints": {
+    "pressure_pa": 14000000.0,
+    "water_level_m": 4.8,
+    "steam_temp_k": 811.0
+  }
+}

@@ -1,5 +1,6 @@
 apiVersion: 1
 
+# Values come from the Grafana container's environment, which Compose fills from .env.
 datasources:
   - name: InfluxDB
     type: influxdb
@@ -8,9 +9,9 @@ datasources:
     isDefault: true
     jsonData:
       version: Flux
-      organization: cogniboiler
-      defaultBucket: sensors
+      organization: ${INFLUXDB_ORG}
+      defaultBucket: ${INFLUXDB_BUCKET}
       tlsSkipVerify: true
     secureJsonData:
-      token: cogniboiler-dev-token
+      token: ${INFLUXDB_ADMIN_TOKEN}
     editable: true

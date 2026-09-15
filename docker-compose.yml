@@ -1,10 +1,23 @@
+# The whole platform on one machine. Secrets come from .env, created by:
+#   python dev_tools_scripts_runner.py dev-secrets
+# Start with:  python dev_tools_scripts_runner.py stack up
+# InfluxDB and PostgreSQL read their credentials only on first start: after regenerating
+# secrets, recreate the volumes with `stack down --volumes`.
+name: cogniboiler
+
+x-python-service: &python-service
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: cogniboiler/services:dev
+  restart: unless-stopped
+
 services:
   mosquitto:
     image: eclipse-mosquitto:2.0
-    container_name: cogniboiler-mosquitto
     ports:
-      - "1883:1883"
-      - "9001:9001"
+      - "127.0.0.1:1883:1883"
+      - "127.0.0.1:9001:9001"
     volumes:
       - ./infrastructure/docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mosquitto_data:/mosquitto/data
@@ -14,20 +27,19 @@ services:
       test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-i", "healthcheck", "-W", "3"]
       interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 5
 
   influxdb:
     image: influxdb:2.7
-    container_name: cogniboiler-influxdb
     ports:
-      - "8086:8086"
+      - "127.0.0.1:8086:8086"
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
-      DOCKER_INFLUXDB_INIT_USERNAME: cogniboiler
-      DOCKER_INFLUXDB_INIT_PASSWORD: cogniboiler123
-      DOCKER_INFLUXDB_INIT_ORG: cogniboiler
-      DOCKER_INFLUXDB_INIT_BUCKET: sensors
-      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: cogniboiler-dev-token
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_ADMIN_USER:?run dev-secrets}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_ADMIN_PASSWORD:?run dev-secrets}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_ORG:?run dev-secrets}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_BUCKET:?run dev-secrets}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_ADMIN_TOKEN:?run dev-secrets}
       DOCKER_INFLUXDB_INIT_RETENTION: 90d
     volumes:
       - influxdb_data:/var/lib/influxdb2
@@ -41,155 +53,32 @@ services:
 
   postgresql:
     image: postgres:16-alpine
-    container_name: cogniboiler-postgresql
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     environment:
-      POSTGRES_USER: cogniboiler
-      POSTGRES_PASSWORD: cogniboiler
-      POSTGRES_DB: cogniboiler
+      POSTGRES_USER: ${POSTGRES_USER:?run dev-secrets}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run dev-secrets}
+      POSTGRES_DB: ${POSTGRES_DB:?run dev-secrets}
     volumes:
       - postgresql_data:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cogniboiler"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  physics-engine:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: cogniboiler-physics
-    command: >
-      uv run --package physics-engine python -m physics_engine
-      --mqtt-host mosquitto
-      --grpc-port 50052
-    depends_on:
-      mosquitto:
-        condition: service_healthy
-    restart: unless-stopped
-
-  plc-controller:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: cogniboiler-plc
-    command: >
-      uv run --package plc-controller python -m plc_controller
-      --physics-target physics-engine:50052
-      --mqtt-host mosquitto
-      --mqtt-port 1883
-      --port 50051
-    depends_on:
-      mosquitto:
-        condition: service_healthy
-      physics-engine:
-        condition: service_started
-    restart: unless-stopped
-
-  historian:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: cogniboiler-historian
-    command: >
-      uv run --package historian python -m historian
-      --mqtt-host mosquitto
-      --influx-url http://influxdb:8086
-      --influx-token cogniboiler-dev-token
-      --influx-org cogniboiler
-      --influx-bucket sensors
-      --batch-size 50
-      --flush-interval-s 2.0
-    depends_on:
-      mosquitto:
-        condition: service_healthy
-      influxdb:
-        condition: service_healthy
-    restart: unless-stopped
-
-  alert-manager:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: cogniboiler-alert-manager
-    command: >
-      uv run --package alert-manager python -m alert_manager
-      --mqtt-host mosquitto
-      --mqtt-port 1883
-    environment:
-      ALERT_MANAGER_DATABASE_URL: postgresql+asyncpg://cogniboiler:cogniboiler@postgresql:5432/cogniboiler
-    depends_on:
-      mosquitto:
-        condition: service_healthy
-      postgresql:
-        condition: service_healthy
-    restart: unless-stopped
-
-  opcua-server:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: cogniboiler-opcua
-    command: >
-      uv run --package opcua-server python -m opcua_server
-      --mqtt-host mosquitto
-      --plc-target plc-controller:50051
-      --opc-port 4840
-    ports:
-      - "4840:4840"
-    depends_on:
-      mosquitto:
-        condition: service_healthy
-      plc-controller:
-        condition: service_started
-    restart: unless-stopped
-
-  api-gateway:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: cogniboiler-api
-    command: >
-      uv run --package api-gateway uvicorn api_gateway.main:app
-      --host 0.0.0.0
-      --port 8000
-    environment:
-      DATABASE_URL: postgresql+asyncpg://cogniboiler:cogniboiler@postgresql:5432/cogniboiler
-      AUTO_INIT_DB: "true"
-      PHYSICS_GRPC_TARGET: physics-engine:50052
-      PLC_GRPC_TARGET: plc-controller:50051
-      INFLUX_URL: http://influxdb:8086
-      INFLUX_TOKEN: cogniboiler-dev-token
-      INFLUX_ORG: cogniboiler
-      INFLUX_BUCKET: sensors
-    depends_on:
-      postgresql:
-        condition: service_healthy
-      influxdb:
-        condition: service_healthy
-      physics-engine:
-        condition: service_started
-      plc-controller:
-        condition: service_started
-      alert-manager:
-        condition: service_started
-    ports:
-      - "8000:8000"
-    restart: unless-stopped
-
   grafana:
     image: grafana/grafana:10.4.0
-    container_name: cogniboiler-grafana
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
-      GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: cogniboiler
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?run dev-secrets}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?run dev-secrets}
       GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_DATASOURCES_DEFAULT_NAME: InfluxDB
+      INFLUXDB_ORG: ${INFLUXDB_ORG:?run dev-secrets}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:?run dev-secrets}
+      INFLUXDB_ADMIN_TOKEN: ${INFLUXDB_ADMIN_TOKEN:?run dev-secrets}
     volumes:
       - grafana_data:/var/lib/grafana
       - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -199,10 +88,123 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000/api/health"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  migrate:
+    <<: *python-service
+    command: ["python", "-m", "alembic", "-c", "apps/api-gateway/alembic.ini", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:?run dev-secrets}:${POSTGRES_PASSWORD:?run dev-secrets}@postgresql:5432/${POSTGRES_DB:?run dev-secrets}
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    restart: "no"
+
+  physics-engine:
+    <<: *python-service
+    command: ["python", "-m", "physics_engine", "--mqtt-host", "mosquitto", "--grpc-port", "50052"]
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import grpc, cogniboiler_pb2 as p, cogniboiler_pb2_grpc as g; g.PhysicsServiceStub(grpc.insecure_channel('localhost:50052')).Health(p.Empty(), timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  plc-controller:
+    <<: *python-service
+    command: ["python", "-m", "plc_controller", "--port", "50051", "--physics-target", "physics-engine:50052", "--mqtt-host", "mosquitto", "--mqtt-port", "1883"]
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      physics-engine:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import grpc, cogniboiler_pb2 as p, cogniboiler_pb2_grpc as g; g.PLCServiceStub(grpc.insecure_channel('localhost:50051')).Health(p.Empty(), timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  historian:
+    <<: *python-service
+    command: ["python", "-m", "historian", "--mqtt-host", "mosquitto", "--influx-url", "http://influxdb:8086", "--influx-token", "${INFLUXDB_ADMIN_TOKEN:?run dev-secrets}", "--influx-org", "${INFLUXDB_ORG:?run dev-secrets}", "--influx-bucket", "${INFLUXDB_BUCKET:?run dev-secrets}", "--batch-size", "50", "--flush-interval-s", "2.0"]
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+
+  alert-manager:
+    <<: *python-service
+    command: ["python", "-m", "alert_manager", "--mqtt-host", "mosquitto", "--mqtt-port", "1883"]
+    environment:
+      ALERT_MANAGER_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:?run dev-secrets}:${POSTGRES_PASSWORD:?run dev-secrets}@postgresql:5432/${POSTGRES_DB:?run dev-secrets}
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  opcua-server:
+    <<: *python-service
+    command: ["python", "-m", "opcua_server", "--mqtt-host", "mosquitto", "--plc-target", "plc-controller:50051", "--opc-port", "4840"]
+    ports:
+      - "127.0.0.1:4840:4840"
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      plc-controller:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('localhost', 4840), timeout=3).close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  api-gateway:
+    <<: *python-service
+    command: ["python", "-m", "uvicorn", "api_gateway.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:?run dev-secrets}:${POSTGRES_PASSWORD:?run dev-secrets}@postgresql:5432/${POSTGRES_DB:?run dev-secrets}
+      AUTO_INIT_DB: "true"
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:?run dev-secrets}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:?run dev-secrets}
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:?run dev-secrets}
+      DEMO_ENGINEER_PASSWORD: ${DEMO_ENGINEER_PASSWORD:?run dev-secrets}
+      DEMO_OPERATOR_PASSWORD: ${DEMO_OPERATOR_PASSWORD:?run dev-secrets}
+      DEMO_VIEWER_PASSWORD: ${DEMO_VIEWER_PASSWORD:?run dev-secrets}
+      PHYSICS_GRPC_TARGET: physics-engine:50052
+      PLC_GRPC_TARGET: plc-controller:50051
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_TOKEN: ${INFLUXDB_ADMIN_TOKEN:?run dev-secrets}
+      INFLUX_ORG: ${INFLUXDB_ORG:?run dev-secrets}
+      INFLUX_BUCKET: ${INFLUXDB_BUCKET:?run dev-secrets}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      influxdb:
+        condition: service_healthy
+      physics-engine:
+        condition: service_healthy
+      plc-controller:
+        condition: service_healthy
+      alert-manager:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
 volumes:
   mosquitto_data:

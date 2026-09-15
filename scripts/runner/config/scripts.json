@@ -105,6 +105,26 @@
     "examples": []
   },
   {
+    "title": "smoke",
+    "module": "scripts.smoke",
+    "category": "platform",
+    "aliases": [
+      "e2e"
+    ],
+    "cadence_ref": "on_demand",
+    "summary": {
+      "en": "Check a running stack end to end through the API gateway.",
+      "ru": "Проверить поднятый стек сквозным прогоном через API-шлюз."
+    },
+    "description": {
+      "en": "Logs in as the demo admin, engineer and operator with passwords from .env, then proves each data path: gateway health, live state through physics-engine gRPC, a nominal setpoint accepted by plc-controller gRPC, role refusals for an anonymous caller and for an operator changing setpoints, alarm events from PostgreSQL, telemetry history from InfluxDB (waiting up to a minute for the first points), and request entries in the audit log. Every check runs even after one fails. The only write is a setpoint update with the PLC's own nominal values.",
+      "ru": "Входит как демо-пользователи admin, engineer и operator с паролями из .env и проверяет каждый путь данных: здоровье шлюза, живое состояние через gRPC physics-engine, номинальную уставку, принятую gRPC plc-controller, отказы по ролям для анонимного вызова и для оператора, меняющего уставки, события тревог из PostgreSQL, историю телеметрии из InfluxDB (ждёт первые точки до минуты) и записи в журнале аудита. Все проверки выполняются, даже если одна упала. Единственная запись — уставка с номинальными значениями самого ПЛК."
+    },
+    "examples": [
+      "--base-url http://localhost:8000"
+    ]
+  },
+  {
     "title": "generate-proto",
     "module": "scripts.generate_proto",
     "category": "platform",
