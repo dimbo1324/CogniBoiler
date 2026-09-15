@@ -18,6 +18,7 @@ Isentropic efficiency η_is accounts for:
 """
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 from physics_engine import steam_tables
 from physics_engine.constants import (
@@ -47,6 +48,12 @@ TURBINE_MIN_STEAM_FLOW: float = 10.0  # kg/s
 # Nominal steam inlet conditions (matches boiler superheater output)
 TURBINE_NOMINAL_INLET_PRESSURE: float = PRESSURE_NOMINAL  # 140 bar
 TURBINE_NOMINAL_INLET_TEMP: float = TEMP_STEAM_NOMINAL  # 825.65 K / 552.5°C
+
+# Expansions are cached on inputs rounded to these resolutions: far below what the
+# plant can resolve, coarse enough that a steady operating point is computed once.
+_ENTHALPY_RESOLUTION: float = 100.0  # J/kg
+_INLET_PRESSURE_RESOLUTION: float = 1_000.0  # Pa
+_EXHAUST_PRESSURE_RESOLUTION: float = 10.0  # Pa
 
 
 @dataclass
@@ -108,6 +115,60 @@ class TurbineParameters:
     nominal_inlet_temp: float = TURBINE_NOMINAL_INLET_TEMP  # K
 
 
+@dataclass(frozen=True)
+class _Expansion:
+    """Specific quantities of one expansion, independent of mass flow."""
+
+    temp_in: float
+    entropy_in: float
+    enthalpy_out_isentropic: float
+    specific_work_ideal: float
+    specific_work_actual: float
+    enthalpy_out_actual: float
+    exhaust_temp: float
+
+
+def _expand(
+    enthalpy_in: float,
+    entropy_in: float,
+    temp_in: float,
+    exhaust_pressure: float,
+    isentropic_efficiency: float,
+) -> _Expansion:
+    h_out_isentropic = steam_tables.isentropic_enthalpy(entropy_in, exhaust_pressure)
+    # η_is < 1 means less work extracted, so h_out_actual > h_out_isentropic
+    w_ideal = max(enthalpy_in - h_out_isentropic, 0.0)
+    w_actual = isentropic_efficiency * w_ideal
+    h_out_actual = enthalpy_in - w_actual
+    return _Expansion(
+        temp_in=temp_in,
+        entropy_in=entropy_in,
+        enthalpy_out_isentropic=h_out_isentropic,
+        specific_work_ideal=w_ideal,
+        specific_work_actual=w_actual,
+        enthalpy_out_actual=h_out_actual,
+        exhaust_temp=steam_tables.exhaust_temp(h_out_actual, exhaust_pressure),
+    )
+
+
+@lru_cache(maxsize=4096)
+def _cached_expansion_from_enthalpy(
+    enthalpy_key: int,
+    pressure_key: int,
+    exhaust_key: int,
+    isentropic_efficiency: float,
+) -> _Expansion:
+    enthalpy_in = enthalpy_key * _ENTHALPY_RESOLUTION
+    pressure_in = pressure_key * _INLET_PRESSURE_RESOLUTION
+    exhaust_pressure = exhaust_key * _EXHAUST_PRESSURE_RESOLUTION
+    temp_in, entropy_in = steam_tables.steam_state_from_enthalpy(
+        enthalpy_in, pressure_in
+    )
+    return _expand(
+        enthalpy_in, entropy_in, temp_in, exhaust_pressure, isentropic_efficiency
+    )
+
+
 class TurbineModel:
     """
     Isentropic expansion model of a steam turbine.
@@ -136,6 +197,7 @@ class TurbineModel:
         steam_temp_in: float,
         steam_pressure_in: float,
         steam_flow: float,
+        exhaust_pressure: float | None = None,
     ) -> TurbineState:
         """
         Calculate turbine performance at given inlet conditions.
@@ -144,72 +206,92 @@ class TurbineModel:
             steam_temp_in:      Steam temperature at turbine inlet [K].
             steam_pressure_in:  Steam pressure at turbine inlet [Pa].
             steam_flow:         Steam mass flow rate [kg/s].
+            exhaust_pressure:   Condenser pressure [Pa]; the design value if None.
 
         Returns:
             TurbineState with all calculated thermodynamic quantities.
         """
-        p_out = self.params.exhaust_pressure
+        p_out = (
+            exhaust_pressure
+            if exhaust_pressure is not None
+            else self.params.exhaust_pressure
+        )
+        h_in = steam_tables.steam_enthalpy(steam_temp_in, steam_pressure_in)
+        s_in = steam_tables.steam_entropy(steam_temp_in, steam_pressure_in)
+        expansion = _expand(
+            h_in, s_in, steam_temp_in, p_out, self.params.isentropic_efficiency
+        )
+        return self._state(expansion, h_in, steam_pressure_in, steam_flow, p_out)
 
+    def calculate_from_enthalpy(
+        self,
+        enthalpy_in: float,
+        steam_pressure_in: float,
+        steam_flow: float,
+        exhaust_pressure: float | None = None,
+    ) -> TurbineState:
+        """
+        Turbine performance for an inlet state given by enthalpy and pressure.
+
+        This is the path the plant uses: spray water mixed into the superheated steam
+        fixes the inlet enthalpy. Expansions are cached, so a steady operating point
+        costs no IAPWS-IF97 evaluation after the first step.
+        """
+        p_out = (
+            exhaust_pressure
+            if exhaust_pressure is not None
+            else self.params.exhaust_pressure
+        )
+        expansion = _cached_expansion_from_enthalpy(
+            round(enthalpy_in / _ENTHALPY_RESOLUTION),
+            round(steam_pressure_in / _INLET_PRESSURE_RESOLUTION),
+            round(p_out / _EXHAUST_PRESSURE_RESOLUTION),
+            self.params.isentropic_efficiency,
+        )
+        return self._state(expansion, enthalpy_in, steam_pressure_in, steam_flow, p_out)
+
+    def _state(
+        self,
+        expansion: _Expansion,
+        enthalpy_in: float,
+        pressure_in: float,
+        steam_flow: float,
+        exhaust_pressure: float,
+    ) -> TurbineState:
         # ── Turbine offline — no steam flow ───────────────────────────────────
         if steam_flow < self.params.min_steam_flow:
-            h_in = steam_tables.steam_enthalpy(steam_temp_in, steam_pressure_in)
-            s_in = steam_tables.steam_entropy(steam_temp_in, steam_pressure_in)
-            h_out_is = steam_tables.isentropic_enthalpy(s_in, p_out)
             return TurbineState(
-                steam_temp_in=steam_temp_in,
-                steam_pressure_in=steam_pressure_in,
+                steam_temp_in=expansion.temp_in,
+                steam_pressure_in=pressure_in,
                 steam_flow=0.0,
-                enthalpy_in=h_in,
-                entropy_in=s_in,
-                enthalpy_out_isentropic=h_out_is,
-                enthalpy_out_actual=h_in,  # no expansion — outlet = inlet
+                enthalpy_in=enthalpy_in,
+                entropy_in=expansion.entropy_in,
+                enthalpy_out_isentropic=expansion.enthalpy_out_isentropic,
+                enthalpy_out_actual=enthalpy_in,  # no expansion — outlet = inlet
                 specific_work_ideal=0.0,
                 specific_work_actual=0.0,
                 shaft_power=0.0,
                 electrical_power=0.0,
-                exhaust_pressure=p_out,
-                exhaust_temp=steam_temp_in,
+                exhaust_pressure=exhaust_pressure,
+                exhaust_temp=expansion.temp_in,
                 isentropic_efficiency=self.params.isentropic_efficiency,
             )
 
-        # ── Inlet thermodynamic state ─────────────────────────────────────────
-        h_in = steam_tables.steam_enthalpy(steam_temp_in, steam_pressure_in)
-        s_in = steam_tables.steam_entropy(steam_temp_in, steam_pressure_in)
-
-        # ── Isentropic outlet enthalpy ────────────────────────────────────────
-        # h at (s=s_in, P=P_out) — the ideal expansion endpoint
-        h_out_isentropic = steam_tables.isentropic_enthalpy(s_in, p_out)
-
-        # ── Actual outlet enthalpy ────────────────────────────────────────────
-        # η_is < 1 means less work extracted, so h_out_actual > h_out_isentropic
-        w_ideal = h_in - h_out_isentropic
-        w_ideal = max(w_ideal, 0.0)  # cannot extract negative work
-
-        w_actual = self.params.isentropic_efficiency * w_ideal
-        h_out_actual = h_in - w_actual
-
-        # ── Power ─────────────────────────────────────────────────────────────
-        p_shaft = steam_flow * w_actual
-        p_electrical = p_shaft * self.params.mechanical_efficiency
-
-        # ── Exhaust temperature ───────────────────────────────────────────────
-        # Find T at (h=h_out_actual, P=P_out) via IAPWS-IF97
-        t_exhaust = steam_tables.exhaust_temp(h_out_actual, p_out)
-
+        p_shaft = steam_flow * expansion.specific_work_actual
         return TurbineState(
-            steam_temp_in=steam_temp_in,
-            steam_pressure_in=steam_pressure_in,
+            steam_temp_in=expansion.temp_in,
+            steam_pressure_in=pressure_in,
             steam_flow=steam_flow,
-            enthalpy_in=h_in,
-            entropy_in=s_in,
-            enthalpy_out_isentropic=h_out_isentropic,
-            enthalpy_out_actual=h_out_actual,
-            specific_work_ideal=w_ideal,
-            specific_work_actual=w_actual,
+            enthalpy_in=enthalpy_in,
+            entropy_in=expansion.entropy_in,
+            enthalpy_out_isentropic=expansion.enthalpy_out_isentropic,
+            enthalpy_out_actual=expansion.enthalpy_out_actual,
+            specific_work_ideal=expansion.specific_work_ideal,
+            specific_work_actual=expansion.specific_work_actual,
             shaft_power=p_shaft,
-            electrical_power=p_electrical,
-            exhaust_pressure=p_out,
-            exhaust_temp=t_exhaust,
+            electrical_power=p_shaft * self.params.mechanical_efficiency,
+            exhaust_pressure=exhaust_pressure,
+            exhaust_temp=expansion.exhaust_temp,
             isentropic_efficiency=self.params.isentropic_efficiency,
         )
 

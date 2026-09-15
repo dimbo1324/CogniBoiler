@@ -25,8 +25,6 @@ from dataclasses import dataclass
 
 # ─── Physical constants ───────────────────────────────────────────────────────
 
-R_GAS: float = 8.314  # J/(mol·K) — universal gas constant
-
 # Natural gas (≈ 90% CH4) stoichiometric combustion:
 #   CH4 + 2 O2 → CO2 + 2 H2O
 #   M_CH4 = 16 g/mol,  M_CO2 = 44 g/mol  →  2.75 kg CO2 / kg fuel
@@ -37,17 +35,18 @@ CO2_EMISSION_FACTOR: float = 2.75  # kg CO2 / kg natural gas
 # The extended Zeldovich mechanism gives:
 #   d[NO]/dt = 2·k1·[O]·[N2]  (rate-limiting step)
 #
-# Simplified emission index form used here:
-#   EI_NOx [kg/kg_fuel] = A · exp(−Ea / (R · T_flame))
+# k1 = 1.8e14 · exp(−38 370 / T), so the emission index follows an activation
+# *temperature*, not an activation energy divided by R:
+#   EI_NOx [kg/kg_fuel] = A · exp(−T_a / T_flame)
 #
-# Calibration to real power-plant data:
-#   T_flame = 1 500 K  →  EI ≈ 0.0003  (≈ 10 ppmv @ 3% O2)
-#   T_flame = 1 700 K  →  EI ≈ 0.0015  (≈ 50 ppmv)
-#   T_flame = 2 000 K  →  EI ≈ 0.020   (≈ 650 ppmv — very high, burner design issue)
-#
-# Modern low-NOx gas burners achieve 30–80 ppmv at design load.
-NOX_PRE_EXP: float = 2.8e6  # kg NOx / kg fuel (pre-exponential factor)
-NOX_ACTIVATION_ENERGY: float = 38_500.0  # J/mol  (E_a for Zeldovich)
+# A is calibrated to a low-NOx gas burner: a 1 700 K flame zone gives 1.5 g NOx per kg
+# of fuel (≈ 45 ppmv). The same law gives ≈ 0.07 g/kg at 1 500 K and ≈ 16 g/kg at 1 900 K.
+NOX_ACTIVATION_TEMPERATURE: float = 38_370.0  # K
+NOX_CALIBRATION_TEMP: float = 1_700.0  # K
+NOX_CALIBRATION_EI: float = 0.0015  # kg NOx / kg fuel at the calibration temperature
+NOX_PRE_EXP: float = NOX_CALIBRATION_EI / math.exp(
+    -NOX_ACTIVATION_TEMPERATURE / NOX_CALIBRATION_TEMP
+)
 
 # ── CO from incomplete combustion ─────────────────────────────────────────────
 CO_BASE_EI: float = 0.0003  # kg CO / kg fuel at λ = 1.10 (design point)
@@ -159,11 +158,9 @@ class EmissionsCalculator:
         co2_rate = fuel_flow * CO2_EMISSION_FACTOR
 
         # ── Thermal NOx via Zeldovich ──────────────────────────────────────────
-        # EI [kg/kg_fuel] = NOX_PRE_EXP · exp(−Ea / (R·T_flame))
+        # EI [kg/kg_fuel] = NOX_PRE_EXP · exp(−T_a / T_flame)
         t_clamped = max(1000.0, min(flame_temp, 2200.0))
-        ei_nox_base = NOX_PRE_EXP * math.exp(
-            -NOX_ACTIVATION_ENERGY / (R_GAS * t_clamped)
-        )
+        ei_nox_base = NOX_PRE_EXP * math.exp(-NOX_ACTIVATION_TEMPERATURE / t_clamped)
 
         # Excess air correction:
         #   Fuel-rich (λ < 1):  less O2 available → lower NOx

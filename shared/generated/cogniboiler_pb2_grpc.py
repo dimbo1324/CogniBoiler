@@ -394,6 +394,51 @@ class PhysicsServiceStub(object):
                 request_serializer=cogniboiler__pb2.ControlCommandMsg.SerializeToString,
                 response_deserializer=cogniboiler__pb2.CommandAck.FromString,
                 _registered_method=True)
+        self.GetSimulationStatus = channel.unary_unary(
+                '/cogniboiler.PhysicsService/GetSimulationStatus',
+                request_serializer=cogniboiler__pb2.Empty.SerializeToString,
+                response_deserializer=cogniboiler__pb2.SimulationStatusMsg.FromString,
+                _registered_method=True)
+        self.PauseSimulation = channel.unary_unary(
+                '/cogniboiler.PhysicsService/PauseSimulation',
+                request_serializer=cogniboiler__pb2.SimulationControlRequest.SerializeToString,
+                response_deserializer=cogniboiler__pb2.SimulationAck.FromString,
+                _registered_method=True)
+        self.ResumeSimulation = channel.unary_unary(
+                '/cogniboiler.PhysicsService/ResumeSimulation',
+                request_serializer=cogniboiler__pb2.SimulationControlRequest.SerializeToString,
+                response_deserializer=cogniboiler__pb2.SimulationAck.FromString,
+                _registered_method=True)
+        self.SetSimulationSpeed = channel.unary_unary(
+                '/cogniboiler.PhysicsService/SetSimulationSpeed',
+                request_serializer=cogniboiler__pb2.SimulationSpeedRequest.SerializeToString,
+                response_deserializer=cogniboiler__pb2.SimulationAck.FromString,
+                _registered_method=True)
+        self.StepSimulation = channel.unary_unary(
+                '/cogniboiler.PhysicsService/StepSimulation',
+                request_serializer=cogniboiler__pb2.StepRequest.SerializeToString,
+                response_deserializer=cogniboiler__pb2.SimulationAck.FromString,
+                _registered_method=True)
+        self.ListScenarios = channel.unary_unary(
+                '/cogniboiler.PhysicsService/ListScenarios',
+                request_serializer=cogniboiler__pb2.Empty.SerializeToString,
+                response_deserializer=cogniboiler__pb2.ScenarioListMsg.FromString,
+                _registered_method=True)
+        self.LoadScenario = channel.unary_unary(
+                '/cogniboiler.PhysicsService/LoadScenario',
+                request_serializer=cogniboiler__pb2.ScenarioRequest.SerializeToString,
+                response_deserializer=cogniboiler__pb2.SimulationAck.FromString,
+                _registered_method=True)
+        self.InjectFault = channel.unary_unary(
+                '/cogniboiler.PhysicsService/InjectFault',
+                request_serializer=cogniboiler__pb2.FaultRequest.SerializeToString,
+                response_deserializer=cogniboiler__pb2.FaultAck.FromString,
+                _registered_method=True)
+        self.ClearFault = channel.unary_unary(
+                '/cogniboiler.PhysicsService/ClearFault',
+                request_serializer=cogniboiler__pb2.FaultClearRequest.SerializeToString,
+                response_deserializer=cogniboiler__pb2.FaultAck.FromString,
+                _registered_method=True)
 
 
 class PhysicsServiceServicer(object):
@@ -424,6 +469,60 @@ class PhysicsServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetSimulationStatus(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def PauseSimulation(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ResumeSimulation(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SetSimulationSpeed(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StepSimulation(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListScenarios(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def LoadScenario(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def InjectFault(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ClearFault(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_PhysicsServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -446,6 +545,51 @@ def add_PhysicsServiceServicer_to_server(servicer, server):
                     servicer.ApplyControlCommand,
                     request_deserializer=cogniboiler__pb2.ControlCommandMsg.FromString,
                     response_serializer=cogniboiler__pb2.CommandAck.SerializeToString,
+            ),
+            'GetSimulationStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetSimulationStatus,
+                    request_deserializer=cogniboiler__pb2.Empty.FromString,
+                    response_serializer=cogniboiler__pb2.SimulationStatusMsg.SerializeToString,
+            ),
+            'PauseSimulation': grpc.unary_unary_rpc_method_handler(
+                    servicer.PauseSimulation,
+                    request_deserializer=cogniboiler__pb2.SimulationControlRequest.FromString,
+                    response_serializer=cogniboiler__pb2.SimulationAck.SerializeToString,
+            ),
+            'ResumeSimulation': grpc.unary_unary_rpc_method_handler(
+                    servicer.ResumeSimulation,
+                    request_deserializer=cogniboiler__pb2.SimulationControlRequest.FromString,
+                    response_serializer=cogniboiler__pb2.SimulationAck.SerializeToString,
+            ),
+            'SetSimulationSpeed': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetSimulationSpeed,
+                    request_deserializer=cogniboiler__pb2.SimulationSpeedRequest.FromString,
+                    response_serializer=cogniboiler__pb2.SimulationAck.SerializeToString,
+            ),
+            'StepSimulation': grpc.unary_unary_rpc_method_handler(
+                    servicer.StepSimulation,
+                    request_deserializer=cogniboiler__pb2.StepRequest.FromString,
+                    response_serializer=cogniboiler__pb2.SimulationAck.SerializeToString,
+            ),
+            'ListScenarios': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListScenarios,
+                    request_deserializer=cogniboiler__pb2.Empty.FromString,
+                    response_serializer=cogniboiler__pb2.ScenarioListMsg.SerializeToString,
+            ),
+            'LoadScenario': grpc.unary_unary_rpc_method_handler(
+                    servicer.LoadScenario,
+                    request_deserializer=cogniboiler__pb2.ScenarioRequest.FromString,
+                    response_serializer=cogniboiler__pb2.SimulationAck.SerializeToString,
+            ),
+            'InjectFault': grpc.unary_unary_rpc_method_handler(
+                    servicer.InjectFault,
+                    request_deserializer=cogniboiler__pb2.FaultRequest.FromString,
+                    response_serializer=cogniboiler__pb2.FaultAck.SerializeToString,
+            ),
+            'ClearFault': grpc.unary_unary_rpc_method_handler(
+                    servicer.ClearFault,
+                    request_deserializer=cogniboiler__pb2.FaultClearRequest.FromString,
+                    response_serializer=cogniboiler__pb2.FaultAck.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -557,6 +701,249 @@ class PhysicsService(object):
             '/cogniboiler.PhysicsService/ApplyControlCommand',
             cogniboiler__pb2.ControlCommandMsg.SerializeToString,
             cogniboiler__pb2.CommandAck.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetSimulationStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cogniboiler.PhysicsService/GetSimulationStatus',
+            cogniboiler__pb2.Empty.SerializeToString,
+            cogniboiler__pb2.SimulationStatusMsg.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PauseSimulation(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cogniboiler.PhysicsService/PauseSimulation',
+            cogniboiler__pb2.SimulationControlRequest.SerializeToString,
+            cogniboiler__pb2.SimulationAck.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ResumeSimulation(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cogniboiler.PhysicsService/ResumeSimulation',
+            cogniboiler__pb2.SimulationControlRequest.SerializeToString,
+            cogniboiler__pb2.SimulationAck.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetSimulationSpeed(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cogniboiler.PhysicsService/SetSimulationSpeed',
+            cogniboiler__pb2.SimulationSpeedRequest.SerializeToString,
+            cogniboiler__pb2.SimulationAck.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StepSimulation(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cogniboiler.PhysicsService/StepSimulation',
+            cogniboiler__pb2.StepRequest.SerializeToString,
+            cogniboiler__pb2.SimulationAck.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListScenarios(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cogniboiler.PhysicsService/ListScenarios',
+            cogniboiler__pb2.Empty.SerializeToString,
+            cogniboiler__pb2.ScenarioListMsg.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def LoadScenario(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cogniboiler.PhysicsService/LoadScenario',
+            cogniboiler__pb2.ScenarioRequest.SerializeToString,
+            cogniboiler__pb2.SimulationAck.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def InjectFault(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cogniboiler.PhysicsService/InjectFault',
+            cogniboiler__pb2.FaultRequest.SerializeToString,
+            cogniboiler__pb2.FaultAck.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ClearFault(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cogniboiler.PhysicsService/ClearFault',
+            cogniboiler__pb2.FaultClearRequest.SerializeToString,
+            cogniboiler__pb2.FaultAck.FromString,
             options,
             channel_credentials,
             insecure,

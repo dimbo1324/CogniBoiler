@@ -143,6 +143,7 @@ class CombustionModel:
         self,
         fuel_valve: float,
         excess_air_ratio: float | None = None,
+        efficiency_factor: float = 1.0,
     ) -> CombustionState:
         """
         Calculate combustion state for given fuel valve position.
@@ -150,6 +151,8 @@ class CombustionModel:
         Args:
             fuel_valve: Fuel valve position [0, 1].
             excess_air_ratio: Lambda override. If None, uses nominal value.
+            efficiency_factor: Share of the clean-burner efficiency still achieved
+                               [0, 1]; below 1 when the burners are fouled.
 
         Returns:
             CombustionState with all calculated quantities.
@@ -167,7 +170,7 @@ class CombustionModel:
         m_air = m_fuel * STOICHIOMETRIC_AFR * lam
         m_flue = m_fuel + m_air
         # ── Combustion efficiency ─────────────────────────────────────────────
-        eta = self._combustion_efficiency(lam)
+        eta = self._combustion_efficiency(lam) * max(0.0, min(1.0, efficiency_factor))
 
         # ── Heat release ──────────────────────────────────────────────────────
         q_released = m_fuel * LHV_NATURAL_GAS * eta

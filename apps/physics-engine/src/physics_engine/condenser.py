@@ -32,13 +32,16 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from physics_engine import steam_tables
+from physics_engine import properties
 
 # ─── Design parameters ────────────────────────────────────────────────────────
 
 # Overall UA for condensing heat transfer (W/K)
-# 300 MW unit: ~4 000 m² surface, HTC ≈ 3 000 W/(m²·K) → UA = 12 MW/K
-CONDENSER_UA: float = 12.0e6  # W/K
+# A 300 MW unit rejects ~550 MW. Holding the 7 kPa design back-pressure (39 °C
+# condensing) with 15 °C cooling water at 8 000 kg/s needs an effectiveness of ~0.7,
+# i.e. NTU ≈ 1.2 → UA ≈ 40 MW/K (~13 000 m² at 3 000 W/(m²·K)). 12 MW/K saturated the
+# condenser at its 25 kPa limit and cost the turbine a tenth of its work.
+CONDENSER_UA: float = 40.0e6  # W/K
 
 COOLING_WATER_FLOW: float = 8_000.0  # kg/s — typical for 300 MW unit
 COOLING_WATER_TEMP_DESIGN: float = 288.15  # K  — 15°C design CW inlet
@@ -199,7 +202,7 @@ class CondenserModel:
 
         # Idle condenser — return design minimum conditions
         if steam_flow < 1.0:
-            t_cond = steam_tables.saturation_temp(MIN_BACKPRESSURE)
+            t_cond = properties.saturation_temperature(MIN_BACKPRESSURE)
             return CondenserState(
                 backpressure_pa=MIN_BACKPRESSURE,
                 condensate_temp=t_cond,
@@ -232,11 +235,11 @@ class CondenserModel:
         )
 
         # ── Derive backpressure from condensing temperature ───────────────────
-        backpressure = steam_tables.saturation_pressure(t_cond)
+        backpressure = properties.saturation_pressure(t_cond)
         backpressure = max(MIN_BACKPRESSURE, min(backpressure, MAX_BACKPRESSURE))
 
         # ── Re-compute heat duty at final backpressure ────────────────────────
-        h_liq = steam_tables.saturated_liquid_enthalpy(backpressure)
+        h_liq = properties.liquid_enthalpy_at_pressure(backpressure)
         q_rejected = steam_flow * max(0.0, steam_enthalpy_in - h_liq)
 
         # Cooling water outlet temperature
@@ -277,11 +280,7 @@ class CondenserModel:
             t_mid = (t_lo + t_hi) / 2.0
 
             # Steam-side heat: condensation from h_in to saturated liquid at T_mid
-            try:
-                p_mid = steam_tables.saturation_pressure(t_mid)
-                h_liq_mid = steam_tables.saturated_liquid_enthalpy(p_mid)
-            except Exception:
-                h_liq_mid = steam_tables.saturated_liquid_enthalpy(5_000.0)
+            h_liq_mid = properties.liquid_enthalpy(t_mid)
             q_steam = steam_flow * max(0.0, h_steam_in - h_liq_mid)
 
             # Cooling water side

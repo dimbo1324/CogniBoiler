@@ -23,6 +23,21 @@ enum ControlMode {
   ESTOP = 2;
 }
 
+enum SimulationRunState {
+  SIMULATION_RUNNING = 0;
+  SIMULATION_PAUSED = 1;
+}
+
+enum FaultKind {
+  FAULT_KIND_UNSPECIFIED = 0;
+  FAULT_BURNER_FOULING = 1; // severity: fraction of combustion efficiency lost
+  FAULT_STEAM_LEAK = 2; // severity: leak flow as a fraction of rated steam flow
+  FAULT_FEEDWATER_PUMP_FAILURE = 3; // severity: fraction of pump capacity lost
+  FAULT_VALVE_STUCK = 4; // target: fuel | feedwater | steam | spray
+  FAULT_SENSOR_DRIFT = 5; // target: sensor id; severity: fraction of span per minute
+  FAULT_SENSOR_FAILURE = 6; // target: sensor id
+}
+
 // ─── Core messages ───────────────────────────────────────────────────────────
 
 message Empty {}
@@ -36,6 +51,7 @@ message HealthStatus {
 
 // ─── Sensor / State messages ──────────────────────────────────────────────────
 
+// Values are as the instruments report them: a faulty sensor shows here.
 message BoilerStateMsg {
   double pressure_pa = 1; // Drum pressure [Pa]
   double water_level_m = 2; // Water level in drum [m]
@@ -43,7 +59,17 @@ message BoilerStateMsg {
   double flue_gas_temp_k = 4; // Flue gas temperature [K]
   double internal_energy_j = 5; // Total internal energy [J]
   int64 timestamp_ms = 6; // UTC epoch milliseconds
-  SensorQuality quality = 7;
+  SensorQuality quality = 7; // worst quality of the boiler instruments
+  double fuel_flow_kg_s = 8;
+  double feedwater_flow_kg_s = 9;
+  double drum_steam_flow_kg_s = 10;
+  double spray_flow_kg_s = 11;
+  double superheater_outlet_temp_k = 12; // before attemperator spray
+  double economizer_outlet_temp_k = 13;
+  double stack_temp_k = 14;
+  double heat_release_w = 15;
+  double boiler_efficiency = 16; // heat to water and steam over fuel LHV, 0..1
+  double feedwater_temp_k = 17;
 }
 
 message TurbineStateMsg {
@@ -55,6 +81,7 @@ message TurbineStateMsg {
   double steam_flow_kg_s = 6; // Steam mass flow [kg/s]
   int64 timestamp_ms = 7;
   double steam_temp_in_k = 8; // Turbine inlet steam temperature [K]
+  double exhaust_temp_k = 9;
 }
 
 message ActuatorStateMsg {
@@ -64,6 +91,65 @@ message ActuatorStateMsg {
   double feedwater_valve_position = 4;
   double steam_valve_command = 5;
   double steam_valve_position = 6;
+  double spray_valve_command = 7;
+  double spray_valve_position = 8;
+}
+
+message EmissionsMsg {
+  double co2_kg_s = 1;
+  double nox_kg_s = 2;
+  double co_kg_s = 3;
+  double nox_ppmv = 4;
+  double co2_intensity_kg_per_mwh = 5; // per MWh of electricity; 0 when not generating
+}
+
+message CondenserMsg {
+  double backpressure_pa = 1;
+  double condensate_temp_k = 2;
+  double cooling_water_temp_in_k = 3;
+  double cooling_water_temp_out_k = 4;
+  double heat_rejected_w = 5;
+  double loading = 6; // fraction of design heat duty
+}
+
+message EquipmentHealthMsg {
+  double turbine_hours = 1;
+  double turbine_starts = 2;
+  double turbine_damage = 3; // Miner damage fraction, 1.0 = design life used
+  double boiler_tube_hours = 4;
+  double boiler_tube_damage = 5;
+  double pump_hours = 6;
+  double overall_health_pct = 7;
+  bool maintenance_alarm = 8;
+  bool maintenance_critical = 9;
+}
+
+message SensorStatusMsg {
+  string sensor_id = 1;
+  SensorQuality quality = 2;
+  double measured_value = 3; // SI units of the instrument
+}
+
+// An active fault, labelled so that recorded runs can serve as training data.
+message FaultMsg {
+  string fault_id = 1;
+  FaultKind kind = 2;
+  string target = 3;
+  double severity = 4;
+  double ramp_s = 5;
+  double started_at_s = 6; // simulation time
+  double intensity = 7; // 0 at onset, 1 once fully developed
+  string label = 8; // e.g. "sensor_drift:drum_level"
+}
+
+message SimulationStatusMsg {
+  SimulationRunState run_state = 1;
+  double speed_factor = 2;
+  double simulation_time_s = 3;
+  int64 step_count = 4;
+  string scenario = 5;
+  int64 run_id = 6; // changes whenever a scenario is (re)loaded
+  double step_s = 7;
 }
 
 message SystemStateMsg {
@@ -71,6 +157,24 @@ message SystemStateMsg {
   TurbineStateMsg turbine = 2;
   ActuatorStateMsg actuators = 3;
   double simulation_time_s = 4;
+  EmissionsMsg emissions = 5;
+  CondenserMsg condenser = 6;
+  EquipmentHealthMsg health = 7;
+  repeated FaultMsg active_faults = 8;
+  repeated SensorStatusMsg sensors = 9;
+  SimulationStatusMsg simulation = 10;
+}
+
+// Published on sensors/plant alongside sensors/boiler and sensors/turbine.
+message PlantStatusMsg {
+  EmissionsMsg emissions = 1;
+  CondenserMsg condenser = 2;
+  EquipmentHealthMsg health = 3;
+  repeated FaultMsg active_faults = 4;
+  repeated SensorStatusMsg sensors = 5;
+  SimulationStatusMsg simulation = 6;
+  ActuatorStateMsg actuators = 7;
+  int64 timestamp_ms = 8;
 }
 
 // ─── Control messages ─────────────────────────────────────────────────────────
@@ -82,6 +186,7 @@ message ControlCommandMsg {
   int64 timestamp_ms = 4;
   CommandSource source = 5;
   string operator_id = 6; // empty if automated
+  optional double spray_valve = 7; // 0.0 – 1.0; unset keeps the current spray command
 }
 
 message SetpointsMsg {
@@ -120,6 +225,66 @@ message PLCStatusMsg {
   SafetyEventMsg active_trip = 7;
 }
 
+// ─── Simulation control messages ──────────────────────────────────────────────
+
+message SimulationControlRequest {
+  string operator_id = 1;
+}
+
+message SimulationSpeedRequest {
+  double speed_factor = 1;
+  string operator_id = 2;
+}
+
+message StepRequest {
+  int32 steps = 1; // only while paused
+  string operator_id = 2;
+}
+
+message ScenarioMsg {
+  string name = 1;
+  string title = 2;
+  string description = 3;
+}
+
+message ScenarioListMsg {
+  repeated ScenarioMsg scenarios = 1;
+  string current = 2;
+}
+
+message ScenarioRequest {
+  string name = 1;
+  string operator_id = 2;
+}
+
+message SimulationAck {
+  bool accepted = 1;
+  string reason = 2;
+  int64 timestamp_ms = 3;
+  SimulationStatusMsg status = 4;
+}
+
+message FaultRequest {
+  FaultKind kind = 1;
+  string target = 2;
+  double severity = 3;
+  double ramp_s = 4; // seconds of simulation time to full severity
+  string operator_id = 5;
+}
+
+message FaultClearRequest {
+  string fault_id = 1;
+  bool all = 2; // clear every active fault; fault_id is ignored
+  string operator_id = 3;
+}
+
+message FaultAck {
+  bool accepted = 1;
+  string reason = 2;
+  int64 timestamp_ms = 3;
+  repeated FaultMsg faults = 4; // injected or cleared faults
+}
+
 // ─── Streaming ────────────────────────────────────────────────────────────────
 
 message StreamRequest {
@@ -145,4 +310,14 @@ service PhysicsService {
   rpc GetSystemState(Empty) returns (SystemStateMsg);
   rpc StreamSystemState(StreamRequest) returns (stream SystemStateMsg);
   rpc ApplyControlCommand(ControlCommandMsg) returns (CommandAck);
+
+  rpc GetSimulationStatus(Empty) returns (SimulationStatusMsg);
+  rpc PauseSimulation(SimulationControlRequest) returns (SimulationAck);
+  rpc ResumeSimulation(SimulationControlRequest) returns (SimulationAck);
+  rpc SetSimulationSpeed(SimulationSpeedRequest) returns (SimulationAck);
+  rpc StepSimulation(StepRequest) returns (SimulationAck);
+  rpc ListScenarios(Empty) returns (ScenarioListMsg);
+  rpc LoadScenario(ScenarioRequest) returns (SimulationAck);
+  rpc InjectFault(FaultRequest) returns (FaultAck);
+  rpc ClearFault(FaultClearRequest) returns (FaultAck);
 }

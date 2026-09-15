@@ -2,19 +2,19 @@
 Coupled boiler-turbine system model.
 
 Connects BoilerModel and TurbineModel into a single simulation:
-    - Boiler produces superheated steam at (T_sh, P_drum)
-    - Steam flows through the turbine, generating shaft power
-    - Turbine exhaust feeds the condenser (not modelled here)
+    - Boiler produces superheated steam, cooled by attemperator spray
+    - Steam flows through the turbine admission valve, generating shaft power
+    - Turbine exhaust goes to the condenser (the live plant couples its pressure)
 
-The coupling point is the steam valve:
-    - Boiler sees steam_valve as a flow boundary condition
-    - Turbine receives whatever flow the boiler produces at current P, T
+The coupling point is the turbine admission (steam) valve:
+    - Boiler sees it as the steam flow boundary condition
+    - Turbine receives that flow at the mixed superheater-plus-spray enthalpy
 """
 
 from dataclasses import dataclass
 
-from physics_engine.boiler import BoilerModel
-from physics_engine.heat_exchanger import SuperheaterModel
+from physics_engine.boiler import BoilerBalance, BoilerModel
+from physics_engine.faults import NO_DISTURBANCES, PlantDisturbances
 from physics_engine.models import BoilerParameters, BoilerState, ControlInputs
 from physics_engine.turbine import TurbineModel, TurbineParameters, TurbineState
 
@@ -46,9 +46,6 @@ class BoilerTurbineSystem:
     """
     Coupled boiler-turbine system.
 
-    Runs the boiler ODE simulation and at each requested time point
-    evaluates turbine performance using current boiler output conditions.
-
     Usage:
         system  = BoilerTurbineSystem()
         state   = system.steady_state(
@@ -69,77 +66,46 @@ class BoilerTurbineSystem:
 
         self.boiler = BoilerModel(self.boiler_params)
         self.turbine = TurbineModel(self.turbine_params)
-        self.superheater = SuperheaterModel()
 
-    def _superheated_temp(
+    def turbine_at(
         self,
         boiler_state: BoilerState,
-        steam_flow: float,
-        flue_gas_flow: float,
-    ) -> float:
-        """
-        Calculate superheated steam temperature at turbine inlet [K].
-
-        Uses the SuperheaterModel with current boiler conditions.
-        Falls back to drum saturation temperature if steam flow is zero.
-        """
-        if steam_flow <= 0.0:
-            return boiler_state.water_temp
-
-        sh = self.superheater.calculate(
-            pressure_pa=boiler_state.pressure,
-            steam_flow=steam_flow,
-            flue_gas_temp_in=boiler_state.flue_gas_temp,
-            flue_gas_flow=flue_gas_flow,
+        balance: BoilerBalance,
+        exhaust_pressure: float | None = None,
+    ) -> TurbineState:
+        """Turbine performance for a boiler state and its evaluated balance."""
+        return self.turbine.calculate_from_enthalpy(
+            enthalpy_in=balance.turbine_inlet_enthalpy,
+            steam_pressure_in=boiler_state.pressure,
+            steam_flow=balance.turbine_steam_flow,
+            exhaust_pressure=exhaust_pressure,
         )
-        return sh.steam_temp_out
 
     def evaluate_at(
         self,
         boiler_state: BoilerState,
         controls: ControlInputs,
         time: float = 0.0,
+        disturbances: PlantDisturbances = NO_DISTURBANCES,
+        exhaust_pressure: float | None = None,
     ) -> SystemState:
         """
         Evaluate turbine performance given a boiler state snapshot.
 
         Args:
-            boiler_state: Current boiler state from ODE result.
-            controls:     Current control inputs (for steam valve position).
-            time:         Simulation time [s] (for bookkeeping).
+            boiler_state:     Current boiler state.
+            controls:         Current control inputs (valve positions).
+            time:             Simulation time [s] (for bookkeeping).
+            disturbances:     Physical effect of active faults.
+            exhaust_pressure: Condenser pressure [Pa]; design value if None.
 
         Returns:
             SystemState combining boiler state and turbine performance.
         """
-        # Steam flow through the turbine = boiler steam valve output
-        steam_flow = self.boiler._steam_flow(
-            boiler_state.pressure,
-            controls.steam_valve.position,
-        )
-
-        # Flue gas flow from combustion at current fuel valve
-        from physics_engine.combustion import CombustionModel
-
-        combustion = CombustionModel(
-            max_fuel_flow=self.boiler_params.max_fuel_flow,
-        )
-        comb = combustion.calculate(fuel_valve=controls.fuel_valve.position)
-
-        # Superheated steam temperature at turbine inlet
-        t_steam_in = self._superheated_temp(
-            boiler_state, steam_flow, comb.flue_gas_flow
-        )
-
-        # Turbine calculation
-        turbine_state = self.turbine.calculate(
-            steam_temp_in=t_steam_in,
-            steam_pressure_in=boiler_state.pressure,
-            steam_flow=steam_flow,
-        )
-
+        balance = self.boiler.balance(boiler_state, controls, disturbances)
         return SystemState(
             boiler=boiler_state,
-            turbine=turbine_state,
+            turbine=self.turbine_at(boiler_state, balance, exhaust_pressure),
             time=time,
         )
 

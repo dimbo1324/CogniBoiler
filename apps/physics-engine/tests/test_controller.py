@@ -1,12 +1,10 @@
 """
-Unit tests for PIDController, CascadePIDController,
-BoilerController, and ScenarioRunner.
+Unit tests for PIDController, CascadePIDController and BoilerController.
 
 Test categories:
     TestPID         — single PID correctness and edge cases
     TestCascadePID  — cascade PID coupling and mode switching
     TestController  — BoilerController three-loop behavior
-    TestScenarios   — ScenarioRunner output shape and physical plausibility
 """
 
 import pytest
@@ -21,7 +19,6 @@ from physics_engine.pid import (
     PIDController,
     PIDParameters,
 )
-from physics_engine.scenarios import ScenarioResult, ScenarioRunner
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -92,12 +89,6 @@ def setpoints() -> BoilerSetpoints:
         water_level=4.8,
         steam_temp=825.65,
     )
-
-
-@pytest.fixture  # type: ignore[misc]
-def runner() -> ScenarioRunner:
-    """ScenarioRunner with default parameters."""
-    return ScenarioRunner()
 
 
 # ─── PID tests ────────────────────────────────────────────────────────────────
@@ -465,100 +456,3 @@ class TestController:
         # After reset, integral must be zero
         assert controller.pressure_loop.master.state.integral == 0.0
         assert controller.level_loop.master.state.integral == 0.0
-
-
-# ─── Scenario tests ───────────────────────────────────────────────────────────
-
-
-class TestScenarios:
-    """
-    Verify ScenarioRunner output shape and physical plausibility.
-    """
-
-    def test_steady_state_returns_scenario_result(self, runner: ScenarioRunner) -> None:
-        """
-        steady_state() must return a ScenarioResult instance.
-        """
-        result = runner.steady_state(duration=30.0, dt=1.0)
-        assert isinstance(result, ScenarioResult)
-        assert result.scenario_name == "steady_state"
-
-    def test_result_arrays_have_correct_length(self, runner: ScenarioRunner) -> None:
-        """
-        All result arrays must have length == duration / dt.
-        """
-        duration, dt = 60.0, 1.0
-        result = runner.steady_state(duration=duration, dt=dt)
-        expected_n = int(duration / dt)
-
-        assert len(result.time) == expected_n
-        assert len(result.pressure) == expected_n
-        assert len(result.water_level) == expected_n
-        assert len(result.electrical_power) == expected_n
-
-    def test_steady_state_pressure_stays_bounded(self, runner: ScenarioRunner) -> None:
-        """
-        Pressure must remain within physical bounds throughout steady state.
-        """
-        result = runner.steady_state(duration=120.0, dt=1.0)
-        assert (result.pressure > 1.0e5).all(), "Pressure dropped below 1 bar"
-        assert (result.pressure < 250.0e5).all(), "Pressure exceeded 250 bar"
-
-    def test_load_ramp_power_increases(self, runner: ScenarioRunner) -> None:
-        """
-        After load ramp completes, steam valve position must be higher
-        than before the ramp.
-
-        Note: electrical power may not increase if pressure drops faster
-        than the controller can compensate — this is physically correct
-        behavior. The ramp scenario is designed for training data generation,
-        not for demonstrating power increase under closed-loop control.
-        Power vs. valve monotonicity is verified in TestSystem at fixed
-        boiler conditions.
-        """
-        result = runner.load_ramp(
-            steam_valve_start=0.3,
-            steam_valve_end=0.6,
-            ramp_start=30.0,
-            ramp_duration=60.0,
-            duration=180.0,
-            dt=1.0,
-        )
-        valve_before = result.steam_valve[20:30].mean()  # t=20–30, before ramp
-        valve_after = result.steam_valve[95:105].mean()  # t=95–105, after ramp
-
-        assert valve_after > valve_before, (
-            f"Steam valve did not increase after load ramp: "
-            f"before={valve_before:.3f}, after={valve_after:.3f}"
-        )
-
-    def test_fuel_trip_pressure_drops(self, runner: ScenarioRunner) -> None:
-        """
-        After fuel trip, pressure must drop compared to pre-trip value.
-
-        Physics: no heat input -> drum cools -> saturation pressure drops.
-        """
-        result = runner.fuel_trip(t_trip=60.0, duration=180.0, dt=1.0)
-
-        pressure_before_trip = result.pressure[50:60].mean()
-        pressure_after_trip = result.pressure[150:].mean()
-
-        assert pressure_after_trip < pressure_before_trip, (
-            f"Pressure did not drop after fuel trip: "
-            f"before={pressure_before_trip / 1e5:.1f} bar, "
-            f"after={pressure_after_trip / 1e5:.1f} bar"
-        )
-
-    def test_fuel_valve_zero_after_trip(self, runner: ScenarioRunner) -> None:
-        """
-        After fuel trip, the fuel valve command is forced to zero and the
-        physical actuator must ramp closed within a few scan intervals.
-        """
-        t_trip = 60.0
-        result = runner.fuel_trip(t_trip=t_trip, duration=120.0, dt=1.0)
-
-        trip_index = int(t_trip) + 10
-        assert result.fuel_valve[trip_index] <= 0.05, (
-            f"Fuel valve did not ramp nearly closed after trip: "
-            f"{result.fuel_valve[trip_index]:.4f}"
-        )

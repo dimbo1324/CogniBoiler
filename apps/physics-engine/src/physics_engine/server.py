@@ -1,12 +1,12 @@
 """
-gRPC transport for the live PhysicsService.
+gRPC transport for the live PhysicsService: plant state, valve commands from the PLC,
+and simulation control — pause, stepping, speed, scenarios and faults.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from collections.abc import AsyncGenerator
 
 import cogniboiler_pb2 as pb2
@@ -15,46 +15,51 @@ import grpc
 import grpc.aio
 
 from physics_engine import __version__
-from physics_engine.models import ControlInputs
-from physics_engine.mqtt_publisher import boiler_state_to_proto, turbine_state_to_proto
-from physics_engine.runtime import PhysicsRuntime
-from physics_engine.system import SystemState
+from physics_engine.faults import FaultError, FaultSpec
+from physics_engine.proto_mapping import (
+    fault_kind_from_proto,
+    fault_to_proto,
+    now_ms,
+    scenario_to_proto,
+    simulation_status_to_proto,
+    system_state_to_proto,
+)
+from physics_engine.runtime import (
+    PhysicsRuntime,
+    RuntimeCommandError,
+    RuntimeUnavailableError,
+)
+from physics_engine.scenarios import SCENARIOS, ScenarioError
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_PORT: int = 50052
 
 
-def actuator_state_to_proto(controls: ControlInputs) -> pb2.ActuatorStateMsg:
-    """Convert the current control commands and actuator positions to protobuf."""
-    return pb2.ActuatorStateMsg(
-        fuel_valve_command=controls.fuel_valve_command,
-        fuel_valve_position=controls.fuel_valve.position,
-        feedwater_valve_command=controls.feedwater_valve_command,
-        feedwater_valve_position=controls.feedwater_valve.position,
-        steam_valve_command=controls.steam_valve_command,
-        steam_valve_position=controls.steam_valve.position,
-    )
-
-
-def system_state_to_proto(
-    state: SystemState,
-    controls: ControlInputs,
-) -> pb2.SystemStateMsg:
-    """Convert a runtime SystemState snapshot to protobuf."""
-    return pb2.SystemStateMsg(
-        boiler=boiler_state_to_proto(state.boiler),
-        turbine=turbine_state_to_proto(state.turbine),
-        actuators=actuator_state_to_proto(controls),
-        simulation_time_s=state.time,
-    )
+def _operator(operator_id: str) -> str:
+    return operator_id or "unknown"
 
 
 class PhysicsServicer(pb2_grpc.PhysicsServiceServicer):  # type: ignore[misc]
-    """gRPC servicer for live physics state and control."""
+    """gRPC servicer for live physics state, control and simulation management."""
 
     def __init__(self, runtime: PhysicsRuntime) -> None:
         self._runtime = runtime
+
+    def _simulation_ack(self, accepted: bool, reason: str = "") -> pb2.SimulationAck:
+        return pb2.SimulationAck(
+            accepted=accepted,
+            reason=reason,
+            timestamp_ms=now_ms(),
+            status=simulation_status_to_proto(self._runtime.simulation_status()),
+        )
+
+    def _state(self) -> pb2.SystemStateMsg:
+        return system_state_to_proto(
+            self._runtime.snapshot, self._runtime.simulation_status()
+        )
+
+    # ─── State and commands ──────────────────────────────────────────────────
 
     async def Health(  # noqa: N802
         self,
@@ -73,29 +78,26 @@ class PhysicsServicer(pb2_grpc.PhysicsServiceServicer):  # type: ignore[misc]
         request: pb2.Empty,
         context: grpc.aio.ServicerContext,
     ) -> pb2.SystemStateMsg:
-        state, controls = await self._runtime.get_snapshot()
-        return system_state_to_proto(state, controls)
+        return self._state()
 
     async def StreamSystemState(  # noqa: N802
         self,
         request: pb2.StreamRequest,
         context: grpc.aio.ServicerContext,
     ) -> AsyncGenerator[pb2.SystemStateMsg]:
-        interval_s = (
-            request.interval_s if request.interval_s > 0 else self._runtime.wall_step_s
-        )
-
         if request.interval_s > 0:
             while True:
-                state, controls = await self._runtime.get_snapshot()
-                yield system_state_to_proto(state, controls)
-                await asyncio.sleep(interval_s)
+                yield self._state()
+                await asyncio.sleep(request.interval_s)
 
         sequence = -1
         while True:
-            sequence, state = await self._runtime.wait_for_update(sequence)
-            controls = await self._runtime.get_controls()
-            yield system_state_to_proto(state, controls)
+            try:
+                sequence, snapshot = await self._runtime.wait_for_update(sequence)
+            except RuntimeUnavailableError as exc:
+                await context.abort(grpc.StatusCode.UNAVAILABLE, str(exc))
+                return
+            yield system_state_to_proto(snapshot, self._runtime.simulation_status())
 
     async def ApplyControlCommand(  # noqa: N802
         self,
@@ -107,18 +109,143 @@ class PhysicsServicer(pb2_grpc.PhysicsServiceServicer):  # type: ignore[misc]
                 fuel_valve=request.fuel_valve,
                 feedwater_valve=request.feedwater_valve,
                 steam_valve=request.steam_valve,
+                spray_valve=(
+                    request.spray_valve if request.HasField("spray_valve") else None
+                ),
             )
         except ValueError as exc:
             return pb2.CommandAck(
-                accepted=False,
-                reason=str(exc),
-                timestamp_ms=int(time.time() * 1000),
+                accepted=False, reason=str(exc), timestamp_ms=now_ms()
             )
+        return pb2.CommandAck(accepted=True, reason="", timestamp_ms=now_ms())
 
-        return pb2.CommandAck(
+    # ─── Simulation control ──────────────────────────────────────────────────
+
+    async def GetSimulationStatus(  # noqa: N802
+        self,
+        request: pb2.Empty,
+        context: grpc.aio.ServicerContext,
+    ) -> pb2.SimulationStatusMsg:
+        return simulation_status_to_proto(self._runtime.simulation_status())
+
+    async def PauseSimulation(  # noqa: N802
+        self,
+        request: pb2.SimulationControlRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> pb2.SimulationAck:
+        await self._runtime.pause()
+        logger.info("Pause requested by %s", _operator(request.operator_id))
+        return self._simulation_ack(True)
+
+    async def ResumeSimulation(  # noqa: N802
+        self,
+        request: pb2.SimulationControlRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> pb2.SimulationAck:
+        await self._runtime.resume()
+        logger.info("Resume requested by %s", _operator(request.operator_id))
+        return self._simulation_ack(True)
+
+    async def SetSimulationSpeed(  # noqa: N802
+        self,
+        request: pb2.SimulationSpeedRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> pb2.SimulationAck:
+        try:
+            await self._runtime.set_speed(request.speed_factor)
+        except RuntimeCommandError as exc:
+            return self._simulation_ack(False, str(exc))
+        logger.info(
+            "Speed %g× requested by %s",
+            request.speed_factor,
+            _operator(request.operator_id),
+        )
+        return self._simulation_ack(True)
+
+    async def StepSimulation(  # noqa: N802
+        self,
+        request: pb2.StepRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> pb2.SimulationAck:
+        try:
+            await self._runtime.step(request.steps)
+        except RuntimeCommandError as exc:
+            return self._simulation_ack(False, str(exc))
+        return self._simulation_ack(True)
+
+    async def ListScenarios(  # noqa: N802
+        self,
+        request: pb2.Empty,
+        context: grpc.aio.ServicerContext,
+    ) -> pb2.ScenarioListMsg:
+        return pb2.ScenarioListMsg(
+            scenarios=[
+                scenario_to_proto(definition) for definition in SCENARIOS.values()
+            ],
+            current=self._runtime.simulation_status().scenario.value,
+        )
+
+    async def LoadScenario(  # noqa: N802
+        self,
+        request: pb2.ScenarioRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> pb2.SimulationAck:
+        try:
+            await self._runtime.load_scenario(request.name)
+        except ScenarioError as exc:
+            return self._simulation_ack(False, str(exc))
+        logger.warning(
+            "Scenario %s loaded by %s", request.name, _operator(request.operator_id)
+        )
+        return self._simulation_ack(True)
+
+    async def InjectFault(  # noqa: N802
+        self,
+        request: pb2.FaultRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> pb2.FaultAck:
+        try:
+            spec = FaultSpec(
+                kind=fault_kind_from_proto(request.kind),
+                target=request.target,
+                severity=request.severity,
+                ramp_s=request.ramp_s,
+            )
+            fault = await self._runtime.inject_fault(spec)
+        except (FaultError, ValueError) as exc:
+            return pb2.FaultAck(accepted=False, reason=str(exc), timestamp_ms=now_ms())
+        logger.warning(
+            "Fault %s injected by %s", fault.label, _operator(request.operator_id)
+        )
+        now_s = self._runtime.snapshot.simulation_time_s
+        return pb2.FaultAck(
             accepted=True,
-            reason="",
-            timestamp_ms=int(time.time() * 1000),
+            timestamp_ms=now_ms(),
+            faults=[fault_to_proto(fault, now_s)],
+        )
+
+    async def ClearFault(  # noqa: N802
+        self,
+        request: pb2.FaultClearRequest,
+        context: grpc.aio.ServicerContext,
+    ) -> pb2.FaultAck:
+        try:
+            if request.all:
+                cleared = await self._runtime.clear_faults()
+            else:
+                cleared = (await self._runtime.clear_fault(request.fault_id),)
+        except FaultError as exc:
+            return pb2.FaultAck(accepted=False, reason=str(exc), timestamp_ms=now_ms())
+        logger.info(
+            "Faults cleared by %s: %s",
+            _operator(request.operator_id),
+            ", ".join(fault.label for fault in cleared) or "none",
+        )
+        now_s = self._runtime.snapshot.simulation_time_s
+        return pb2.FaultAck(
+            accepted=True,
+            timestamp_ms=now_ms(),
+            faults=[fault_to_proto(fault, now_s) for fault in cleared],
         )
 
 

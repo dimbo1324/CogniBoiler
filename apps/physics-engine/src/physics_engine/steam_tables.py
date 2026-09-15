@@ -314,6 +314,21 @@ def isentropic_enthalpy(entropy_in: float, pressure_out: float) -> float:
     return float(sat.h) * 1000.0
 
 
+def steam_state_from_enthalpy(
+    enthalpy: float, pressure_pa: float
+) -> tuple[float, float]:
+    """
+    Temperature [K] and specific entropy [J/(kg·K)] of steam at (h, P).
+
+    Used for the turbine inlet, where spray water mixed into superheated steam fixes
+    the enthalpy rather than the temperature.
+    """
+    enthalpy = _to_float(enthalpy)
+    pressure_pa = _to_float(pressure_pa)
+    state = IAPWS97(P=_mpa(pressure_pa), h=enthalpy / 1000.0)
+    return float(state.T), float(state.s) * 1000.0
+
+
 def exhaust_temp(enthalpy: float, pressure_pa: float) -> float:
     """
     Temperature of steam at given enthalpy and pressure [K].

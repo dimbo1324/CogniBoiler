@@ -1,38 +1,58 @@
 """
-Thermodynamic ODE model of a steam boiler.
+Thermodynamic model of the drum boiler — lumped and energy-conserving.
 
-Integrates all sub-models into a unified simulation:
-    - CombustionModel    : heat release from fuel burning
-    - SuperheaterModel   : saturated -> superheated steam
-    - EconomizerModel    : feedwater preheating from flue gas
-    - steam_tables       : IAPWS-IF97 water/steam properties
-    - ValveState         : actuator dynamics for all control valves
+State vector y = [U, P, h, T_gas, T_water]:
+    U        — energy stored in the drum water [J] (bookkeeping, not fed back)
+    P        — drum pressure [Pa]; follows saturation pressure of the water with a lag
+    h        — drum water level [m]
+    T_gas    — furnace exit gas temperature [K]
+    T_water  — drum water temperature [K]
 
-State vector y = [U, P, h, T_gas, T_water] — 5 dimensions.
+Heat path, in order of falling gas temperature:
+    furnace (gas node, radiant water walls)
+        → superheater → evaporator bank → economizer → stack
 
-ODE system:
-    dU/dt      — internal energy balance
-    dP/dt      — steam pressure dynamics via IAPWS-IF97
-    dh/dt      — water level mass balance
-    dT_gas/dt  — furnace flue gas temperature
-    dT_w/dt    — bulk water temperature (variable-mass corrected)
+Balances:
+    furnace:  M_g·cp_g·dT_gas/dt = Q_fuel − Q_walls − m_gas·cp_g·(T_gas − T_ambient)
+    drum:     C·dT_water/dt = Q_walls + Q_bank − Q_loss
+                               + m_fw·(h_eco − h_f) − (m_steam + m_leak)·(h_g − h_f)
+              with C = M_water·cp_f + C_storage (pressure parts and circulating water)
+    level:    ρ_f·A·dh/dt = m_fw − m_steam − m_leak
 
-Flue gas path through heat exchangers (temperature decreasing):
-    Furnace -> Superheater -> Boiler drum tubes -> Economizer -> Stack
+At steady state the fuel heat equals the heat carried into the steam and feedwater plus
+the stack and wall losses: the model neither creates nor destroys energy. The turbine
+admission valve is choked, so steam flow is proportional to valve opening and pressure.
+Spray water for the attemperator is taken from the feedwater pump and bypasses the drum.
+
+`step` advances the state with a fixed-step RK4 and is what the live runtime uses: it is
+deterministic and fast. `simulate` integrates with an adaptive implicit solver and alarm
+events for offline analysis.
 """
+
+from dataclasses import dataclass
 
 import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.integrate._ivp.ivp import OdeResult
 
-from physics_engine import steam_tables
+from physics_engine import properties
 from physics_engine.combustion import CombustionModel
 from physics_engine.constants import (
+    FUEL_HEATING_VALUE,
     PRESSURE_MAX,
     PRESSURE_MIN,
+    PRESSURE_NOMINAL,
+    RATED_STEAM_FLOW,
+    SPRAY_MAX_FRACTION,
     TEMP_STEAM_MAX,
 )
-from physics_engine.heat_exchanger import EconomizerModel, SuperheaterModel
+from physics_engine.faults import NO_DISTURBANCES, PlantDisturbances
+from physics_engine.heat_exchanger import (
+    CP_FLUE_GAS,
+    EconomizerModel,
+    EvaporatorBankModel,
+    SuperheaterModel,
+)
 from physics_engine.models import BoilerParameters, BoilerState, ControlInputs
 
 # ─── ODE solver configuration ─────────────────────────────────────────────────
@@ -44,44 +64,88 @@ ODE_MAX_STEP: float = 5.0  # seconds
 
 # Flue gas thermal mass in furnace [kg] and Cp [J/(kg·K)]
 FURNACE_GAS_MASS: float = 5000.0
-FURNACE_GAS_CP: float = 1100.0
+FURNACE_GAS_CP: float = CP_FLUE_GAS
 
-# Pressure response time constant [s].
-# How fast drum pressure tracks the saturation pressure derived from T_water.
-# 30 s is physically consistent with typical boiler pressure response rates
-# (~0.5–2 bar/min at part load; up to ~5 bar/min under extreme transients).
-# A larger TAU (e.g. 300 s) was tested but caused two problems:
-#   1. With full fuel + closed steam valve, pressure rose too slowly to reach
-#      PRESSURE_MAX before T_water escaped the liquid region (> 647 K).
-#   2. With max steam and no feedwater, pressure lagged so far below saturation
-#      that it occasionally hit PRESSURE_MIN before the drum went dry.
+# Pressure response time constant [s]: how fast drum pressure tracks the saturation
+# pressure of the water. It stands in for the steam-space dynamics the lumped drum
+# does not resolve.
 TAU_PRESSURE: float = 30.0
 
-# Reference temperature for the internal-energy state variable [K].
-# U ≡ M · cp · (T − T_REF), consistent with IAPWS-IF97 whose enthalpy
-# reference is 273.15 K (0 °C).
-T_REF: float = 273.15
+# The water temperature is kept inside the range of the property tables: below the
+# critical point, where saturation properties exist, and above the boiling point at
+# atmospheric pressure, the coldest state the drum model represents.
+WATER_TEMP_MIN: float = 373.15
+WATER_TEMP_MAX: float = properties.T_TABLE_MAX_K
 
-# Critical temperature of water [K] (IAPWS-IF97).
-# water_temp is clamped to this value inside _derivatives so that the ODE
-# never wanders into the supercritical region where IAPWS-IF97 functions
-# behave non-monotonically and _event_temp_high would fire prematurely.
-T_CRITICAL: float = 647.0
-
-# Maximum cp used in the drum energy equations [J/(kg·K)].
-# Near the saturation curve at high pressure the IAPWS-IF97 cp diverges toward
-# the pseudo-critical peak (8–15 kJ/(kg·K)).  In a simplified single-phase drum
-# model this spike over-amplifies the cold-dilution term.  5 000 J/(kg·K)
-# suppresses the artefact while staying accurate across the rest of the range.
+# Maximum cp used in the drum energy equations [J/(kg·K)]. Near the critical point the
+# IAPWS-IF97 cp of saturated liquid diverges; a lumped drum would over-amplify it.
 CP_WATER_MAX: float = 5_000.0
+
+MIN_MODEL_PRESSURE: float = 0.1e5  # Pa
+MIN_MODEL_LEVEL: float = 0.01  # m
+
+# Below this level the evaporator runs short of water and steam production collapses;
+# within this margin of the drum top the feedwater pump can no longer push water in.
+DRY_OUT_LEVEL: float = 0.2  # m
+OVERFILL_MARGIN: float = 0.2  # m
+
+
+@dataclass(frozen=True)
+class BoilerBalance:
+    """Flows, heat duties and derivatives of the boiler at one state."""
+
+    fuel_flow: float  # kg/s
+    flue_gas_flow: float  # kg/s
+    excess_air_ratio: float  # —
+    flame_temp: float  # K — adiabatic
+    heat_release: float  # W — heat available in the furnace
+    turbine_steam_flow: float  # kg/s — through the admission valve
+    drum_steam_flow: float  # kg/s — raised in the drum
+    spray_flow: float  # kg/s — attemperator water
+    leak_flow: float  # kg/s — steam lost through a leak
+    feedwater_flow: float  # kg/s — into the drum
+    furnace_to_water: float  # W
+    superheater_heat: float  # W
+    evaporator_bank_heat: float  # W
+    economizer_heat: float  # W
+    heat_loss: float  # W — through the boiler casing
+    stack_loss: float  # W
+    stack_temp: float  # K
+    saturation_temp: float  # K
+    superheater_outlet_temp: float  # K — before spray
+    superheater_outlet_enthalpy: float  # J/kg — before spray
+    economizer_outlet_temp: float  # K
+    spray_water_enthalpy: float  # J/kg
+    derivatives: tuple[float, float, float, float, float]
+
+    @property
+    def turbine_inlet_enthalpy(self) -> float:
+        """Steam enthalpy after spray water has mixed in [J/kg]."""
+        if self.turbine_steam_flow <= 0.0:
+            return self.superheater_outlet_enthalpy
+        return (
+            self.drum_steam_flow * self.superheater_outlet_enthalpy
+            + self.spray_flow * self.spray_water_enthalpy
+        ) / self.turbine_steam_flow
+
+    @property
+    def boiler_efficiency(self) -> float:
+        """Heat delivered to water and steam over fuel chemical energy (LHV) [—]."""
+        if self.fuel_flow <= 0.0:
+            return 0.0
+        absorbed = (
+            self.furnace_to_water
+            + self.superheater_heat
+            + self.evaporator_bank_heat
+            + self.economizer_heat
+            - self.heat_loss
+        )
+        return max(absorbed, 0.0) / (self.fuel_flow * FUEL_HEATING_VALUE)
 
 
 class BoilerModel:
     """
     Full thermodynamic ODE model of a steam boiler.
-
-    Integrates combustion, heat exchangers, drum dynamics, and
-    actuator dynamics into a single simulate() call.
 
     Usage:
         params = BoilerParameters()
@@ -93,6 +157,7 @@ class BoilerModel:
             steam_valve_command=0.6,
         )
         result = model.simulate(state0, ctrl, t_span=(0, 600), dt=1.0)
+        state1 = model.step(state0, ctrl, dt=1.0)
     """
 
     def __init__(
@@ -108,62 +173,159 @@ class BoilerModel:
             air_preheat_temp=air_preheat_temp or params.ambient_temp,
         )
         self.superheater = SuperheaterModel()
+        self.evaporator_bank = EvaporatorBankModel()
         self.economizer = EconomizerModel()
 
     # ─── Flow calculations ────────────────────────────────────────────────────
 
     def _steam_flow(self, pressure_pa: float, valve_position: float) -> float:
         """
-        Steam mass flow through outlet valve [kg/s].
+        Steam mass flow through the turbine admission valve [kg/s].
 
-        Square-root pressure drop model:
-            m = Cv · position · sqrt(P − P_downstream)
-        Downstream pressure assumed 10 bar (turbine inlet).
+        The valve and turbine nozzles run choked, so flow is proportional to the
+        valve opening and to drum pressure:
+            m = Cv · position · P / P_nominal
         """
-        p_downstream = 10.0e5  # Pa
-        dp = max(pressure_pa - p_downstream, 0.0)
-        flow = self.params.steam_valve_coeff * valve_position * np.sqrt(dp / 1.0e5)
+        flow = (
+            self.params.steam_valve_coeff
+            * valve_position
+            * max(pressure_pa, 0.0)
+            / PRESSURE_NOMINAL
+        )
         return float(np.clip(flow, 0.0, self.params.max_steam_flow))
 
-    def _feedwater_flow(self, valve_position: float) -> float:
-        """Feedwater mass flow into drum [kg/s]."""
-        max_feedwater = 300.0  # kg/s
-        return valve_position * max_feedwater
-
-    # ─── Heat transfer ────────────────────────────────────────────────────────
-
-    def _heat_to_water(self, flue_gas_temp: float, water_temp: float) -> float:
-        """Heat transferred from flue gas to drum water [W]."""
-        delta_t = max(flue_gas_temp - water_temp, 0.0)
-        return self.params.heat_transfer_coeff * delta_t
-
-    def _heat_loss(self, water_temp: float) -> float:
-        """Heat lost through boiler walls to ambient [W]."""
-        delta_t = max(water_temp - self.params.ambient_temp, 0.0)
-        return self.params.heat_loss_coeff * delta_t
-
-    def _heat_carried_by_steam(
-        self,
-        steam_flow: float,
-        pressure_pa: float,
+    def _feedwater_flow(
+        self, valve_position: float, pump_capacity_factor: float = 1.0
     ) -> float:
-        """
-        Enthalpy carried out of the drum by steam [W].
+        """Feedwater mass flow into drum [kg/s]."""
+        return valve_position * self.params.max_feedwater_flow * pump_capacity_factor
 
-        Steam always leaves the drum as saturated vapour at drum pressure —
-        regardless of where T_water sits relative to the saturation curve.
-        Using saturated_vapor_enthalpy(P) instead of steam_enthalpy(T, P)
-        prevents a numerical collapse: if T_water drifts even 0.1 K below
-        T_sat (which can happen with the pressure lag model), steam_enthalpy
-        falls back to compressed-liquid values (~1 440 kJ/kg vs ~2 785 kJ/kg),
-        and the correction term in dT_water_dt explodes by 10–20 K/s.
+    # ─── Balance ──────────────────────────────────────────────────────────────
 
-        Q_steam_out = m_steam · h_g(P)
-        """
-        if steam_flow <= 0.0:
-            return 0.0
-        h_sat_vapor = steam_tables.saturated_vapor_enthalpy(pressure_pa)
-        return steam_flow * h_sat_vapor
+    def balance(
+        self,
+        state: BoilerState,
+        controls: ControlInputs,
+        disturbances: PlantDisturbances = NO_DISTURBANCES,
+    ) -> BoilerBalance:
+        """Evaluate every flow, duty and derivative of the boiler at one state."""
+        p = self.params
+        pressure = max(state.pressure, MIN_MODEL_PRESSURE)
+        level = min(max(state.water_level, MIN_MODEL_LEVEL), p.drum_height)
+        water_temp = min(max(state.water_temp, WATER_TEMP_MIN), WATER_TEMP_MAX)
+        gas_temp = state.flue_gas_temp
+
+        rho_water = properties.liquid_density(water_temp)
+        cp_water = min(properties.liquid_cp(water_temp), CP_WATER_MAX)
+        h_liquid = properties.liquid_enthalpy(water_temp)
+        h_vapor = properties.vapor_enthalpy_at_pressure(pressure)
+        t_sat = properties.saturation_temperature(pressure)
+        water_mass = max(rho_water * p.drum_cross_section * level, 1.0)
+
+        # ── Combustion ────────────────────────────────────────────────────────
+        comb = self.combustion.calculate(
+            fuel_valve=controls.fuel_valve.position,
+            efficiency_factor=disturbances.combustion_efficiency_factor,
+        )
+        gas_flow = comb.flue_gas_flow
+
+        # ── Water and steam flows ─────────────────────────────────────────────
+        water_availability = min(max(state.water_level / DRY_OUT_LEVEL, 0.0), 1.0)
+        feed_headroom = min(
+            max((p.drum_height - state.water_level) / OVERFILL_MARGIN, 0.0), 1.0
+        )
+        pump = disturbances.feedwater_capacity_factor
+
+        turbine_flow = (
+            self._steam_flow(pressure, controls.steam_valve.position)
+            * water_availability
+        )
+        spray_flow = min(
+            controls.spray_valve.position * p.max_spray_flow * pump,
+            SPRAY_MAX_FRACTION * turbine_flow,
+        )
+        drum_steam = turbine_flow - spray_flow
+        leak_flow = (
+            disturbances.steam_leak_fraction
+            * RATED_STEAM_FLOW
+            * pressure
+            / PRESSURE_NOMINAL
+            * water_availability
+        )
+        feedwater = (
+            self._feedwater_flow(controls.feedwater_valve.position, pump)
+            * feed_headroom
+        )
+
+        # ── Gas path ──────────────────────────────────────────────────────────
+        q_walls = p.heat_transfer_coeff * (gas_temp - water_temp)
+        q_gas_exit = gas_flow * FURNACE_GAS_CP * (gas_temp - p.ambient_temp)
+
+        sh = self.superheater.calculate(
+            pressure_pa=pressure,
+            steam_flow=drum_steam,
+            flue_gas_temp_in=gas_temp,
+            flue_gas_flow=gas_flow,
+        )
+        bank = self.evaporator_bank.calculate(
+            saturation_temp=t_sat,
+            flue_gas_temp_in=sh.flue_gas_temp_out,
+            flue_gas_flow=gas_flow,
+        )
+        eco = self.economizer.calculate(
+            feedwater_flow=feedwater,
+            feedwater_temp_in=p.feedwater_temp,
+            pressure_pa=pressure,
+            flue_gas_temp_in=bank.flue_gas_temp_out,
+            flue_gas_flow=gas_flow,
+        )
+        h_feedwater_in = properties.liquid_enthalpy(p.feedwater_temp)
+        h_economizer_out = h_feedwater_in + eco.water_enthalpy_gain
+        stack_temp = eco.flue_gas_temp_out
+        stack_loss = gas_flow * FURNACE_GAS_CP * max(stack_temp - p.ambient_temp, 0.0)
+        q_loss = p.heat_loss_coeff * max(water_temp - p.ambient_temp, 0.0)
+
+        # ── Derivatives ───────────────────────────────────────────────────────
+        q_drum = q_walls + bank.heat_transferred - q_loss
+        steam_out = drum_steam + leak_flow
+        du_dt = q_drum + feedwater * h_economizer_out - steam_out * h_vapor
+        heat_capacity = water_mass * cp_water + p.storage_heat_capacity
+        dt_water_dt = (
+            q_drum
+            + feedwater * (h_economizer_out - h_liquid)
+            - steam_out * (h_vapor - h_liquid)
+        ) / heat_capacity
+        dp_dt = (properties.saturation_pressure(water_temp) - pressure) / TAU_PRESSURE
+        dh_dt = (feedwater - steam_out) / (rho_water * p.drum_cross_section)
+        dt_gas_dt = (comb.heat_available - q_walls - q_gas_exit) / (
+            FURNACE_GAS_MASS * FURNACE_GAS_CP
+        )
+
+        return BoilerBalance(
+            fuel_flow=comb.fuel_flow,
+            flue_gas_flow=gas_flow,
+            excess_air_ratio=comb.excess_air_ratio,
+            flame_temp=comb.flue_gas_temp_exit,
+            heat_release=comb.heat_available,
+            turbine_steam_flow=turbine_flow,
+            drum_steam_flow=drum_steam,
+            spray_flow=spray_flow,
+            leak_flow=leak_flow,
+            feedwater_flow=feedwater,
+            furnace_to_water=q_walls,
+            superheater_heat=sh.heat_transferred,
+            evaporator_bank_heat=bank.heat_transferred,
+            economizer_heat=eco.heat_transferred,
+            heat_loss=q_loss,
+            stack_loss=stack_loss,
+            stack_temp=stack_temp,
+            saturation_temp=t_sat,
+            superheater_outlet_temp=sh.steam_temp_out,
+            superheater_outlet_enthalpy=sh.steam_enthalpy_out,
+            economizer_outlet_temp=eco.water_temp_out,
+            spray_water_enthalpy=h_feedwater_in,
+            derivatives=(du_dt, dp_dt, dh_dt, dt_gas_dt, dt_water_dt),
+        )
 
     # ─── Event functions for solve_ivp ───────────────────────────────────────
 
@@ -195,15 +357,10 @@ class BoilerModel:
         Last-resort safety event: triggers if drum temperature somehow exceeds
         TEMP_STEAM_MAX (838 K / 565°C).
 
-        NOTE: This event is intentionally set ABOVE the T_CRITICAL clamp (647 K)
-        applied inside _derivatives.  Under normal operation water_temp is always
-        clamped at 647 K, so this event will never fire.  It exists solely as a
-        numerical safety net in case a future change removes or raises the clamp.
-        The real guard against supercritical behavior is the clamp, not this event.
+        The water temperature used by the derivatives is clamped below the critical
+        point, so this never fires in normal operation; it is a numerical safety net.
         """
-        return (
-            y[4] - TEMP_STEAM_MAX
-        )  # 838.15 K — unreachable while T_CRITICAL clamp is active
+        return y[4] - TEMP_STEAM_MAX
 
     # ─── ODE right-hand side ─────────────────────────────────────────────────
 
@@ -212,6 +369,7 @@ class BoilerModel:
         t: float,  # noqa: ARG002
         y: list[float],
         controls: ControlInputs,
+        disturbances: PlantDisturbances = NO_DISTURBANCES,
     ) -> list[float]:
         """
         Compute dy/dt for the ODE solver.
@@ -219,106 +377,53 @@ class BoilerModel:
         State vector y = [U, P, h, T_gas, T_water]
         Returns [dU/dt, dP/dt, dh/dt, dT_gas/dt, dT_water/dt]
         """
-        state = BoilerState.from_vector(y)
-
-        # ── Clamp state to physical bounds ────────────────────────────────────
-        water_level = max(state.water_level, 0.01)
-        # Lower bound: keep above boiling point at 1 bar.
-        # Upper bound: clamp at critical temperature of water (647 K).
-        # Without the upper clamp the ODE can push water_temp into the
-        # supercritical region where IAPWS-IF97 is non-monotonic and
-        # _event_temp_high fires prematurely (before PRESSURE HIGH or DRUM DRY).
-        water_temp = max(state.water_temp, 373.15)
-        water_temp = min(water_temp, T_CRITICAL)
-        pressure_pa = max(state.pressure, 1.0e5)
-
-        # ── Water mass via IAPWS-IF97 density ────────────────────────────────
-        rho_water = steam_tables.water_density(water_temp, pressure_pa)
-        water_mass = rho_water * self.params.drum_cross_section * water_level
-        water_mass = max(water_mass, 1.0)
-
-        # ── Cp of water — capped to suppress the pseudo-critical divergence ──
-        cp_water = min(
-            steam_tables.water_specific_heat(water_temp, pressure_pa),
-            CP_WATER_MAX,
-        )
-
-        # ── Valve positions ───────────────────────────────────────────────────
-        fv = controls.fuel_valve.position
-        wv = controls.feedwater_valve.position
-        sv = controls.steam_valve.position
-
-        # ── Combustion ────────────────────────────────────────────────────────
-        comb = self.combustion.calculate(fuel_valve=fv)
-
-        # ── Superheater (hottest flue gas first) ──────────────────────────────
-        m_steam = self._steam_flow(pressure_pa, sv)
-        sh = self.superheater.calculate(
-            pressure_pa=pressure_pa,
-            steam_flow=m_steam,
-            flue_gas_temp_in=state.flue_gas_temp,
-            flue_gas_flow=comb.flue_gas_flow,
-        )
-
-        # ── Economizer (flue gas already cooled by superheater) ───────────────
-        m_feed_raw = self._feedwater_flow(wv)
-        eco = self.economizer.calculate(
-            feedwater_flow=m_feed_raw,
-            feedwater_temp_in=self.params.feedwater_temp,
-            pressure_pa=pressure_pa,
-            flue_gas_temp_in=sh.flue_gas_temp_out,
-            flue_gas_flow=comb.flue_gas_flow,
-        )
-        feedwater_temp_actual = eco.water_temp_out
-
-        # ── Heat flows ────────────────────────────────────────────────────────
-        q_gas_to_water = self._heat_to_water(state.flue_gas_temp, water_temp)
-        q_loss = self._heat_loss(water_temp)
-
-        # Steam leaves as saturated vapour — enthalpy depends only on pressure.
-        q_steam_out = self._heat_carried_by_steam(m_steam, pressure_pa)
-
-        # Feedwater energy referenced to T_REF = 273.15 K (IAPWS-IF97 zero).
-        q_feedwater_in = m_feed_raw * cp_water * (feedwater_temp_actual - T_REF)
-
-        # ── ODE 1: dU/dt ──────────────────────────────────────────────────────
-        du_dt = q_gas_to_water + q_feedwater_in - q_steam_out - q_loss
-
-        # ── ODE 2: dP/dt — pressure tracks saturation pressure ───────────────
-        p_sat = steam_tables.saturation_pressure(water_temp)
-        dp_dt = (p_sat - pressure_pa) / TAU_PRESSURE
-
-        # ── ODE 3: dh/dt — liquid mass balance ───────────────────────────────
-        # d(ρ·A·h)/dt = m_feed − m_steam
-        # -> dh/dt = (m_feed − m_steam) / (ρ_water · A)
-        #
-        # FIX: previous formula subtracted m_steam/ρ_steam (a volumetric flow
-        # [m³/s]) from m_feed (a mass flow [kg/s]) — dimensionally inconsistent.
-        # That made the level appear to rise even with zero feedwater.
-        dh_dt = (m_feed_raw - m_steam) / (rho_water * self.params.drum_cross_section)
-
-        # ── ODE 4: dT_gas/dt ──────────────────────────────────────────────────
-        q_sh_absorbed = sh.heat_transferred
-        dt_gas_dt = (comb.heat_available - q_gas_to_water - q_sh_absorbed) / (
-            FURNACE_GAS_MASS * FURNACE_GAS_CP
-        )
-
-        # ── ODE 5: dT_water/dt — variable-mass corrected ──────────────────────
-        # U = M · cp · (T − T_REF)  ->  product rule:
-        #   dU/dt = dM/dt · cp · (T − T_REF) + M · cp · dT/dt
-        # Solving for dT/dt:
-        #   dT/dt = [dU/dt − dM/dt · cp · (T − T_REF)] / (M · cp)
-        #
-        # FIX: previous code used bare water_temp instead of (water_temp − T_REF),
-        # injecting a spurious ~200 MW cooling term at nominal conditions.
-        dm_dt = m_feed_raw - m_steam
-        dt_water_dt = (du_dt - dm_dt * cp_water * (water_temp - T_REF)) / (
-            water_mass * cp_water
-        )
-
-        return [du_dt, dp_dt, dh_dt, dt_gas_dt, dt_water_dt]
+        balance = self.balance(BoilerState.from_vector(y), controls, disturbances)
+        return list(balance.derivatives)
 
     # ─── Public simulation interface ─────────────────────────────────────────
+
+    def step(
+        self,
+        state: BoilerState,
+        controls: ControlInputs,
+        dt: float,
+        disturbances: PlantDisturbances = NO_DISTURBANCES,
+    ) -> BoilerState:
+        """
+        Advance the boiler by one fixed step with classic Runge-Kutta 4.
+
+        Valves move first, then the state is integrated with valve positions held
+        over the step. The fastest dynamics (furnace gas, ~7 s) are well inside the
+        RK4 stability region at the 1 s step the runtime uses.
+        """
+        controls.update_valves(dt)
+        y0 = np.asarray(state.to_vector(), dtype=float)
+
+        def rate(y: np.ndarray) -> np.ndarray:
+            return np.asarray(
+                self.balance(
+                    BoilerState.from_vector([float(v) for v in y]),
+                    controls,
+                    disturbances,
+                ).derivatives
+            )
+
+        k1 = rate(y0)
+        k2 = rate(y0 + 0.5 * dt * k1)
+        k3 = rate(y0 + 0.5 * dt * k2)
+        k4 = rate(y0 + dt * k3)
+        y1 = y0 + dt / 6.0 * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+        return self._bounded(BoilerState.from_vector([float(v) for v in y1]))
+
+    def _bounded(self, state: BoilerState) -> BoilerState:
+        """Keep an integrated state inside the physical domain of the model."""
+        return BoilerState(
+            internal_energy=max(state.internal_energy, 0.0),
+            pressure=max(state.pressure, MIN_MODEL_PRESSURE),
+            water_level=min(max(state.water_level, 0.0), self.params.drum_height),
+            flue_gas_temp=max(state.flue_gas_temp, self.params.ambient_temp),
+            water_temp=min(max(state.water_temp, WATER_TEMP_MIN), WATER_TEMP_MAX),
+        )
 
     def simulate(
         self,
