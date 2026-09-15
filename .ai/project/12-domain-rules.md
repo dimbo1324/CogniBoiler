@@ -8,10 +8,9 @@ These sharpen the universal rules for this codebase. Stricter wins.
   section. A `# type: ignore` carries its error code.
 - A module past roughly 700 lines is split by meaning. `__main__.py` entry points hold
   argument parsing and wiring only.
-- A service never imports another service's internals. The two existing exceptions
-  (`plc-controller` → `physics_engine`, `api-gateway` → `alert_manager.models`) are
-  recorded debt in `docs/architecture/service-boundaries.md`; add no new ones — talk over
-  gRPC, MQTT or the database contract instead.
+- A service never imports another service's internals — talk over gRPC, MQTT or the
+  database contract instead. Tests may run another service in-process as a fixture
+  (`plc-controller` tests use the physics runtime), through a development dependency only.
 - Configuration comes from environment variables (pydantic-settings, or argparse defaults
   for local runs), never from constants edited per machine.
 
@@ -22,9 +21,10 @@ These sharpen the universal rules for this codebase. Stricter wins.
 - Timestamps are UTC epoch milliseconds (`timestamp_ms`) in contracts and storage.
 - `shared/proto/cogniboiler.proto` is a contract: add fields, never renumber or reuse a
   field number; regenerate the stubs with `generate-proto` in the same commit.
-- MQTT topics and payloads (`sensors/*` protobuf, `alerts/*` JSON, `status/*` retained
-  availability) are a contract listed in `docs/architecture/overview.md`. Changing one
-  updates every publisher and subscriber in the same task.
+- MQTT topics and payloads (`sensors/*` protobuf; `alerts/*`, `plc/events` and
+  `alarms/changes` JSON; `status/*` retained availability) are a contract listed in
+  `docs/architecture/overview.md`. Changing one updates every publisher and subscriber in
+  the same task.
 - Database schema changes go through Alembic migrations only.
 
 ## Control and safety

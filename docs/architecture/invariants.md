@@ -36,7 +36,9 @@ Resetting a trip is an explicit action by an engineer or admin, recorded in the 
 inconvenient in a demo.
 
 **Enforced by.** Interlock thresholds are code constants covered by tests; the reset route
-requires the engineer role.
+requires the engineer role; the PLC refuses a reset while the trip cause is still present,
+and refuses commands that claim the PID or SAFETY source, so no caller can pass for the
+interlock.
 
 ## I4. SI units and UTC epoch milliseconds in every contract
 
@@ -103,5 +105,7 @@ SQLite in memory, and in-process gRPC servers on port 0.
 **Why.** A test suite that needs a running stack is not run, and a test that depends on
 machine speed is not trusted.
 
-**Enforced by.** The quality gate runs the suites without starting any service. One
-timing-dependent test remains, marked `xfail(strict=True)` until the physics stage fixes it.
+**Enforced by.** The quality gate runs the suites without starting any service. The plant
+is a deterministic simulator that tests can step directly; the existing PLC integration
+tests still run it in-process against the wall clock at high speed, which is the remaining
+gap to close.

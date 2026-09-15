@@ -7,12 +7,12 @@ duplicated across services. Invariants I1–I3 in `invariants.md` rest on this t
 
 | Service | Owns | Must not own |
 | --- | --- | --- |
-| `physics-engine` | Process state, the integration step, the live runtime, MQTT telemetry, `PhysicsService` | Control policy, operator auth, alarm routing |
-| `plc-controller` | Control intent: setpoints, AUTO/MANUAL/ESTOP, PID loops, safety interlocks, E-Stop latch, validated command forwarding, alarm publishing | Canonical process state, HTTP/auth, telemetry storage |
-| `alert-manager` | Alarm persistence, deduplication and (planned) lifecycle: acknowledge, return to normal | Process state, authentication, control |
+| `physics-engine` | Process state, the integration step, the live runtime and simulation control (pause, speed, scenarios), faults and instrument behaviour, MQTT telemetry, `PhysicsService` | Control policy, operator auth, alarm routing |
+| `plc-controller` | Control intent: load demand, setpoints, AUTO/MANUAL/ESTOP, coordinated control loops, safety interlocks, E-Stop latch and reset permission, validated command forwarding, alarm condition detection, PLC events | Canonical process state, HTTP/auth, alarm lifecycle, telemetry storage |
+| `alert-manager` | Alarm lifecycle: activation, acknowledgement, return to normal, history; the `alarm_events` and `alarm_transitions` data; `AlarmService` | Process state, authentication, control, deciding what is an alarm condition |
 | `historian` | Time-series ingestion into InfluxDB | Control decisions, alarm policy |
 | `opcua-server` | Projection of live state to OPC UA clients | Control ownership (writes, when added, go through the PLC), persistence |
-| `api-gateway` | The edge for people: authentication, RBAC, audit, REST, WebSocket, orchestration of calls | The integration step, PLC internals, alarm state |
+| `api-gateway` | The edge for people: authentication, RBAC, audit, REST, WebSocket, orchestration of calls; the Alembic migration chain | The integration step, PLC internals, alarm state |
 | `web` (planned, `apps/web`) | Presentation: screens, unit conversion for display | Business rules, authorization decisions |
 
 ## Command and state flow
@@ -21,19 +21,18 @@ duplicated across services. Invariants I1–I3 in `invariants.md` rest on this t
    control request to `plc-controller`.
 2. `plc-controller` validates it, applies the interlocks, and forwards the accepted command
    to `physics-engine`.
-3. `physics-engine` applies it on the next step and exposes the resulting state through
+3. `physics-engine` applies it on the next step and publishes the resulting state through
    `PhysicsService` and MQTT.
-4. `historian` and `opcua-server` consume telemetry as observers only.
-5. `plc-controller` publishes alarm events; `alert-manager` stores them. Nobody but the
+4. `plc-controller` scans every published state; `historian` and `opcua-server` consume
+   telemetry as observers only.
+5. `plc-controller` publishes alarm conditions; `alert-manager` owns the alarms they become,
+   and the gateway reads and acknowledges them only through `AlarmService`. Nobody but the
    physics engine mutates the simulator.
 
-## Recorded boundary debt
+## Recorded boundary notes
 
-These cross the table above today. They are debt with a planned fix, not a pattern to copy —
-add no new cross-service imports.
-
-| Debt | Where | Planned fix |
-| --- | --- | --- |
-| PID and safety code live in `physics_engine.controller`, `physics_engine.pid` and `physics_engine.safety`, imported by the PLC | `apps/plc-controller/src/plc_controller/service.py` | move into `plc_controller` (roadmap S3) |
-| The gateway imports `alert_manager.models` and reads `alarm_events` directly | `apps/api-gateway/src/api_gateway/routers/alarms.py`, `db_init.py` | an `AlarmService` gRPC API owned by alert-manager (roadmap S4) |
-| `alarm_events` is created with `create_all` outside the Alembic chain | `apps/alert-manager/src/alert_manager/db.py` | one migration chain applied by a `migrate` job (roadmap S1/S4) |
+- The migration chain for every PostgreSQL table, alarm tables included, lives in
+  `apps/api-gateway/migrations` and is applied by the `migrate` job; alert-manager owns the
+  alarm data but not the chain (decision in the internal decision log, Q2).
+- `plc-controller` imports `physics_engine` only in its tests, as an in-process plant; the
+  dependency is a development group, not a runtime dependency.

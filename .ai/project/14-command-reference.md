@@ -25,10 +25,11 @@ regenerating secrets, run `stack down --volumes`.
 |---|---|---|
 | Mosquitto (MQTT / WebSocket) | 1883 / 9001 | anonymous access, development only |
 | InfluxDB 2 | 8086 | org and bucket from `.env` |
-| PostgreSQL 16 | 5432 | users, roles, audit log, alarm events |
+| PostgreSQL 16 | 5432 | users, roles, audit log; alarm lifecycle tables owned by alert-manager |
 | Grafana | 3000 | provisioned InfluxDB datasource and dashboards |
-| physics-engine gRPC | 50052 | `PhysicsService` |
-| plc-controller gRPC | 50051 | `PLCService` |
+| physics-engine gRPC | — | `PhysicsService` on :50052 inside the Compose network only: publishing it would open a path to the valves around the PLC |
+| plc-controller gRPC | — | `PLCService` on :50051 inside the Compose network only |
+| alert-manager gRPC | — | `AlarmService` on :50053 inside the Compose network only |
 | opcua-server | 4840 | `opc.tcp://localhost:4840/cogniboiler` |
 | api-gateway | 8000 | REST under `/api/v1`, `/auth`, `/health`, OpenAPI at `/docs`, WebSocket `/ws/realtime` |
 | web console | 5173 (dev) | Vite dev server proxies `/api`, `/auth` and `/ws` to the gateway |
@@ -38,24 +39,33 @@ regenerating secrets, run `stack down --volumes`.
 Start the infrastructure with `stack up --infra-only`, then, each in its own terminal:
 
 ```powershell
-uv run --package physics-engine python -m physics_engine --speed 1
+uv run --package physics-engine python -m physics_engine --speed 1   # --scenario hot_start, --paused
 uv run --package plc-controller python -m plc_controller --physics-target localhost:50052
 uv run --package historian python -m historian
-uv run --package alert-manager python -m alert_manager
+uv run --package alert-manager python -m alert_manager               # AlarmService on :50053
 uv run --package opcua-server python -m opcua_server
 uv run --package api-gateway uvicorn api_gateway.main:app --reload --port 8000
 ```
 
-Host-run services read `.env` from the repository root for secrets.
+Host-run services read `.env` from the repository root for secrets. alert-manager refuses to
+start until the migrations have created its tables (`stack up --infra-only` runs `migrate`
+only with the full stack; from the host, apply `alembic upgrade head` first).
+
+Simulation control has no REST route yet: pause, speed, stepping, scenarios and faults are
+`PhysicsService` RPCs (`LoadScenario`, `InjectFault`, `SetSimulationSpeed`, …).
 
 ## MQTT topics
 
 | Topic | Payload | Publisher → subscribers |
 |---|---|---|
-| `sensors/boiler` | protobuf `BoilerStateMsg` | physics-engine → historian, opcua-server |
-| `sensors/turbine` | protobuf `TurbineStateMsg` | physics-engine → historian, opcua-server |
+| `sensors/boiler` | protobuf `BoilerStateMsg` (measured values) | physics-engine → historian, opcua-server |
+| `sensors/turbine` | protobuf `TurbineStateMsg` (measured values) | physics-engine → historian, opcua-server |
+| `sensors/plant` | protobuf `PlantStatusMsg` | physics-engine → (none yet) |
 | `sensors/system/heartbeat` | text timestamp | physics-engine → historian, opcua-server |
-| `alerts/warning`, `alerts/critical` | JSON alarm event | plc-controller → alert-manager |
+| `alerts/warning`, `alerts/critical` | JSON alarm condition, `state` active/cleared | plc-controller → alert-manager |
+| `alerts/snapshot` | JSON active condition keys, every 10 s | plc-controller → alert-manager |
+| `plc/events` | JSON PLC event | plc-controller → (none yet) |
+| `alarms/changes` | JSON alarm state change | alert-manager → (none yet) |
 | `status/physics-engine`, `status/plc-controller` | retained `online`/`offline` | the service itself (MQTT will) |
 
 ## Contracts and code generation

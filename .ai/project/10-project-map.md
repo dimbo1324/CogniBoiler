@@ -15,13 +15,15 @@ uv workspace on Python 3.14; every service is a package with `src/` and `tests/`
 
 - `apps/physics-engine` — thermodynamic boiler/turbine model, the live runtime, the
   `PhysicsService` gRPC API, MQTT telemetry. The single owner of process state.
-- `apps/plc-controller` — virtual PLC: command validation, setpoints, cascade PID in
-  AUTO, safety interlocks and the E-Stop latch, `PLCService` gRPC API, alarm publishing.
+- `apps/plc-controller` — virtual PLC: command validation, load demand and setpoints,
+  coordinated control in AUTO, AUTO/MANUAL/ESTOP, safety interlocks and the E-Stop latch,
+  alarm conditions and PLC events on MQTT, `PLCService` gRPC API.
 - `apps/api-gateway` — FastAPI edge: JWT RS256, RBAC, audit log, REST and WebSocket,
-  gRPC clients to the PLC and physics services, PostgreSQL via SQLAlchemy async, Alembic
-  migrations in `apps/api-gateway/migrations`.
+  gRPC clients to the PLC, physics and alarm services, PostgreSQL via SQLAlchemy async,
+  the Alembic migration chain in `apps/api-gateway/migrations`.
 - `apps/historian` — MQTT telemetry subscriber writing to InfluxDB.
-- `apps/alert-manager` — MQTT alarm subscriber persisting alarm events to PostgreSQL.
+- `apps/alert-manager` — alarm lifecycle from PLC conditions, alarm tables in PostgreSQL,
+  `AlarmService` gRPC API, alarm changes on MQTT.
 - `apps/opcua-server` — OPC UA (IEC 62541) projection of live state.
 - `apps/web` — the operator console (React + TypeScript + Vite, pnpm).
 - `apps/ai-predictor` — deferred placeholder, **not** a workspace member.

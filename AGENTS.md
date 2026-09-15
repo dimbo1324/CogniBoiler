@@ -341,13 +341,15 @@ uv workspace on Python 3.14; every service is a package with `src/` and `tests/`
 
 - `apps/physics-engine` — thermodynamic boiler/turbine model, the live runtime, the
   `PhysicsService` gRPC API, MQTT telemetry. The single owner of process state.
-- `apps/plc-controller` — virtual PLC: command validation, setpoints, cascade PID in
-  AUTO, safety interlocks and the E-Stop latch, `PLCService` gRPC API, alarm publishing.
+- `apps/plc-controller` — virtual PLC: command validation, load demand and setpoints,
+  coordinated control in AUTO, AUTO/MANUAL/ESTOP, safety interlocks and the E-Stop latch,
+  alarm conditions and PLC events on MQTT, `PLCService` gRPC API.
 - `apps/api-gateway` — FastAPI edge: JWT RS256, RBAC, audit log, REST and WebSocket,
-  gRPC clients to the PLC and physics services, PostgreSQL via SQLAlchemy async, Alembic
-  migrations in `apps/api-gateway/migrations`.
+  gRPC clients to the PLC, physics and alarm services, PostgreSQL via SQLAlchemy async,
+  the Alembic migration chain in `apps/api-gateway/migrations`.
 - `apps/historian` — MQTT telemetry subscriber writing to InfluxDB.
-- `apps/alert-manager` — MQTT alarm subscriber persisting alarm events to PostgreSQL.
+- `apps/alert-manager` — alarm lifecycle from PLC conditions, alarm tables in PostgreSQL,
+  `AlarmService` gRPC API, alarm changes on MQTT.
 - `apps/opcua-server` — OPC UA (IEC 62541) projection of live state.
 - `apps/web` — the operator console (React + TypeScript + Vite, pnpm).
 - `apps/ai-predictor` — deferred placeholder, **not** a workspace member.
@@ -492,10 +494,9 @@ These sharpen the universal rules for this codebase. Stricter wins.
   section. A `# type: ignore` carries its error code.
 - A module past roughly 700 lines is split by meaning. `__main__.py` entry points hold
   argument parsing and wiring only.
-- A service never imports another service's internals. The two existing exceptions
-  (`plc-controller` → `physics_engine`, `api-gateway` → `alert_manager.models`) are
-  recorded debt in `docs/architecture/service-boundaries.md`; add no new ones — talk over
-  gRPC, MQTT or the database contract instead.
+- A service never imports another service's internals — talk over gRPC, MQTT or the
+  database contract instead. Tests may run another service in-process as a fixture
+  (`plc-controller` tests use the physics runtime), through a development dependency only.
 - Configuration comes from environment variables (pydantic-settings, or argparse defaults
   for local runs), never from constants edited per machine.
 
@@ -506,9 +507,10 @@ These sharpen the universal rules for this codebase. Stricter wins.
 - Timestamps are UTC epoch milliseconds (`timestamp_ms`) in contracts and storage.
 - `shared/proto/cogniboiler.proto` is a contract: add fields, never renumber or reuse a
   field number; regenerate the stubs with `generate-proto` in the same commit.
-- MQTT topics and payloads (`sensors/*` protobuf, `alerts/*` JSON, `status/*` retained
-  availability) are a contract listed in `docs/architecture/overview.md`. Changing one
-  updates every publisher and subscriber in the same task.
+- MQTT topics and payloads (`sensors/*` protobuf; `alerts/*`, `plc/events` and
+  `alarms/changes` JSON; `status/*` retained availability) are a contract listed in
+  `docs/architecture/overview.md`. Changing one updates every publisher and subscriber in
+  the same task.
 - Database schema changes go through Alembic migrations only.
 
 ## Control and safety

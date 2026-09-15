@@ -6,6 +6,23 @@ History of changes to the AI assistant rule system (`.ai/`, `CLAUDE.md`, `AGENTS
 
 Format: date, what changed, why, who decided. Newest first.
 
+## 2026-09-15 — Project modules follow S2–S4
+
+**What changed.** `project/10-project-map.md` describes the PLC's coordinated control and
+alert-manager's alarm lifecycle and `AlarmService`. `project/12-domain-rules.md` no longer
+lists `plc-controller` → `physics_engine` and `api-gateway` → `alert_manager.models` as
+existing import exceptions — both are gone — and says a test may run another service
+in-process through a development dependency; it names `plc/events` and `alarms/changes`
+among the MQTT contracts. `project/14-command-reference.md` gains the `AlarmService` port,
+the new topics, the physics run flags and how simulation control is reached.
+
+**Why.** The S2–S4 implementation made those statements false. These are factual
+corrections, which `universal/08-rules-evolution.md` allows without approval; no rule was
+loosened.
+
+**Decided by.** Agent, as factual corrections to the owner-requested S2–S4 work of
+2026-09-15.
+
 ## 2026-09-15 — Publishing without pull requests
 
 **What changed.** `project/11-commands.md` gains a Publishing section: a task branch is
