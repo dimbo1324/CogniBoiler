@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import time
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from influxdb_client.rest import ApiException
+from urllib3.exceptions import HTTPError as Urllib3HTTPError
 
 from api_gateway.auth.jwt_handler import TokenData
 from api_gateway.auth.rbac import require_role
 from api_gateway.clients import HistorianQueryClient
 from api_gateway.schemas.ops import HistoryPointResponse, HistoryResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["history"])
 
@@ -36,12 +42,21 @@ async def get_history(
     start_ms = start_ms if start_ms is not None else current_ms - 15 * 60 * 1000
     end_ms = end_ms if end_ms is not None else current_ms
 
-    raw_points = _historian_client(request).fetch_history(
-        measurement=measurement,
-        start_ms=start_ms,
-        end_ms=end_ms,
-        limit=limit,
-    )
+    try:
+        raw_points = await asyncio.to_thread(
+            _historian_client(request).fetch_history,
+            measurement=measurement,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            limit=limit,
+        )
+    except (ApiException, OSError, Urllib3HTTPError) as exc:
+        logger.warning("History query to InfluxDB failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Historian query failed.",
+        ) from exc
+
     points: list[HistoryPointResponse] = []
     for item in raw_points:
         values = {
@@ -53,6 +68,7 @@ async def get_history(
                 "table",
                 "_start",
                 "_stop",
+                "_time",
                 "_measurement",
                 "timestamp_ms",
             }

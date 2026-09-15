@@ -132,6 +132,28 @@ class PLCGatewayClient:
         )
 
 
+NANOSECONDS_PER_MILLISECOND = 1_000_000
+
+
+def build_history_query(
+    *, bucket: str, measurement: str, start_ms: int, end_ms: int, limit: int
+) -> str:
+    """Flux for one measurement over [start_ms, end_ms], one pivoted row per time.
+
+    Flux's time(v:) takes integer nanoseconds; InfluxDB rejects float seconds with 400.
+    """
+    start_ns = start_ms * NANOSECONDS_PER_MILLISECOND
+    stop_ns = end_ms * NANOSECONDS_PER_MILLISECOND
+    return f"""
+from(bucket: "{bucket}")
+  |> range(start: time(v: {start_ns}), stop: time(v: {stop_ns}))
+  |> filter(fn: (r) => r._measurement == "{measurement}")
+  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+  |> sort(columns: ["_time"], desc: false)
+  |> limit(n: {limit})
+"""
+
+
 class HistorianQueryClient:
     """Query helper for historical telemetry stored in InfluxDB."""
 
@@ -151,14 +173,13 @@ class HistorianQueryClient:
         end_ms: int,
         limit: int,
     ) -> list[dict[str, Any]]:
-        flux = f"""
-from(bucket: "{self.config.bucket}")
-  |> range(start: time(v: {start_ms / 1000.0}), stop: time(v: {end_ms / 1000.0}))
-  |> filter(fn: (r) => r._measurement == "{measurement}")
-  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
-  |> sort(columns: ["_time"], desc: false)
-  |> limit(n: {limit})
-"""
+        flux = build_history_query(
+            bucket=self.config.bucket,
+            measurement=measurement,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            limit=limit,
+        )
         tables = self._query_api.query(flux, org=self.config.org)
         rows: list[dict[str, Any]] = []
         for table in tables:

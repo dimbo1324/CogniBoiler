@@ -58,7 +58,7 @@ async def main(
     )
 
     logger.info(
-        "Starting Historian: mqtt=%s:%d  influx=%s  bucket=%s",
+        "Starting Historian: mqtt=%s:%d  influx=%s  bucket=%s  batch=%d  flush=%.1fs",
         mqtt_host,
         mqtt_port,
         influx_url,

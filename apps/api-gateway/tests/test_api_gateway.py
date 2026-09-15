@@ -719,3 +719,83 @@ class TestCommandsEndpoints:
             headers={"Authorization": f"Bearer {engineer_tokens['access']}"},
         )
         assert response.status_code == 422
+
+
+# ─── History endpoint ─────────────────────────────────────────────────────────
+
+
+class RecordedHistorianClient(FakeHistorianClient):
+    """Returns one row shaped exactly like a pivoted InfluxDB Flux record."""
+
+    def fetch_history(
+        self,
+        *,
+        measurement: str,
+        start_ms: int,
+        end_ms: int,
+        limit: int,
+    ) -> list[dict[str, object]]:
+        from datetime import UTC, datetime
+
+        return [
+            {
+                "result": "_result",
+                "table": 0,
+                "_start": datetime(2026, 9, 15, 6, 0, tzinfo=UTC),
+                "_stop": datetime(2026, 9, 15, 6, 15, tzinfo=UTC),
+                "_time": datetime(2026, 9, 15, 6, 10, tzinfo=UTC),
+                "_measurement": measurement,
+                "quality": "good",
+                "pressure_pa": 140.0e5,
+                "water_level_m": 4.8,
+                "timestamp_ms": 1_789_452_600_000,
+            }
+        ]
+
+
+class FailingHistorianClient(FakeHistorianClient):
+    def fetch_history(
+        self,
+        *,
+        measurement: str,
+        start_ms: int,
+        end_ms: int,
+        limit: int,
+    ) -> list[dict[str, object]]:
+        raise ConnectionRefusedError("influxdb:8086 refused the connection")
+
+
+class TestHistoryEndpoint:
+    @pytest.mark.asyncio
+    async def test_a_real_influx_row_is_returned_without_flux_metadata(
+        self, app: FastAPI, client: AsyncClient, viewer_tokens: dict[str, str]
+    ) -> None:
+        app.state.historian_client = RecordedHistorianClient()
+        response = await client.get(
+            "/api/v1/history",
+            headers={"Authorization": f"Bearer {viewer_tokens['access']}"},
+        )
+        assert response.status_code == 200
+        point = response.json()["points"][0]
+        assert point["timestamp_ms"] == 1_789_452_600_000
+        assert point["values"] == {
+            "quality": "good",
+            "pressure_pa": 140.0e5,
+            "water_level_m": 4.8,
+        }
+
+    @pytest.mark.asyncio
+    async def test_an_unreachable_historian_is_503_not_500(
+        self, app: FastAPI, client: AsyncClient, viewer_tokens: dict[str, str]
+    ) -> None:
+        app.state.historian_client = FailingHistorianClient()
+        response = await client.get(
+            "/api/v1/history",
+            headers={"Authorization": f"Bearer {viewer_tokens['access']}"},
+        )
+        assert response.status_code == 503
+
+    @pytest.mark.asyncio
+    async def test_history_requires_authentication(self, client: AsyncClient) -> None:
+        response = await client.get("/api/v1/history")
+        assert response.status_code == 401
