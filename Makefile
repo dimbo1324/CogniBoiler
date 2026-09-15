@@ -1,66 +1,69 @@
-.PHONY: install sync lint format format-check typecheck check test test-cov clean help
+# Shortcuts only. Every target calls the script orchestrator, which is the real,
+# cross-platform implementation: `python dev_tools_scripts_runner.py list` shows it all.
 
-UV := uv
-PYTHON := $(UV) run python
-PYTEST := $(UV) run pytest
-RUFF := $(UV) run ruff
-MYPY := $(UV) run mypy
+PYTHON ?= python
+RUN := $(PYTHON) dev_tools_scripts_runner.py
 
-install:
-	$(UV) sync --all-packages
-
-sync:
-	$(UV) sync
-
-lint:
-	$(RUFF) check .
-
-format:
-	$(RUFF) format .
-
-format-check:
-	$(RUFF) format --check .
-
-typecheck:
-	$(MYPY)
-
-check: lint format-check typecheck
-
-test:
-	$(PYTEST) -v
-
-test-cov:
-	$(PYTEST) -v --cov=apps --cov-report=html --cov-report=term-missing
-
-pre-commit-install:
-	$(UV) run pre-commit install
-
-pre-commit-run:
-	$(UV) run pre-commit run --all-files
-
-pre-commit-update:
-	$(UV) run pre-commit autoupdate
-
-clean:
-	@if exist .ruff_cache rmdir /s /q .ruff_cache
-	@if exist .mypy_cache rmdir /s /q .mypy_cache
-	@if exist .pytest_cache rmdir /s /q .pytest_cache
-	@if exist htmlcov rmdir /s /q htmlcov
-	@for /r . %%d in (__pycache__) do @if exist "%%d" rmdir /s /q "%%d"
-	@echo "Cleaned!"
-
-help:
-	@echo ""
-	@echo "  install      Установить все зависимости"
-	@echo "  sync         Синхронизировать с uv.lock"
-	@echo "  lint         Проверить код (ruff check)"
-	@echo "  format       Отформатировать код (ruff format)"
-	@echo "  format-check Проверить форматирование без изменений"
-	@echo "  typecheck    Проверить типы (mypy)"
-	@echo "  check        Все проверки вместе"
-	@echo "  test         Запустить тесты"
-	@echo "  test-cov     Тесты с отчётом покрытия"
-	@echo "  clean        Удалить кэши"
-	@echo ""
+.PHONY: help install secrets gate gate-quick format format-check agents proto up up-infra status down smoke doctor hooks clean selftest web-install web-dev
 
 .DEFAULT_GOAL := help
+
+help:
+	@$(RUN) list
+
+install:
+	uv sync --all-packages
+
+web-install:
+	pnpm --dir apps/web install
+
+web-dev:
+	pnpm --dir apps/web dev
+
+secrets:
+	$(RUN) dev-secrets
+
+gate:
+	$(RUN) quality-gate
+
+gate-quick:
+	$(RUN) quality-gate --quick
+
+format:
+	$(RUN) format-code
+
+format-check:
+	$(RUN) format-code --check
+
+agents:
+	$(RUN) sync-agents
+
+proto:
+	$(RUN) generate-proto
+
+up:
+	$(RUN) stack up
+
+up-infra:
+	$(RUN) stack up --infra-only
+
+status:
+	$(RUN) stack status
+
+down:
+	$(RUN) stack down
+
+smoke:
+	$(RUN) smoke
+
+doctor:
+	$(RUN) doctor
+
+hooks:
+	$(RUN) install-hooks
+
+clean:
+	$(RUN) clean-caches
+
+selftest:
+	$(RUN) selftest

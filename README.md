@@ -1,6 +1,8 @@
 # CogniBoiler
 
-**An AI-driven digital twin platform for industrial steam boiler and turbine systems.**
+**A digital twin platform for industrial steam boiler and turbine systems, built to host AI analytics as a later layer.**
+
+> **Quick start:** see [Getting Started](#getting-started). **Current state:** see [Project Status](#project-status). The AI layer is deferred — the platform is being completed without it first.
 
 CogniBoiler is a software project that brings together **physics simulation**, **industrial control logic**, **real-time telemetry**, **historical data storage**, **web APIs**, and **machine learning** into one coherent platform.
 
@@ -26,6 +28,9 @@ This project is designed to feel much closer to a real industrial system than to
 - [Typical Use Cases](#typical-use-cases)
 - [Technology Overview](#technology-overview)
 - [Project Status](#project-status)
+- [Getting Started](#getting-started)
+- [Development](#development)
+- [Documentation](#documentation)
 - [Design Principles](#design-principles)
 - [Long-Term Direction](#long-term-direction)
 - [Final Note](#final-note)
@@ -245,6 +250,8 @@ It is designed to transform raw plant history into higher-level interpretation. 
 
 ## AI Layer
 
+> **Status: deferred.** The models below are the long-term direction. They are not being built yet: the rest of the platform is completed first, and it is designed so the AI layer can be added later without changing how the plant is controlled.
+
 One of the defining ideas of CogniBoiler is that machine learning should not be an isolated add-on. It should be part of the broader operational architecture.
 
 The planned AI layer is centered around three major classes of intelligence.
@@ -426,20 +433,67 @@ The significance of this stack is not just that it is “modern”. It is that e
 
 ## Project Status
 
-CogniBoiler is **under active development**.
+CogniBoiler is **under active development**, working toward a complete, demonstrable platform without the AI layer first.
 
-It should be understood as a growing platform rather than a finished end-user product.
+What runs today, end to end, with one command:
 
-At this stage, the project is best described as:
+- **physics-engine** — boiler and turbine model, live runtime, gRPC state API, MQTT telemetry;
+- **plc-controller** — command validation, setpoints, PID control, safety interlocks and E-Stop;
+- **api-gateway** — FastAPI with JWT RS256 authentication, role-based access, audit log, REST and WebSocket;
+- **historian** (InfluxDB), **alert-manager** (PostgreSQL), **opcua-server** (read-only OPC UA);
+- **Grafana** with a provisioned process dashboard;
+- **web** — the operator console skeleton (React + TypeScript + Vite).
 
-- architecturally ambitious;
-- technically serious;
-- already structured around real service boundaries;
-- still evolving toward a more complete end-to-end system.
+Known gaps are listed in [docs/architecture/overview.md](docs/architecture/overview.md#known-gaps). The most visible one: the nominal operating point is not yet an equilibrium, so the automatic control loop does not hold the plant steady for long.
 
-Some parts of the platform already represent concrete implementation work, while other parts are still being expanded or refined.
+---
 
-For that reason, this README focuses on **what the project is**, **what it is meant to become**, and **how the architecture is organized**, rather than giving rigid production-style operating instructions.
+## Getting Started
+
+**Prerequisites:** Git, [uv](https://docs.astral.sh/uv/), Docker with Compose v2, and — for the web console only — Node.js 22+ with pnpm (via corepack or a standalone install). uv installs the pinned Python 3.14 itself.
+
+```bash
+uv sync --all-packages                              # Python 3.14 environment from uv.lock
+python dev_tools_scripts_runner.py dev-secrets      # .env with generated local secrets
+python dev_tools_scripts_runner.py stack up         # build and start everything, wait for health
+python dev_tools_scripts_runner.py smoke            # end-to-end check through the gateway
+```
+
+| What | Where |
+|---|---|
+| API and OpenAPI docs | http://localhost:8000/docs |
+| Grafana | http://localhost:3000 (credentials in `.env`) |
+| OPC UA | `opc.tcp://localhost:4840/cogniboiler` |
+| Web console (dev server) | `pnpm --dir apps/web install`, then `pnpm --dir apps/web dev` → http://localhost:5173 |
+
+Demo users `admin`, `engineer`, `operator` and `viewer` are created on start; their passwords are the `DEMO_*_PASSWORD` values in `.env`. Nothing in `.env` is ever committed.
+
+Stop with `python dev_tools_scripts_runner.py stack down` (add `--volumes` to wipe the databases).
+
+---
+
+## Development
+
+All routine work goes through one cross-platform script orchestrator, used the same way by people, AI agents and CI:
+
+```bash
+python dev_tools_scripts_runner.py list             # the catalog
+python dev_tools_scripts_runner.py quality-gate     # ruff, strict mypy, all tests, contract and rule sync checks, frontend checks
+python dev_tools_scripts_runner.py format-code      # ruff + Prettier
+python dev_tools_scripts_runner.py install-hooks    # pre-commit formatting hook, once per clone
+python dev_tools_scripts_runner.py doctor           # what this machine has and lacks
+```
+
+The `Makefile` offers the same commands as short aliases (`make gate`, `make up`, …).
+
+---
+
+## Documentation
+
+- [Architecture overview](docs/architecture/overview.md) — what is actually built: services, contracts, storage, known gaps.
+- [Service boundaries](docs/architecture/service-boundaries.md) — which service owns what.
+- [Invariants](docs/architecture/invariants.md) — what must never break.
+- [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md) — working rules for AI assistants contributing to the repository.
 
 ---
 

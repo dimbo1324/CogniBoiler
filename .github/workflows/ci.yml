@@ -1,26 +1,86 @@
 name: CI
 
+# `gate` runs the same quality gate developers run locally; `stack` builds the images,
+# starts the whole Compose stack with throwaway secrets, and runs the end-to-end smoke.
 on:
   push:
+    branches: ["**"]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  verify:
+  gate:
     runs-on: ubuntu-latest
+    env:
+      CI: "true"
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v4
+      - uses: actions/checkout@v4
         with:
-          python-version: "3.12"
+          persist-credentials: false
 
-      - name: Sync workspace
-        run: uv sync --all-packages
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
 
-      - name: Run checks
-        run: make check
+      - name: Install the Python pinned in .python-version
+        run: uv python install
 
-      - name: Run tests
-        run: make test
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/web/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: pnpm --dir apps/web install --frozen-lockfile
+
+      - name: Sync the Python workspace
+        run: uv sync --all-packages --frozen
+
+      - name: Quality gate
+        run: uv run --no-sync python dev_tools_scripts_runner.py quality-gate
+
+  stack:
+    runs-on: ubuntu-latest
+    needs: gate
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install the Python pinned in .python-version
+        run: uv python install
+
+      - name: Sync the Python workspace
+        run: uv sync --all-packages --frozen
+
+      - name: Generate throwaway secrets
+        run: uv run --no-sync python dev_tools_scripts_runner.py dev-secrets
+
+      - name: Start the stack
+        run: uv run --no-sync python dev_tools_scripts_runner.py stack up
+
+      - name: End-to-end smoke
+        run: uv run --no-sync python dev_tools_scripts_runner.py smoke
+
+      - name: Service logs on failure
+        if: failure()
+        run: docker compose ps --all && docker compose logs --no-color --tail 200
+
+      - name: Stop the stack
+        if: always()
+        run: uv run --no-sync python dev_tools_scripts_runner.py stack down --volumes --yes
