@@ -1,0 +1,15 @@
+{
+  "_comment": "Verifies the developer scripts themselves. stdlib unittest only -- adding pytest as a dependency just to test a handful of helpers would be heavier than the thing being tested. -W error matches what the gate's `dev scripts` step runs: two doors, one behaviour, so selftest cannot pass while the gate fails.",
+  "steps": [
+    {
+      "label": "unit tests under scripts/ (stdlib unittest)",
+      "argv": ["python", "-W", "error", "-m", "unittest", "discover", "-s", "scripts", "-t", "."],
+      "required": true
+    },
+    {
+      "label": "orchestrator catalog loads and validates",
+      "argv": ["python", "dev_tools_scripts_runner.py", "list"],
+      "required": true
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "default_script_title": "quality-gate",
+  "default_lang": "en",
+  "_comment": "quality-gate is the default because running the orchestrator with no arguments and no terminal -- an agent, a CI step, a pipe -- should verify the project, which is the one answer that is never wrong to want."
+}

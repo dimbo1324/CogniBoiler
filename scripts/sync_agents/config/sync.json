@@ -1,0 +1,20 @@
+{
+  "_comment": "Codex reads at most 32 KiB of project instructions; the budget stays below that so the limit is hit here, by name, rather than as silently truncated rules.",
+  "target": "AGENTS.md",
+  "groups": ["universal", "project"],
+  "size_limit_kib": 30.0,
+  "banner": [
+    "<!--",
+    "GENERATED FILE - DO NOT EDIT.",
+    "Source of truth: .ai/universal/*.md and .ai/project/*.md.",
+    "Edit a module, then run: python dev_tools_scripts_runner.py sync-agents",
+    "-->",
+    "",
+    "# CogniBoiler - working notes for Codex",
+    "",
+    "This file is the Codex entry point. It is assembled from the shared rule modules in",
+    "`.ai/` so Codex and Claude Code always follow identical rules. Later sections override",
+    "earlier ones; an explicit owner instruction in the current conversation overrides",
+    "everything."
+  ]
+}

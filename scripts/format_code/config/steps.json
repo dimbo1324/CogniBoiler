@@ -1,0 +1,13 @@
+{
+  "_comment": "Formatting only: import order and layout. Semantic lint fixes are deliberately not applied here -- a formatter that silently rewrites code would make its own diff unreviewable.",
+  "steps": [
+    { "label": "ruff import sorting", "argv": ["uv", "run", "--no-sync", "ruff", "check", "--select", "I", "--fix", "."], "required": true },
+    { "label": "ruff format", "argv": ["uv", "run", "--no-sync", "ruff", "format", "."], "required": true },
+    { "label": "Prettier (frontend)", "argv": ["pnpm", "--dir", "apps/web", "run", "format"], "required": true, "requires_path": "apps/web/node_modules" }
+  ],
+  "check_steps": [
+    { "label": "ruff import sorting --check", "argv": ["uv", "run", "--no-sync", "ruff", "check", "--select", "I", "."], "required": true },
+    { "label": "ruff format --check", "argv": ["uv", "run", "--no-sync", "ruff", "format", "--check", "."], "required": true },
+    { "label": "Prettier --check (frontend)", "argv": ["pnpm", "--dir", "apps/web", "run", "format:check"], "required": true, "requires_path": "apps/web/node_modules" }
+  ]
+}

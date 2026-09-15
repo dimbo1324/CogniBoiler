@@ -1,0 +1,8 @@
+{
+  "_comment": "The project name is fixed so container and volume names do not depend on the checkout's directory name.",
+  "project_name": "cogniboiler",
+  "compose_file": "docker-compose.yml",
+  "env_file": ".env",
+  "wait_timeout_s": 300,
+  "infra_services": ["mosquitto", "influxdb", "postgresql", "grafana"]
+}

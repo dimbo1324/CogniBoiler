@@ -1,0 +1,18 @@
+{
+  "_comment": "Tools the other scripts depend on. 'required' means a core script cannot work without it; 'optional' means only part of the toolchain is affected. Edit this list rather than doctor's Python.",
+  "tools": [
+    { "name": "git", "version_args": ["--version"], "required": true, "needed_for": "install-hooks and every git-aware step" },
+    { "name": "uv", "version_args": ["--version"], "required": true, "needed_for": "quality-gate, format-code, and every Python service" },
+    { "name": "docker", "version_args": ["--version"], "required": false, "needed_for": "stack: the Compose stack and the end-to-end smoke" },
+    { "name": "node", "version_args": ["--version"], "required": false, "needed_for": "the web frontend" },
+    { "name": "pnpm", "version_args": ["--version"], "required": false, "needed_for": "installing, checking and building the web frontend" },
+    { "name": "kubectl", "version_args": ["version", "--client"], "required": false, "needed_for": "the Kubernetes deployment stage" },
+    { "name": "helm", "version_args": ["version", "--short"], "required": false, "needed_for": "the Helm chart in the deployment stage" },
+    { "name": "make", "version_args": ["--version"], "required": false, "needed_for": "the Makefile shortcuts, which only call this orchestrator" }
+  ],
+  "paths": [
+    { "path": ".venv", "label": "project environment (.venv)", "hint": "run: uv sync --all-packages" },
+    { "path": ".env", "label": "local secrets (.env)", "hint": "run: python dev_tools_scripts_runner.py dev-secrets" },
+    { "path": "apps/web/node_modules", "label": "frontend node_modules", "hint": "run: pnpm --dir apps/web install" }
+  ]
+}

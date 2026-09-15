@@ -1,0 +1,26 @@
+{
+  "before_commit": {
+    "en": "Before every commit — the pre-commit hook formats staged Python automatically once installed.",
+    "ru": "Перед каждым коммитом — после установки хук сам форматирует застейдженный Python."
+  },
+  "before_merge": {
+    "en": "Before every merge to main; the quick variant is the minimum before a push.",
+    "ru": "Перед каждым слиянием в main; быстрый вариант — минимум перед push."
+  },
+  "after_rule_change": {
+    "en": "After editing any module under .ai/ — the gate fails until AGENTS.md is regenerated.",
+    "ru": "После правки любого модуля в .ai/ — гейт падает, пока AGENTS.md не перегенерирован."
+  },
+  "after_contract_change": {
+    "en": "After editing shared/proto/*.proto, in the same commit as the contract change.",
+    "ru": "После правки shared/proto/*.proto, в том же коммите, что и изменение контракта."
+  },
+  "on_demand": {
+    "en": "On demand.",
+    "ru": "По необходимости."
+  },
+  "once_per_clone": {
+    "en": "Once per clone, and again after changing what it sets up.",
+    "ru": "Один раз на клон и повторно после изменения того, что он настраивает."
+  }
+}

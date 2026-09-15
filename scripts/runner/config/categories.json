@@ -1,0 +1,26 @@
+[
+  {
+    "key": "quality",
+    "title": { "en": "Quality & Formatting", "ru": "Качество и форматирование" },
+    "blurb": {
+      "en": "Verify, format, and keep the agent rules in sync before you commit or merge.",
+      "ru": "Проверка, форматирование и синхронизация правил агентов перед коммитом и слиянием."
+    }
+  },
+  {
+    "key": "platform",
+    "title": { "en": "Platform & Contracts", "ru": "Платформа и контракты" },
+    "blurb": {
+      "en": "Run the Docker Compose stack, prepare local secrets, regenerate protobuf stubs.",
+      "ru": "Запуск стека Docker Compose, локальные секреты, перегенерация protobuf-стабов."
+    }
+  },
+  {
+    "key": "workspace",
+    "title": { "en": "Workspace Hygiene", "ru": "Гигиена рабочего каталога" },
+    "blurb": {
+      "en": "Environment checks, git hooks, the scripts' own tests, and cache cleanup.",
+      "ru": "Проверка окружения, git-хуки, тесты самих скриптов и очистка кэшей."
+    }
+  }
+]

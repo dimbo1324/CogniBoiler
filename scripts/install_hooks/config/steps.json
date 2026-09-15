@@ -1,0 +1,10 @@
+{
+  "_comment": "pre-commit itself comes from the uv environment, so its version is the one uv.lock pins.",
+  "steps": [
+    {
+      "label": "pre-commit install --install-hooks",
+      "argv": ["uv", "run", "--no-sync", "pre-commit", "install", "--install-hooks"],
+      "required": true
+    }
+  ]
+}

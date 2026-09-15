@@ -1,0 +1,27 @@
+{
+  "_comment": "The gate CI runs verbatim. uv sync --locked comes first: every later step runs with --no-sync against exactly what uv.lock declares, and a lock file that drifted from pyproject.toml fails here by name. Steps with requires_path are skipped locally when that path is absent and fail under CI.",
+  "steps": [
+    { "label": "environment matches uv.lock", "argv": ["uv", "sync", "--all-packages", "--locked"], "required": true },
+    { "label": "ruff format --check", "argv": ["uv", "run", "--no-sync", "ruff", "format", "--check", "."], "required": true },
+    { "label": "ruff check", "argv": ["uv", "run", "--no-sync", "ruff", "check", "."], "required": true },
+    { "label": "mypy (strict)", "argv": ["uv", "run", "--no-sync", "mypy"], "required": true },
+    { "label": "service test suites (pytest)", "argv": ["uv", "run", "--no-sync", "pytest", "-q", "--no-cov"], "required": true },
+    { "label": "protobuf stubs match shared/proto", "argv": ["uv", "run", "--no-sync", "python", "-m", "scripts.generate_proto", "--check"], "required": true },
+    { "label": "AGENTS.md in sync with .ai/", "argv": ["python", "-m", "scripts.sync_agents", "--check"], "required": true },
+    { "label": "developer scripts' own tests", "argv": ["python", "-W", "error", "-m", "unittest", "discover", "-s", "scripts", "-t", "."], "required": true },
+    { "label": "frontend format check", "argv": ["pnpm", "--dir", "apps/web", "run", "format:check"], "required": true, "requires_path": "apps/web/node_modules" },
+    { "label": "frontend lint", "argv": ["pnpm", "--dir", "apps/web", "run", "lint"], "required": true, "requires_path": "apps/web/node_modules" },
+    { "label": "frontend typecheck", "argv": ["pnpm", "--dir", "apps/web", "run", "typecheck"], "required": true, "requires_path": "apps/web/node_modules" },
+    { "label": "frontend tests", "argv": ["pnpm", "--dir", "apps/web", "run", "test"], "required": true, "requires_path": "apps/web/node_modules" },
+    { "label": "frontend build", "argv": ["pnpm", "--dir", "apps/web", "run", "build"], "required": true, "requires_path": "apps/web/node_modules" }
+  ],
+  "quick_steps": [
+    { "label": "environment matches uv.lock", "argv": ["uv", "sync", "--all-packages", "--locked"], "required": true },
+    { "label": "ruff format --check", "argv": ["uv", "run", "--no-sync", "ruff", "format", "--check", "."], "required": true },
+    { "label": "ruff check", "argv": ["uv", "run", "--no-sync", "ruff", "check", "."], "required": true },
+    { "label": "mypy (strict)", "argv": ["uv", "run", "--no-sync", "mypy"], "required": true },
+    { "label": "AGENTS.md in sync with .ai/", "argv": ["python", "-m", "scripts.sync_agents", "--check"], "required": true },
+    { "label": "frontend lint", "argv": ["pnpm", "--dir", "apps/web", "run", "lint"], "required": true, "requires_path": "apps/web/node_modules" },
+    { "label": "frontend typecheck", "argv": ["pnpm", "--dir", "apps/web", "run", "typecheck"], "required": true, "requires_path": "apps/web/node_modules" }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "_comment": "Only regenerable output belongs here. protected_names are never descended into or deleted, even when a cache name appears beneath them.",
+  "directory_names": ["__pycache__", ".ruff_cache", ".mypy_cache", ".pytest_cache", "htmlcov"],
+  "file_names": [".coverage"],
+  "extra_paths": ["apps/web/dist"],
+  "protected_names": [".git", ".venv", "node_modules", ".env", ".claude", ".codex"]
+}

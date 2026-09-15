@@ -1,0 +1,204 @@
+[
+  {
+    "title": "quality-gate",
+    "module": "scripts.quality_gate",
+    "category": "quality",
+    "aliases": [
+      "gate",
+      "check"
+    ],
+    "cadence_ref": "before_merge",
+    "summary": {
+      "en": "Run the project's full quality gate.",
+      "ru": "Запустить полный quality gate проекта."
+    },
+    "description": {
+      "en": "Checks that the environment matches uv.lock, then runs ruff format --check, ruff check, strict mypy, every service test suite, the AGENTS.md sync check, the developer scripts' own tests, and the frontend lint/typecheck/test/build. Every section runs even after an earlier one fails, so one run names every problem. CI runs exactly this, so a green run here means the same thing it means there. Frontend sections are skipped with a notice when apps/web/node_modules is absent, and fail instead when the CI variable is set. --quick skips the test suites and the frontend build: the minimum before a push, never before a merge.",
+      "ru": "Проверяет, что окружение совпадает с uv.lock, затем запускает ruff format --check, ruff check, строгий mypy, тесты всех сервисов, проверку синхронности AGENTS.md, тесты самих скриптов и lint/typecheck/test/build фронтенда. Все секции выполняются, даже если предыдущая упала, поэтому один прогон называет все проблемы. CI запускает ровно это, поэтому зелёный прогон здесь значит то же, что и там. Секции фронтенда пропускаются с уведомлением без apps/web/node_modules и падают, если задана переменная CI. --quick пропускает тесты и сборку фронтенда: минимум перед push, но не перед слиянием."
+    },
+    "examples": [
+      "--quick"
+    ]
+  },
+  {
+    "title": "format-code",
+    "module": "scripts.format_code",
+    "category": "quality",
+    "aliases": [
+      "format",
+      "fmt"
+    ],
+    "cadence_ref": "before_commit",
+    "summary": {
+      "en": "Format Python with ruff and the frontend with Prettier.",
+      "ru": "Отформатировать Python через ruff и фронтенд через Prettier."
+    },
+    "description": {
+      "en": "Sorts imports and formats every Python file with the ruff version pinned in uv.lock, then runs Prettier over the frontend when its node_modules exist. The pre-commit hook already formats staged Python on every commit; reach for this to format the whole tree at once, or with --check to see what the gate would object to without rewriting anything.",
+      "ru": "Сортирует импорты и форматирует весь Python версией ruff из uv.lock, затем прогоняет Prettier по фронтенду, если есть его node_modules. Pre-commit хук и так форматирует застейдженный Python при каждом коммите; этот скрипт нужен, чтобы отформатировать всё дерево сразу, или с --check — увидеть, к чему придерётся гейт, ничего не переписывая."
+    },
+    "examples": [
+      "--check"
+    ]
+  },
+  {
+    "title": "sync-agents",
+    "module": "scripts.sync_agents",
+    "category": "quality",
+    "aliases": [
+      "agents"
+    ],
+    "cadence_ref": "after_rule_change",
+    "summary": {
+      "en": "Regenerate AGENTS.md from the .ai/ rule modules.",
+      "ru": "Перегенерировать AGENTS.md из модулей правил .ai/."
+    },
+    "description": {
+      "en": "Assembles AGENTS.md, the Codex entry point, from .ai/universal/*.md and .ai/project/*.md in filename order. CLAUDE.md imports the same modules natively, so both assistants follow one rule set. A module marked <!-- tier: extended --> contributes only its title, path and Essence line, which keeps the file under the 30 KiB budget Codex can read. --check verifies without writing; the quality gate runs that, so a module edited without regenerating AGENTS.md breaks the build on purpose.",
+      "ru": "Собирает AGENTS.md — точку входа Codex — из .ai/universal/*.md и .ai/project/*.md в порядке имён файлов. CLAUDE.md импортирует те же модули напрямую, поэтому оба ассистента следуют одному набору правил. Модуль с пометкой <!-- tier: extended --> даёт только заголовок, путь и строку Essence — так файл остаётся в бюджете 30 KiB, который читает Codex. --check проверяет без записи; это запускает гейт, поэтому правка модуля без перегенерации AGENTS.md намеренно ломает сборку."
+    },
+    "examples": [
+      "--check"
+    ]
+  },
+  {
+    "title": "stack",
+    "module": "scripts.stack",
+    "category": "platform",
+    "aliases": [
+      "compose"
+    ],
+    "cadence_ref": "on_demand",
+    "summary": {
+      "en": "Start, inspect or stop the Docker Compose stack.",
+      "ru": "Запустить, проверить или остановить стек Docker Compose."
+    },
+    "description": {
+      "en": "A thin, cross-platform door to docker compose for this repository. `up` builds the service images and starts everything detached; `up --infra-only` starts just Mosquitto, InfluxDB, PostgreSQL and Grafana, for running the Python services from the host. `status` lists containers with their health, `logs <service>` follows one service, `down` stops the stack. `down --volumes` also deletes the databases and asks for confirmation unless --yes is given. Refuses to start without a .env file: run dev-secrets first.",
+      "ru": "Тонкая кроссплатформенная дверь к docker compose для этого репозитория. `up` собирает образы сервисов и поднимает всё в фоне; `up --infra-only` поднимает только Mosquitto, InfluxDB, PostgreSQL и Grafana — чтобы запускать Python-сервисы с хоста. `status` показывает контейнеры и их health, `logs <service>` — логи одного сервиса, `down` останавливает стек. `down --volumes` также удаляет базы данных и спрашивает подтверждение, если не передан --yes. Без файла .env отказывается стартовать: сначала запустите dev-secrets."
+    },
+    "examples": [
+      "up",
+      "up --infra-only",
+      "status",
+      "logs api-gateway",
+      "down"
+    ]
+  },
+  {
+    "title": "dev-secrets",
+    "module": "scripts.dev_secrets",
+    "category": "platform",
+    "aliases": [
+      "secrets",
+      "env"
+    ],
+    "cadence_ref": "once_per_clone",
+    "summary": {
+      "en": "Create a local .env with development secrets and JWT keys.",
+      "ru": "Создать локальный .env с секретами разработки и JWT-ключами."
+    },
+    "description": {
+      "en": "Creates .env from .env.example and fills every empty secret: random database, InfluxDB and Grafana passwords, an InfluxDB token, and a fresh RS256 key pair for the API gateway. Values already present in .env are never overwritten, so it is safe to run again after .env.example gains a key. .env is ignored by git; nothing this script writes may ever be committed. Needs the cryptography package, so run it through uv.",
+      "ru": "Создаёт .env из .env.example и заполняет все пустые секреты: случайные пароли PostgreSQL, InfluxDB и Grafana, токен InfluxDB и новую пару ключей RS256 для API-шлюза. Уже заданные в .env значения никогда не перезаписываются, поэтому запускать повторно безопасно — например, после появления нового ключа в .env.example. .env игнорируется git; ничего из записанного этим скриптом нельзя коммитить. Нужен пакет cryptography, поэтому запускайте через uv."
+    },
+    "examples": []
+  },
+  {
+    "title": "generate-proto",
+    "module": "scripts.generate_proto",
+    "category": "platform",
+    "aliases": [
+      "proto"
+    ],
+    "cadence_ref": "after_contract_change",
+    "summary": {
+      "en": "Regenerate Python gRPC stubs from shared/proto.",
+      "ru": "Перегенерировать Python gRPC-стабы из shared/proto."
+    },
+    "description": {
+      "en": "Runs grpc_tools.protoc from the uv environment over shared/proto/*.proto and writes shared/generated/. The generated files are committed, so a contract change and its regenerated stubs land in the same commit. --check regenerates into a temporary directory and fails if the committed stubs differ.",
+      "ru": "Запускает grpc_tools.protoc из окружения uv по shared/proto/*.proto и пишет shared/generated/. Сгенерированные файлы коммитятся, поэтому изменение контракта и перегенерированные стабы попадают в один коммит. --check генерирует во временный каталог и падает, если закоммиченные стабы отличаются."
+    },
+    "examples": [
+      "--check"
+    ]
+  },
+  {
+    "title": "doctor",
+    "module": "scripts.doctor",
+    "category": "workspace",
+    "aliases": [
+      "env-check"
+    ],
+    "cadence_ref": "on_demand",
+    "summary": {
+      "en": "Check which tools and settings this machine has.",
+      "ru": "Проверить, какие инструменты и настройки есть на машине."
+    },
+    "description": {
+      "en": "Read-only. Probes git, uv, the Python the project pins, Docker with Compose, Node, pnpm, kubectl and helm, checks the paths the other scripts depend on (.venv, .env, the frontend's node_modules, the installed pre-commit hook) and whether the Docker daemon answers. Exits non-zero only when a required tool is missing; --strict also fails on optional ones.",
+      "ru": "Только чтение. Проверяет git, uv, закреплённую версию Python, Docker с Compose, Node, pnpm, kubectl и helm, наличие путей, от которых зависят другие скрипты (.venv, .env, node_modules фронтенда, установленный pre-commit хук), и отвечает ли демон Docker. Завершается с ошибкой только при отсутствии обязательного инструмента; --strict падает и на необязательных."
+    },
+    "examples": [
+      "--strict"
+    ]
+  },
+  {
+    "title": "install-hooks",
+    "module": "scripts.install_hooks",
+    "category": "workspace",
+    "aliases": [
+      "hooks"
+    ],
+    "cadence_ref": "once_per_clone",
+    "summary": {
+      "en": "Install the pre-commit hook and its environments.",
+      "ru": "Установить pre-commit хук и его окружения."
+    },
+    "description": {
+      "en": "Runs pre-commit install --install-hooks from the uv environment, so every commit formats staged Python with the ruff version pinned in uv.lock and checks file hygiene. Lint, strict typing and tests are not commit-time checks: they run in the quality gate.",
+      "ru": "Запускает pre-commit install --install-hooks из окружения uv: каждый коммит форматирует застейдженный Python версией ruff из uv.lock и проверяет гигиену файлов. Линт, строгая типизация и тесты не выполняются при коммите — это делает quality gate."
+    },
+    "examples": []
+  },
+  {
+    "title": "clean-caches",
+    "module": "scripts.clean_caches",
+    "category": "workspace",
+    "aliases": [
+      "clean"
+    ],
+    "cadence_ref": "on_demand",
+    "destructive": true,
+    "summary": {
+      "en": "Remove tool caches and build output (dry run by default).",
+      "ru": "Удалить кэши инструментов и артефакты сборки (по умолчанию пробный прогон)."
+    },
+    "description": {
+      "en": "Lists regenerable caches — __pycache__, .ruff_cache, .mypy_cache, .pytest_cache, htmlcov, .coverage, the frontend's dist — and deletes them only with --apply. It never touches .venv, node_modules, .env, .git, or anything outside the repository, and it refuses to follow a symlink or junction out of the tree.",
+      "ru": "Показывает восстановимые кэши — __pycache__, .ruff_cache, .mypy_cache, .pytest_cache, htmlcov, .coverage, dist фронтенда — и удаляет их только с --apply. Никогда не трогает .venv, node_modules, .env, .git и ничего за пределами репозитория, не следует по символьным ссылкам и junction за пределы дерева."
+    },
+    "examples": [
+      "--apply"
+    ]
+  },
+  {
+    "title": "selftest",
+    "module": "scripts.selftest",
+    "category": "workspace",
+    "aliases": [
+      "test-scripts"
+    ],
+    "cadence_ref": "on_demand",
+    "summary": {
+      "en": "Verify the developer scripts themselves.",
+      "ru": "Проверить сами скрипты разработчика."
+    },
+    "description": {
+      "en": "Runs the stdlib unittest suite under scripts/ and loads the orchestrator catalog. The suite imports every catalog script, proves scripts do not import one another, and covers the toolkit, the AGENTS.md renderer and clean-caches' protected-path rules. Run it after touching anything in scripts/: a broken catalog is invisible until the moment it matters.",
+      "ru": "Запускает тесты на stdlib unittest в scripts/ и загружает каталог оркестратора. Тесты импортируют каждый скрипт каталога, проверяют, что скрипты не импортируют друг друга, и покрывают toolkit, сборщик AGENTS.md и правила защиты путей clean-caches. Запускайте после любых правок в scripts/: сломанный каталог не виден до момента, когда это уже важно."
+    },
+    "examples": []
+  }
+]

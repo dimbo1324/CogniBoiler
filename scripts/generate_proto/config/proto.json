@@ -1,0 +1,5 @@
+{
+  "_comment": "Generated stubs are committed; services add output_dir to sys.path to import them.",
+  "proto_dir": "shared/proto",
+  "output_dir": "shared/generated"
+}
