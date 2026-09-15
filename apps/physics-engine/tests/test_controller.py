@@ -393,8 +393,12 @@ class TestController:
         Steam temperature below setpoint must reduce steam valve opening.
 
         The temperature loop is reverse-acting: colder steam should keep steam
-        in the boiler longer, not dump more of it through the turbine.
+        in the boiler longer, not dump more of it through the turbine. The loop
+        starts primed at mid-stroke, as the PLC primes it from the live valve
+        position: an unprimed loop is already clamped at 0.0 on its first step,
+        so a closing valve could never be observed.
         """
+        controller.temp_loop.reset(initial_output=0.5)
         outputs = [
             controller.step(
                 setpoints=setpoints,

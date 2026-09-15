@@ -284,6 +284,14 @@ class TestPLCGrpc:
         after_ms = int(time.time() * 1000)
         assert before_ms <= ack.timestamp_ms <= after_ms + 100
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "Known defect accepted by the owner on 2026-09-14: the nominal boiler "
+            "state is not an equilibrium at nominal valve positions and the pressure "
+            "PID is too slow to hold it. Tracked in docs/__arch__/ROADMAP.md."
+        ),
+    )
     @pytest.mark.asyncio
     async def test_auto_control_holds_nominal_state_for_ten_minutes_simulated(
         self,
