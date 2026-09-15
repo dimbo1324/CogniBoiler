@@ -27,6 +27,12 @@ class AlertSubscriber:
         self._received = 0
         self._stored = 0
         self._skipped = 0
+        self._connected = False
+
+    @property
+    def connected(self) -> bool:
+        """True while subscribed to the broker; the liveness file follows it."""
+        return self._connected
 
     @property
     def stats(self) -> dict[str, int]:
@@ -105,11 +111,15 @@ class AlertSubscriber:
                         self._port,
                     )
                     await client.subscribe(SUBSCRIBE_TOPIC)
-                    async for message in client.messages:
-                        await self._handle_message(
-                            str(message.topic),
-                            message.payload,
-                        )
+                    self._connected = True
+                    try:
+                        async for message in client.messages:
+                            await self._handle_message(
+                                str(message.topic),
+                                message.payload,
+                            )
+                    finally:
+                        self._connected = False
             except Exception as exc:
                 logger.warning("AlertManager MQTT error: %s — retrying in 5s", exc)
                 await asyncio.sleep(5.0)

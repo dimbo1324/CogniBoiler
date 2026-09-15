@@ -7,6 +7,9 @@ to InfluxDB.
 Usage:
     uv run --package historian python -m historian
     uv run --package historian python -m historian --mqtt-host localhost --influx-url http://localhost:8086
+
+The InfluxDB token is read from the INFLUXDB_TOKEN environment variable, so it never
+appears in a process list or a container's command line.
 """
 
 from __future__ import annotations
@@ -14,11 +17,15 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import sys
+from collections.abc import Coroutine
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parents[4] / "shared" / "generated"))
 
+from historian.liveness import LivenessFile
 from historian.subscriber import HistorianSubscriber
 from historian.writer import InfluxWriter
 
@@ -28,6 +35,8 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("historian")
+
+TOKEN_ENV = "INFLUXDB_TOKEN"
 
 
 async def main(
@@ -39,6 +48,7 @@ async def main(
     influx_bucket: str,
     batch_size: int,
     flush_interval_s: float,
+    liveness_file: Path | None,
 ) -> None:
     """Connect to MQTT and stream data to InfluxDB."""
 
@@ -66,6 +76,8 @@ async def main(
         batch_size,
         flush_interval_s,
     )
+    if not influx_token:
+        logger.warning("%s is empty: InfluxDB will reject every write", TOKEN_ENV)
 
     # Log stats every 30 seconds
     async def log_stats() -> None:
@@ -80,10 +92,10 @@ async def main(
                 writer.errors,
             )
 
-    await asyncio.gather(
-        subscriber.run(),
-        log_stats(),
-    )
+    tasks: list[Coroutine[Any, Any, None]] = [subscriber.run(), log_stats()]
+    if liveness_file is not None:
+        tasks.append(LivenessFile(liveness_file).run(lambda: subscriber.connected))
+    await asyncio.gather(*tasks)
 
 
 def parse_args() -> argparse.Namespace:
@@ -91,11 +103,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mqtt-host", default="localhost")
     parser.add_argument("--mqtt-port", type=int, default=1883)
     parser.add_argument("--influx-url", default="http://localhost:8086")
-    parser.add_argument("--influx-token", default="cogniboiler-dev-token")
     parser.add_argument("--influx-org", default="cogniboiler")
     parser.add_argument("--influx-bucket", default="sensors")
     parser.add_argument("--batch-size", type=int, default=50)
     parser.add_argument("--flush-interval-s", type=float, default=2.0)
+    parser.add_argument(
+        "--liveness-file",
+        type=Path,
+        default=None,
+        help="refresh this file while connected to the broker (container healthcheck)",
+    )
     return parser.parse_args()
 
 
@@ -106,11 +123,12 @@ if __name__ == "__main__":
             mqtt_host=args.mqtt_host,
             mqtt_port=args.mqtt_port,
             influx_url=args.influx_url,
-            influx_token=args.influx_token,
+            influx_token=os.environ.get(TOKEN_ENV, ""),
             influx_org=args.influx_org,
             influx_bucket=args.influx_bucket,
             batch_size=args.batch_size,
             flush_interval_s=args.flush_interval_s,
+            liveness_file=args.liveness_file,
         ),
         # aiomqtt needs add_reader(), which the Windows proactor loop does not have.
         loop_factory=asyncio.SelectorEventLoop if sys.platform == "win32" else None,

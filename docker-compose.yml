@@ -133,16 +133,24 @@ services:
 
   historian:
     <<: *python-service
-    command: ["python", "-m", "historian", "--mqtt-host", "mosquitto", "--influx-url", "http://influxdb:8086", "--influx-token", "${INFLUXDB_ADMIN_TOKEN:?run dev-secrets}", "--influx-org", "${INFLUXDB_ORG:?run dev-secrets}", "--influx-bucket", "${INFLUXDB_BUCKET:?run dev-secrets}", "--batch-size", "50", "--flush-interval-s", "2.0"]
+    command: ["python", "-m", "historian", "--mqtt-host", "mosquitto", "--influx-url", "http://influxdb:8086", "--influx-org", "${INFLUXDB_ORG:?run dev-secrets}", "--influx-bucket", "${INFLUXDB_BUCKET:?run dev-secrets}", "--batch-size", "50", "--flush-interval-s", "2.0", "--liveness-file", "/tmp/cogniboiler-liveness"]
+    environment:
+      INFLUXDB_TOKEN: ${INFLUXDB_ADMIN_TOKEN:?run dev-secrets}
     depends_on:
       mosquitto:
         condition: service_healthy
       influxdb:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "historian.liveness", "/tmp/cogniboiler-liveness"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   alert-manager:
     <<: *python-service
-    command: ["python", "-m", "alert_manager", "--mqtt-host", "mosquitto", "--mqtt-port", "1883"]
+    command: ["python", "-m", "alert_manager", "--mqtt-host", "mosquitto", "--mqtt-port", "1883", "--liveness-file", "/tmp/cogniboiler-liveness"]
     environment:
       ALERT_MANAGER_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:?run dev-secrets}:${POSTGRES_PASSWORD:?run dev-secrets}@postgresql:5432/${POSTGRES_DB:?run dev-secrets}
     depends_on:
@@ -150,6 +158,12 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-m", "alert_manager.liveness", "/tmp/cogniboiler-liveness"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   opcua-server:
     <<: *python-service
@@ -198,7 +212,7 @@ services:
       plc-controller:
         condition: service_healthy
       alert-manager:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
       interval: 10s

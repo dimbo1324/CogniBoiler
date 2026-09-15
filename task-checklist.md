@@ -52,7 +52,9 @@ Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 + Frontend workspace skeleton builds, lints, type-checks and tests inside the gate
   (TypeScript held at 6.0: typescript-eslint refuses 7.0)
 + Docker Compose: infrastructure and services build and start healthy on Python 3.14
-  (historian and alert-manager still have no healthcheck — recorded)
+  (historian and alert-manager, which expose no port, report liveness through a file they
+  refresh only while subscribed to the broker; historian takes its InfluxDB token from the
+  environment instead of the command line)
 + End-to-end smoke: 11/11 against the running stack, after fixing two causes of HTTP 500 on
   `/api/v1/history` and a broken historian log line found by the first run
 + Doctor script reports the toolchain; README quick start matches reality

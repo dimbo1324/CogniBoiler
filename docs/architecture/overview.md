@@ -94,7 +94,8 @@ OpenAPI is served at `/docs`.
   Python 3.14 image (`uv sync --frozen --no-dev`, non-root, `python -m` entry points).
   Every secret is interpolated from `.env`; host ports bind to `127.0.0.1`. A one-shot
   `migrate` service applies Alembic before the gateway and alert-manager start; every
-  long-running service except historian and alert-manager has a healthcheck. Grafana is
+  long-running service has a healthcheck — historian and alert-manager, which expose no
+  port, refresh a liveness file only while subscribed to the broker. Grafana is
   provisioned with an InfluxDB datasource and the `core-overview` dashboard.
 - The gateway seeds demo users `admin`, `engineer`, `operator`, `viewer` from
   `DEMO_*_PASSWORD` when `AUTO_INIT_DB` is set; no credential is hardcoded.
@@ -123,6 +124,4 @@ Recorded with their planned fix in the internal roadmap:
   the table is not protected against `UPDATE`/`DELETE`;
 - CORS allows any origin with credentials;
 - MQTT is anonymous; OPC UA is read-only;
-- the web console is only a skeleton, and logs are plain text;
-- historian and alert-manager have no healthcheck, and historian receives its InfluxDB
-  token as a command-line argument.
+- the web console is only a skeleton, and logs are plain text.

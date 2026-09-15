@@ -71,6 +71,12 @@ class HistorianSubscriber:
         self._received: int = 0
         self._stored: int = 0
         self._skipped: int = 0
+        self._connected = False
+
+    @property
+    def connected(self) -> bool:
+        """True while subscribed to the broker; the liveness file follows it."""
+        return self._connected
 
     @property
     def stats(self) -> dict[str, int]:
@@ -158,11 +164,15 @@ class HistorianSubscriber:
                         self._port,
                     )
                     await client.subscribe(SUBSCRIBE_TOPIC)
-                    async for message in client.messages:
-                        await self._handle_message(
-                            str(message.topic),
-                            message.payload,
-                        )
+                    self._connected = True
+                    try:
+                        async for message in client.messages:
+                            await self._handle_message(
+                                str(message.topic),
+                                message.payload,
+                            )
+                    finally:
+                        self._connected = False
             except Exception as exc:
                 logger.warning("Historian MQTT error: %s — retrying in 5s", exc)
                 await self._flush()
