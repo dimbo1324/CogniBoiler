@@ -2,7 +2,7 @@
 name = "ai-predictor"
 version = "0.1.0"
 description = "AI/ML inference service: anomaly detection, efficiency advisor, predictive maintenance"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "torch>=2.2.0",
     "numpy>=1.26.0",

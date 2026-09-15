@@ -18,7 +18,7 @@ from physics_engine.server import PhysicsServicer
 
 class TestPhysicsGrpc:
     @pytest_asyncio.fixture(autouse=True)
-    async def setup_server(self) -> AsyncGenerator[None, None]:
+    async def setup_server(self) -> AsyncGenerator[None]:
         self.runtime = PhysicsRuntime(
             PhysicsRuntimeConfig(
                 speed_factor=100.0,

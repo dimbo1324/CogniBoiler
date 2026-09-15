@@ -88,7 +88,7 @@ class PhysicsGatewayClient:
         self,
         *,
         interval_s: float = 0.0,
-    ) -> AsyncGenerator[pb2.SystemStateMsg, None]:
+    ) -> AsyncGenerator[pb2.SystemStateMsg]:
         stream = self._stub.StreamSystemState(
             pb2.StreamRequest(interval_s=interval_s),
             timeout=None,

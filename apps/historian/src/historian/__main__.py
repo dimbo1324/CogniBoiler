@@ -100,10 +100,6 @@ def parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
-    import sys
-
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     args = parse_args()
     asyncio.run(
         main(
@@ -115,5 +111,7 @@ if __name__ == "__main__":
             influx_bucket=args.influx_bucket,
             batch_size=args.batch_size,
             flush_interval_s=args.flush_interval_s,
-        )
+        ),
+        # aiomqtt needs add_reader(), which the Windows proactor loop does not have.
+        loop_factory=asyncio.SelectorEventLoop if sys.platform == "win32" else None,
     )

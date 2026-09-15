@@ -36,16 +36,7 @@ from physics_engine.turbine import TurbineState
 logger = logging.getLogger(__name__)
 
 
-def _mqtt_error_types() -> tuple[type[BaseException], ...]:
-    """Support both aiomqtt and legacy asyncio-mqtt error classes."""
-    try:
-        from asyncio_mqtt import MqttError as AsyncioMqttError
-    except ImportError:  # pragma: no cover - optional compatibility path
-        return (AioMqttError,)
-    return (AioMqttError, AsyncioMqttError)
-
-
-MQTT_ERRORS = _mqtt_error_types()
+MQTT_ERRORS: tuple[type[BaseException], ...] = (AioMqttError,)
 
 # ─── Topic constants ──────────────────────────────────────────────────────────
 
@@ -219,7 +210,7 @@ class MQTTPublisher:
 
     def connected(self) -> Client:
         """
-        Return an asyncio_mqtt Client context manager.
+        Return an aiomqtt Client context manager.
 
         Usage:
             async with publisher.connected() as client:

@@ -48,7 +48,7 @@ class BoilerState:
         ]
 
     @classmethod
-    def from_vector(cls, y: list[float]) -> "BoilerState":
+    def from_vector(cls, y: list[float]) -> BoilerState:
         """Reconstruct state from ODE solver output vector."""
         return cls(
             internal_energy=y[0],
@@ -158,7 +158,7 @@ class ControlInputs:
         self.feedwater_valve.step(dt)
         self.steam_valve.step(dt)
 
-    def copy(self) -> "ControlInputs":
+    def copy(self) -> ControlInputs:
         """Return a deep copy preserving both commands and actuator positions."""
         clone = ControlInputs(
             fuel_valve_command=self.fuel_valve_command,
@@ -202,7 +202,7 @@ class BoilerParameters:
     feedwater_temp: float = TEMP_FEEDWATER  # K
     ambient_temp: float = TEMP_AMBIENT  # K
 
-    def nominal_initial_state(self) -> "BoilerState":
+    def nominal_initial_state(self) -> BoilerState:
         """
         Return a physically consistent initial state at nominal operating point.
         """

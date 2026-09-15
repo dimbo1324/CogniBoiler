@@ -1,7 +1,7 @@
 """
 Tests for MQTTPublisher (protobuf edition).
 
-Strategy: mock asyncio_mqtt.Client — no real broker needed.
+Strategy: mock aiomqtt.Client — no real broker needed.
 We verify:
   - correct topic names (sensors/boiler, sensors/turbine)
   - payload deserializes to correct protobuf message type
@@ -51,7 +51,7 @@ def publisher() -> MQTTPublisher:
 
 @pytest.fixture
 def mock_client() -> MagicMock:
-    """Async mock of asyncio_mqtt.Client."""
+    """Async mock of aiomqtt.Client."""
     client = MagicMock()
     client.publish = AsyncMock()
     return client
@@ -242,7 +242,7 @@ class TestMQTTPublisher:
         publisher: MQTTPublisher,
         boiler_state: BoilerState,
     ) -> None:
-        from asyncio_mqtt import MqttError
+        from aiomqtt import MqttError
 
         error_client = MagicMock()
         error_client.publish = AsyncMock(side_effect=MqttError("broker down"))
@@ -256,7 +256,7 @@ class TestMQTTPublisher:
         boiler_state: BoilerState,
     ) -> None:
         """Publish errors must be swallowed — never crash the publisher loop."""
-        from asyncio_mqtt import MqttError
+        from aiomqtt import MqttError
 
         error_client = MagicMock()
         error_client.publish = AsyncMock(side_effect=MqttError("timeout"))

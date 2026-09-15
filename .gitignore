@@ -399,7 +399,6 @@ Package Control.*
 .cache/pre-commit/
 
 # Modern package managers
-.python-version
 .rye/
 .hatch/
 .conda/

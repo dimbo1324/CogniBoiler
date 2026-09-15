@@ -126,7 +126,7 @@ class TestPLCGrpc:
     """
 
     @pytest_asyncio.fixture(autouse=True)
-    async def setup_server(self) -> AsyncGenerator[None, None]:
+    async def setup_server(self) -> AsyncGenerator[None]:
         """Start PhysicsService and PLCService on free OS ports."""
         self.physics_runtime = PhysicsRuntime(
             PhysicsRuntimeConfig(

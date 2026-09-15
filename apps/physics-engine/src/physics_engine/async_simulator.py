@@ -254,7 +254,7 @@ class AsyncSimulator:
 
     # ─── Public: async generator ──────────────────────────────────────────────
 
-    async def run(self) -> AsyncGenerator[SystemState, None]:
+    async def run(self) -> AsyncGenerator[SystemState]:
         """
         Start the simulation and yield SystemState objects in real time.
 

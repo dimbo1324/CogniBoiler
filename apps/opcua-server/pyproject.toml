@@ -2,15 +2,14 @@
 name = "opcua-server"
 version = "0.1.0"
 description = "OPC UA server implementing IEC 62541 for field-level integration"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
-    "asyncua>=1.1.0",
-    "asyncio-mqtt>=0.16.0",
-    "pydantic>=2.6.0",
-    "structlog>=24.0.0",
-    "protobuf>=4.25.0",
+    "asyncua>=1.1.8",
     "aiomqtt>=2.5.1",
-    "grpcio>=1.62.0",
+    "pydantic>=2.12.0",
+    "structlog>=24.0.0",
+    "protobuf>=6.31.1",
+    "grpcio>=1.75.1",
 ]
 
 [build-system]

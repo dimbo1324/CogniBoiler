@@ -27,14 +27,14 @@ Column schema (all SI units):
     level_error_m       — PID level error [m]
 
 Usage:
-    uv run --package physics-engine python scripts/generate_dataset.py
+    uv run --package physics-engine --with pandas --with pyarrow python ml/preprocessing/generate_dataset.py
 
     # Custom output directory:
-    uv run --package physics-engine python scripts/generate_dataset.py \
+    uv run --package physics-engine --with pandas --with pyarrow python ml/preprocessing/generate_dataset.py \
         --output-dir ml/datasets/raw
 
     # Quick test run (short durations):
-    uv run --package physics-engine python scripts/generate_dataset.py \
+    uv run --package physics-engine --with pandas --with pyarrow python ml/preprocessing/generate_dataset.py \
         --quick
 """
 
@@ -52,7 +52,7 @@ import pandas as pd
 # ─── sys.path bootstrap ───────────────────────────────────────────────────────
 # Add shared/generated to path so cogniboiler_pb2 can be imported.
 # This mirrors what conftest.py does for pytest.
-_REPO_ROOT = Path(__file__).parent.parent
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "shared" / "generated"))
 
 from physics_engine.scenarios import ScenarioResult, ScenarioRunner  # noqa: E402

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import sys
 
 from alert_manager.db import init_db
 from alert_manager.subscriber import AlertSubscriber
@@ -33,4 +34,8 @@ async def main(mqtt_host: str, mqtt_port: int) -> None:
 
 if __name__ == "__main__":
     args = parse_args()
-    asyncio.run(main(mqtt_host=args.mqtt_host, mqtt_port=args.mqtt_port))
+    asyncio.run(
+        main(mqtt_host=args.mqtt_host, mqtt_port=args.mqtt_port),
+        # aiomqtt needs add_reader(), which the Windows proactor loop does not have.
+        loop_factory=asyncio.SelectorEventLoop if sys.platform == "win32" else None,
+    )

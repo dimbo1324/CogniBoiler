@@ -120,7 +120,7 @@ class PLCServicer(pb2_grpc.PLCServiceServicer):  # type: ignore[misc]
         self,
         request: pb2.StreamRequest,
         context: grpc.aio.ServicerContext,
-    ) -> AsyncGenerator[pb2.ControlCommandMsg, None]:
+    ) -> AsyncGenerator[pb2.ControlCommandMsg]:
         """Stream control commands at the requested interval."""
         interval = max(request.interval_s, 0.1)
         while context.is_active():

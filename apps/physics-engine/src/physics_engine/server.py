@@ -80,7 +80,7 @@ class PhysicsServicer(pb2_grpc.PhysicsServiceServicer):  # type: ignore[misc]
         self,
         request: pb2.StreamRequest,
         context: grpc.aio.ServicerContext,
-    ) -> AsyncGenerator[pb2.SystemStateMsg, None]:
+    ) -> AsyncGenerator[pb2.SystemStateMsg]:
         interval_s = (
             request.interval_s if request.interval_s > 0 else self._runtime.wall_step_s
         )

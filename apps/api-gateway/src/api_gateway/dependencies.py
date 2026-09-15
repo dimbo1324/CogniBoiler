@@ -58,7 +58,7 @@ AsyncSessionLocal = async_sessionmaker(
 # ─── Dependency ───────────────────────────────────────────────────────────────
 
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
+async def get_db() -> AsyncGenerator[AsyncSession]:
     """
     FastAPI dependency: yield an async database session per request.
 

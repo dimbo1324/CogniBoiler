@@ -110,7 +110,7 @@ class FakeHistorianClient:
 
 
 @pytest_asyncio.fixture
-async def app() -> AsyncGenerator[FastAPI, None]:
+async def app() -> AsyncGenerator[FastAPI]:
     """Fresh FastAPI application with DB override and fake upstream clients."""
     application = create_app()
     application.state.physics_client = FakePhysicsClient()
@@ -213,7 +213,7 @@ async def app() -> AsyncGenerator[FastAPI, None]:
 
 
 @pytest_asyncio.fixture
-async def client(app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
+async def client(app: FastAPI) -> AsyncGenerator[AsyncClient]:
     """
     Async HTTP client wired directly to the FastAPI app via ASGI transport.
     No real network socket is opened — requests go through the ASGI interface.

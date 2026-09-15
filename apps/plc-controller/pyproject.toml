@@ -2,14 +2,14 @@
 name = "plc-controller"
 version = "0.1.0"
 description = "Virtual PLC with cascade PID control"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
-    "numpy>=1.26.0",
-    "pydantic>=2.6.0",
+    "numpy>=2.3.2",
+    "pydantic>=2.12.0",
     "pyyaml>=6.0.0",
     "structlog>=24.0.0",
-    "grpcio>=1.62.0",
-    "protobuf>=4.25.0",
+    "grpcio>=1.75.1",
+    "protobuf>=6.31.1",
     "aiomqtt>=2.5.1",
     "physics-engine",
 ]
