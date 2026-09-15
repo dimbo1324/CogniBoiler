@@ -326,6 +326,93 @@ message FaultAck {
   repeated FaultMsg faults = 4; // injected or cleared faults
 }
 
+// ─── Alarm messages ───────────────────────────────────────────────────────────
+
+enum AlarmState {
+  ALARM_STATE_UNSPECIFIED = 0;
+  ALARM_ACTIVE_UNACK = 1;
+  ALARM_ACTIVE_ACK = 2;
+  ALARM_CLEARED_UNACK = 3; // returned to normal, not yet acknowledged
+  ALARM_CLEARED = 4; // closed
+}
+
+message AlarmMsg {
+  int64 alarm_id = 1;
+  string key = 2; // condition identity, e.g. plc-controller:water_level_m:low:critical
+  string source_service = 3;
+  string parameter = 4;
+  string severity = 5; // warning | critical
+  string direction = 6; // high | low
+  string unit = 7;
+  AlarmState state = 8;
+  string message = 9;
+  string action = 10;
+  string topic = 11;
+  double value = 12; // latest value [unit]
+  double threshold = 13; // [unit]
+  int64 raised_at_ms = 14;
+  int64 cleared_at_ms = 15; // 0 while active
+  int64 acknowledged_at_ms = 16; // 0 while unacknowledged
+  string acknowledged_by = 17;
+  string ack_comment = 18;
+  int32 occurrence_count = 19; // times the condition became active in this alarm
+  int64 updated_at_ms = 20;
+}
+
+message AlarmTransitionMsg {
+  int64 transition_id = 1;
+  int64 alarm_id = 2;
+  AlarmState from_state = 3; // unspecified for the activation that opened the alarm
+  AlarmState to_state = 4;
+  int64 at_ms = 5;
+  string actor = 6; // source service or the person who acknowledged
+  string comment = 7;
+  double value = 8;
+}
+
+message ListAlarmsRequest {
+  bool open_only = 1; // not yet both cleared and acknowledged
+  string severity = 2; // empty for all
+  string parameter = 3; // empty for all
+  int64 from_ms = 4; // raised at or after; 0 for no bound
+  int64 to_ms = 5; // raised at or before; 0 for no bound
+  int32 limit = 6; // 1..1000, default 100
+  int32 offset = 7;
+}
+
+message AlarmListMsg {
+  repeated AlarmMsg alarms = 1;
+  int32 total = 2; // matching alarms before limit and offset
+}
+
+message AlarmRef {
+  int64 alarm_id = 1;
+}
+
+message AlarmDetailMsg {
+  AlarmMsg alarm = 1;
+  repeated AlarmTransitionMsg transitions = 2;
+}
+
+message AcknowledgeAlarmRequest {
+  int64 alarm_id = 1;
+  string operator_id = 2;
+  string comment = 3;
+}
+
+message AcknowledgeAllRequest {
+  string operator_id = 1;
+  string comment = 2;
+  string severity = 3; // empty for every unacknowledged alarm
+}
+
+message AcknowledgeResult {
+  bool accepted = 1;
+  string reason = 2;
+  int64 timestamp_ms = 3;
+  repeated AlarmMsg alarms = 4; // the acknowledged alarms
+}
+
 // ─── Streaming ────────────────────────────────────────────────────────────────
 
 message StreamRequest {
@@ -363,4 +450,13 @@ service PhysicsService {
   rpc LoadScenario(ScenarioRequest) returns (SimulationAck);
   rpc InjectFault(FaultRequest) returns (FaultAck);
   rpc ClearFault(FaultClearRequest) returns (FaultAck);
+}
+
+// AlarmService: alarm lifecycle owned by alert-manager.
+service AlarmService {
+  rpc Health(Empty) returns (HealthStatus);
+  rpc ListAlarms(ListAlarmsRequest) returns (AlarmListMsg);
+  rpc GetAlarm(AlarmRef) returns (AlarmDetailMsg);
+  rpc AcknowledgeAlarm(AcknowledgeAlarmRequest) returns (AcknowledgeResult);
+  rpc AcknowledgeAll(AcknowledgeAllRequest) returns (AcknowledgeResult);
 }

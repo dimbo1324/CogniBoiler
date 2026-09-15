@@ -120,7 +120,6 @@ version = "0.1.0"
 source = { editable = "apps/api-gateway" }
 dependencies = [
     { name = "alembic" },
-    { name = "alert-manager" },
     { name = "asyncpg" },
     { name = "bcrypt" },
     { name = "cryptography" },
@@ -146,7 +145,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.18.4" },
-    { name = "alert-manager", editable = "apps/alert-manager" },
     { name = "asyncpg", specifier = ">=0.31.0" },
     { name = "bcrypt", specifier = ">=4.1.0" },
     { name = "cryptography", specifier = ">=42.0.0" },

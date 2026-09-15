@@ -25,7 +25,6 @@ import cogniboiler_pb2 as pb2
 import jwt as pyjwt
 import pytest
 import pytest_asyncio
-from alert_manager.models import Base as AlertBase
 from api_gateway.auth.jwt_handler import (
     create_access_token,
     create_refresh_token,
@@ -120,7 +119,6 @@ async def app() -> AsyncGenerator[FastAPI]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        await conn.run_sync(AlertBase.metadata.create_all)
 
     session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
 

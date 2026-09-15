@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import time
 
-from alert_manager.models import Base as AlertBase
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,7 +42,6 @@ async def ensure_schema_and_seed_defaults() -> None:
     """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        await conn.run_sync(AlertBase.metadata.create_all)
 
     async with AsyncSessionLocal() as session:
         role_names = [name for name, _ in ROLE_DESCRIPTIONS]

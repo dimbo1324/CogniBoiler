@@ -29,6 +29,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api_gateway.auth.jwt_handler import decode_access_token
 from api_gateway.clients import (
+    AlarmGatewayClient,
+    AlarmGatewayConfig,
     HistorianQueryClient,
     HistorianQueryConfig,
     PhysicsGatewayClient,
@@ -79,6 +81,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     app.state.plc_client = PLCGatewayClient(
         PLCGatewayConfig(target=settings.plc_grpc_target)
     )
+    app.state.alarm_client = AlarmGatewayClient(
+        AlarmGatewayConfig(target=settings.alarm_grpc_target)
+    )
     app.state.historian_client = HistorianQueryClient(
         HistorianQueryConfig(
             url=settings.influx_url,
@@ -92,6 +97,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     yield
     await app.state.physics_client.close()
     await app.state.plc_client.close()
+    await app.state.alarm_client.close()
     app.state.historian_client.close()
     logger.info("Shutting down %s", settings.app_name)
 

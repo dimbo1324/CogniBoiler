@@ -30,6 +30,14 @@ class PLCGatewayConfig:
 
 
 @dataclass
+class AlarmGatewayConfig:
+    """Connection settings for the alert-manager AlarmService."""
+
+    target: str = "localhost:50053"
+    timeout_s: float = 3.0
+
+
+@dataclass
 class HistorianQueryConfig:
     """InfluxDB query settings used by the history endpoint."""
 
@@ -140,6 +148,46 @@ class PLCGatewayClient:
     async def set_control_mode(self, mode: int, operator_id: str) -> pb2.CommandAck:
         return await self._stub.SetControlMode(
             pb2.ControlModeRequest(mode=mode, operator_id=operator_id),
+            timeout=self.config.timeout_s,
+        )
+
+
+class AlarmGatewayClient:
+    """Small async wrapper around the generated AlarmServiceStub."""
+
+    def __init__(self, config: AlarmGatewayConfig) -> None:
+        self.config = config
+        self._channel = grpc.aio.insecure_channel(config.target)
+        self._stub = pb2_grpc.AlarmServiceStub(self._channel)
+
+    async def close(self) -> None:
+        await self._channel.close()
+
+    async def list_alarms(self, request: pb2.ListAlarmsRequest) -> pb2.AlarmListMsg:
+        return await self._stub.ListAlarms(request, timeout=self.config.timeout_s)
+
+    async def get_alarm(self, alarm_id: int) -> pb2.AlarmDetailMsg:
+        return await self._stub.GetAlarm(
+            pb2.AlarmRef(alarm_id=alarm_id), timeout=self.config.timeout_s
+        )
+
+    async def acknowledge(
+        self, alarm_id: int, operator_id: str, comment: str
+    ) -> pb2.AcknowledgeResult:
+        return await self._stub.AcknowledgeAlarm(
+            pb2.AcknowledgeAlarmRequest(
+                alarm_id=alarm_id, operator_id=operator_id, comment=comment
+            ),
+            timeout=self.config.timeout_s,
+        )
+
+    async def acknowledge_all(
+        self, operator_id: str, comment: str, severity: str
+    ) -> pb2.AcknowledgeResult:
+        return await self._stub.AcknowledgeAll(
+            pb2.AcknowledgeAllRequest(
+                operator_id=operator_id, comment=comment, severity=severity
+            ),
             timeout=self.config.timeout_s,
         )
 

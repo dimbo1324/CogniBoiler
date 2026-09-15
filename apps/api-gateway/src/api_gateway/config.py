@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     # gRPC upstreams
     physics_grpc_target: str = "localhost:50052"
     plc_grpc_target: str = "localhost:50051"
+    alarm_grpc_target: str = "localhost:50053"
 
     # Historian / InfluxDB
     influx_url: str = "http://localhost:8086"

@@ -1,31 +1,50 @@
-"""Database helpers for alert-manager."""
+"""
+Database access for alert-manager.
+
+The alarm tables are created by the Alembic chain that the `migrate` job applies; this
+service never creates schema. It checks at start-up that the tables exist.
+"""
 
 from __future__ import annotations
 
 import os
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
-from alert_manager.models import Base
-
-DATABASE_URL: str = os.getenv(
-    "ALERT_MANAGER_DATABASE_URL",
-    os.getenv(
-        "DATABASE_URL",
-        "postgresql+asyncpg://cogniboiler:cogniboiler@localhost:5432/cogniboiler",
-    ),
+from sqlalchemy import inspect
+from sqlalchemy.engine import Connection
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
 )
 
-engine = create_async_engine(DATABASE_URL, pool_pre_ping=True)
-AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+DEFAULT_DATABASE_URL: str = (
+    "postgresql+asyncpg://cogniboiler:cogniboiler@localhost:5432/cogniboiler"
+)
+REQUIRED_TABLES: tuple[str, ...] = ("alarm_events", "alarm_transitions")
 
 
-async def init_db() -> None:
-    """Create the alarm table if it does not yet exist."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+def database_url() -> str:
+    """The URL from ALERT_MANAGER_DATABASE_URL, then DATABASE_URL."""
+    return os.getenv(
+        "ALERT_MANAGER_DATABASE_URL", os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
+    )
 
 
-async def get_session() -> AsyncSession:
-    """Create a short-lived async session for ad-hoc operations."""
-    return AsyncSessionLocal()
+def create_engine(url: str | None = None) -> AsyncEngine:
+    return create_async_engine(url or database_url(), pool_pre_ping=True)
+
+
+def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    return async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
+
+
+async def missing_tables(engine: AsyncEngine) -> list[str]:
+    """Alarm tables the migrations have not created yet."""
+
+    def table_names(connection: Connection) -> list[str]:
+        return inspect(connection).get_table_names()
+
+    async with engine.connect() as connection:
+        existing = set(await connection.run_sync(table_names))
+    return [table for table in REQUIRED_TABLES if table not in existing]

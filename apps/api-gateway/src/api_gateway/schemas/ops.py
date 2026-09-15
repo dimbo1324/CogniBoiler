@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+AlarmStateName = Literal["ACTIVE_UNACK", "ACTIVE_ACK", "CLEARED_UNACK", "CLEARED"]
 
 
 class HistoryPointResponse(BaseModel):
@@ -24,21 +28,90 @@ class HistoryResponse(BaseModel):
 
 
 class AlarmResponse(BaseModel):
-    """Alarm event returned by the API gateway."""
+    """
+    An alarm with its lifecycle.
 
-    alarm_id: str
+    `alarm_id`, `occurred_at_ms`, `acknowledged` and `cleared` keep their earlier
+    meaning; `state` is the full lifecycle state.
+    """
+
+    alarm_id: str = Field(..., description="The alarm id as a string.")
+    id: int
+    key: str = Field(..., description="Condition identity; one open alarm per key.")
     source_service: str
     severity: str
     parameter: str
-    value: float
+    direction: str
+    unit: str
+    state: AlarmStateName
+    value: float = Field(..., description="Latest value, in `unit`.")
     threshold: float
     action: str
     message: str
     topic: str
-    occurred_at_ms: int
+    occurred_at_ms: int = Field(..., description="Same as raised_at_ms.")
+    raised_at_ms: int
+    cleared_at_ms: int | None
     acknowledged: bool
     acknowledged_at_ms: int | None
-    cleared: bool
+    acknowledged_by: str | None
+    ack_comment: str | None
+    cleared: bool = Field(..., description="The condition has ended.")
+    occurrence_count: int
+    updated_at_ms: int
+
+
+class AlarmTransitionResponse(BaseModel):
+    """One state change of an alarm."""
+
+    id: int
+    alarm_id: int
+    from_state: AlarmStateName | None
+    to_state: AlarmStateName
+    at_ms: int
+    actor: str = Field(..., description="Source service or the user who acknowledged.")
+    comment: str | None
+    value: float | None
+
+
+class AlarmPageResponse(BaseModel):
+    """A page of alarm history."""
+
+    items: list[AlarmResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class AlarmDetailResponse(BaseModel):
+    """An alarm with its transitions, oldest first."""
+
+    alarm: AlarmResponse
+    transitions: list[AlarmTransitionResponse]
+
+
+class AcknowledgeRequest(BaseModel):
+    """Request body for POST /api/v1/alarms/{alarm_id}/ack."""
+
+    comment: str = Field(default="", max_length=500)
+
+
+class AcknowledgeAllRequest(BaseModel):
+    """Request body for POST /api/v1/alarms/ack-all."""
+
+    comment: str = Field(default="", max_length=500)
+    severity: Literal["warning", "critical"] | None = Field(
+        default=None, description="Only alarms of this severity; all when omitted."
+    )
+
+
+class AcknowledgeResponse(BaseModel):
+    """Result of an acknowledgement."""
+
+    accepted: bool
+    reason: str
+    timestamp_ms: int
+    alarms: list[AlarmResponse]
 
 
 class AuditResponse(BaseModel):

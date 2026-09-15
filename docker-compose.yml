@@ -150,7 +150,7 @@ services:
 
   alert-manager:
     <<: *python-service
-    command: ["python", "-m", "alert_manager", "--mqtt-host", "mosquitto", "--mqtt-port", "1883", "--liveness-file", "/tmp/cogniboiler-liveness"]
+    command: ["python", "-m", "alert_manager", "--mqtt-host", "mosquitto", "--mqtt-port", "1883", "--grpc-port", "50053", "--liveness-file", "/tmp/cogniboiler-liveness"]
     environment:
       ALERT_MANAGER_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:?run dev-secrets}:${POSTGRES_PASSWORD:?run dev-secrets}@postgresql:5432/${POSTGRES_DB:?run dev-secrets}
     depends_on:
@@ -198,6 +198,7 @@ services:
       DEMO_VIEWER_PASSWORD: ${DEMO_VIEWER_PASSWORD:?run dev-secrets}
       PHYSICS_GRPC_TARGET: physics-engine:50052
       PLC_GRPC_TARGET: plc-controller:50051
+      ALARM_GRPC_TARGET: alert-manager:50053
       INFLUX_URL: http://influxdb:8086
       INFLUX_TOKEN: ${INFLUXDB_ADMIN_TOKEN:?run dev-secrets}
       INFLUX_ORG: ${INFLUXDB_ORG:?run dev-secrets}

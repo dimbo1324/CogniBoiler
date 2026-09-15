@@ -1039,3 +1039,250 @@ class PhysicsService(object):
             timeout,
             metadata,
             _registered_method=True)
+
+
+class AlarmServiceStub(object):
+    """AlarmService: alarm lifecycle owned by alert-manager.
+    """
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.Health = channel.unary_unary(
+                '/cogniboiler.AlarmService/Health',
+                request_serializer=cogniboiler__pb2.Empty.SerializeToString,
+                response_deserializer=cogniboiler__pb2.HealthStatus.FromString,
+                _registered_method=True)
+        self.ListAlarms = channel.unary_unary(
+                '/cogniboiler.AlarmService/ListAlarms',
+                request_serializer=cogniboiler__pb2.ListAlarmsRequest.SerializeToString,
+                response_deserializer=cogniboiler__pb2.AlarmListMsg.FromString,
+                _registered_method=True)
+        self.GetAlarm = channel.unary_unary(
+                '/cogniboiler.AlarmService/GetAlarm',
+                request_serializer=cogniboiler__pb2.AlarmRef.SerializeToString,
+                response_deserializer=cogniboiler__pb2.AlarmDetailMsg.FromString,
+                _registered_method=True)
+        self.AcknowledgeAlarm = channel.unary_unary(
+                '/cogniboiler.AlarmService/AcknowledgeAlarm',
+                request_serializer=cogniboiler__pb2.AcknowledgeAlarmRequest.SerializeToString,
+                response_deserializer=cogniboiler__pb2.AcknowledgeResult.FromString,
+                _registered_method=True)
+        self.AcknowledgeAll = channel.unary_unary(
+                '/cogniboiler.AlarmService/AcknowledgeAll',
+                request_serializer=cogniboiler__pb2.AcknowledgeAllRequest.SerializeToString,
+                response_deserializer=cogniboiler__pb2.AcknowledgeResult.FromString,
+                _registered_method=True)
+
+
+class AlarmServiceServicer(object):
+    """AlarmService: alarm lifecycle owned by alert-manager.
+    """
+
+    def Health(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListAlarms(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetAlarm(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def AcknowledgeAlarm(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def AcknowledgeAll(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_AlarmServiceServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'Health': grpc.unary_unary_rpc_method_handler(
+                    servicer.Health,
+                    request_deserializer=cogniboiler__pb2.Empty.FromString,
+                    response_serializer=cogniboiler__pb2.HealthStatus.SerializeToString,
+            ),
+            'ListAlarms': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListAlarms,
+                    request_deserializer=cogniboiler__pb2.ListAlarmsRequest.FromString,
+                    response_serializer=cogniboiler__pb2.AlarmListMsg.SerializeToString,
+            ),
+            'GetAlarm': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetAlarm,
+                    request_deserializer=cogniboiler__pb2.AlarmRef.FromString,
+                    response_serializer=cogniboiler__pb2.AlarmDetailMsg.SerializeToString,
+            ),
+            'AcknowledgeAlarm': grpc.unary_unary_rpc_method_handler(
+                    servicer.AcknowledgeAlarm,
+                    request_deserializer=cogniboiler__pb2.AcknowledgeAlarmRequest.FromString,
+                    response_serializer=cogniboiler__pb2.AcknowledgeResult.SerializeToString,
+            ),
+            'AcknowledgeAll': grpc.unary_unary_rpc_method_handler(
+                    servicer.AcknowledgeAll,
+                    request_deserializer=cogniboiler__pb2.AcknowledgeAllRequest.FromString,
+                    response_serializer=cogniboiler__pb2.AcknowledgeResult.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'cogniboiler.AlarmService', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('cogniboiler.AlarmService', rpc_method_handlers)
+
+
+ # This class is part of an EXPERIMENTAL API.
+class AlarmService(object):
+    """AlarmService: alarm lifecycle owned by alert-manager.
+    """
+
+    @staticmethod
+    def Health(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cogniboiler.AlarmService/Health',
+            cogniboiler__pb2.Empty.SerializeToString,
+            cogniboiler__pb2.HealthStatus.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListAlarms(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cogniboiler.AlarmService/ListAlarms',
+            cogniboiler__pb2.ListAlarmsRequest.SerializeToString,
+            cogniboiler__pb2.AlarmListMsg.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetAlarm(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cogniboiler.AlarmService/GetAlarm',
+            cogniboiler__pb2.AlarmRef.SerializeToString,
+            cogniboiler__pb2.AlarmDetailMsg.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AcknowledgeAlarm(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cogniboiler.AlarmService/AcknowledgeAlarm',
+            cogniboiler__pb2.AcknowledgeAlarmRequest.SerializeToString,
+            cogniboiler__pb2.AcknowledgeResult.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AcknowledgeAll(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/cogniboiler.AlarmService/AcknowledgeAll',
+            cogniboiler__pb2.AcknowledgeAllRequest.SerializeToString,
+            cogniboiler__pb2.AcknowledgeResult.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
