@@ -11,6 +11,7 @@ import time
 
 import cogniboiler_pb2 as pb
 
+from physics_engine.constants import FUEL_HEATING_VALUE
 from physics_engine.faults import ActiveFault, FaultKind
 from physics_engine.models import BoilerState, ControlInputs
 from physics_engine.plant import PlantSnapshot
@@ -146,6 +147,34 @@ def emissions_to_proto(snapshot: PlantSnapshot) -> pb.EmissionsMsg:
     )
 
 
+# Below this output the heat rates and intensities are meaningless and reported as zero.
+MIN_GENERATING_POWER_W: float = 1.0e6
+
+
+def performance_to_proto(snapshot: PlantSnapshot) -> pb.PerformanceMsg:
+    """Efficiency and heat rates from the true heat balance of the step."""
+    fuel_heat_input = snapshot.flows.fuel * FUEL_HEATING_VALUE
+    heat_to_cycle = snapshot.heat.boiler_efficiency * fuel_heat_input
+    power = snapshot.turbine.electrical_power
+    if power < MIN_GENERATING_POWER_W or fuel_heat_input <= 0.0:
+        return pb.PerformanceMsg(
+            fuel_heat_input_w=fuel_heat_input,
+            heat_to_cycle_w=heat_to_cycle,
+            boiler_efficiency=snapshot.heat.boiler_efficiency,
+            electrical_power_w=power,
+        )
+    return pb.PerformanceMsg(
+        fuel_heat_input_w=fuel_heat_input,
+        heat_to_cycle_w=heat_to_cycle,
+        boiler_efficiency=snapshot.heat.boiler_efficiency,
+        electrical_power_w=power,
+        net_efficiency=power / fuel_heat_input,
+        turbine_heat_rate_j_per_j=heat_to_cycle / power,
+        plant_heat_rate_j_per_j=fuel_heat_input / power,
+        co2_intensity_kg_per_j=snapshot.emissions.co2_rate / power,
+    )
+
+
 def condenser_to_proto(snapshot: PlantSnapshot) -> pb.CondenserMsg:
     condenser = snapshot.condenser
     return pb.CondenserMsg(
@@ -236,6 +265,7 @@ def system_state_to_proto(
         ],
         sensors=[sensor_to_proto(reading) for reading in snapshot.sensors],
         simulation=simulation_status_to_proto(status),
+        performance=performance_to_proto(snapshot),
     )
 
 
@@ -255,4 +285,5 @@ def plant_status_to_proto(
         simulation=simulation_status_to_proto(status),
         actuators=actuators_to_proto(snapshot.controls),
         timestamp_ms=now_ms(),
+        performance=performance_to_proto(snapshot),
     )

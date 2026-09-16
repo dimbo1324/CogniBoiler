@@ -66,7 +66,8 @@ async def get_history(
     request: Request,
     _: ViewerUser,
     measurement: str = Query(
-        default="boiler_sensors", pattern="^(boiler_sensors|turbine_sensors)$"
+        default="boiler_sensors",
+        pattern="^(boiler_sensors|turbine_sensors|plant_status)$",
     ),
     start_ms: int | None = Query(default=None, ge=0, description="[UTC epoch ms]"),
     end_ms: int | None = Query(default=None, ge=0, description="[UTC epoch ms]"),

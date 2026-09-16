@@ -186,6 +186,14 @@ def run_checks(
         )
         passed, detail = wait_for_history(base_url, operator, wait_s)
         report.record("telemetry history from InfluxDB", passed, detail)
+        kpi = call(base_url, "GET", "/api/v1/kpi", token=operator)
+        samples = dig(kpi.body, "samples")
+        report.record(
+            "KPIs from recorded plant status",
+            kpi.status == 200 and isinstance(samples, int) and samples > 0,
+            f"HTTP {kpi.status}, {samples} samples, "
+            f"net efficiency {dig(kpi.body, 'net_efficiency')}",
+        )
 
     engineer = tokens.get("engineer")
     if engineer:

@@ -71,6 +71,7 @@ def plant_state(message: pb2.SystemStateMsg) -> PlantStateResponse:
             "emissions": _scalars(message.emissions),
             "condenser": _scalars(message.condenser),
             "health": _scalars(message.health),
+            "performance": _scalars(message.performance),
             "faults": [fault(item) for item in message.active_faults],
             "sensors": [
                 {

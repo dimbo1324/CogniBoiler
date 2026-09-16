@@ -1,8 +1,15 @@
 apiVersion: 1
 
 # Values come from the Grafana container's environment, which Compose fills from .env.
+# The datasource is recreated on every start so its uid, which the dashboards reference,
+# stays fixed even on a volume provisioned before the uid was set.
+deleteDatasources:
+  - name: InfluxDB
+    orgId: 1
+
 datasources:
   - name: InfluxDB
+    uid: influxdb
     type: influxdb
     access: proxy
     url: http://influxdb:8086

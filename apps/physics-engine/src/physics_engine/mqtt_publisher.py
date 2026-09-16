@@ -174,17 +174,22 @@ class MQTTPublisher:
         snapshot: PlantSnapshot,
         status: SimulationStatus,
     ) -> None:
-        """Publish one plant snapshot: boiler, turbine, plant status and heartbeat."""
+        """
+        Publish one plant snapshot: plant status, boiler, turbine and heartbeat.
+
+        Plant status goes first: it carries the scenario and fault labels, so a recorder
+        can label the boiler and turbine values of the same step.
+        """
+        await self._publish(
+            client,
+            TOPIC_PLANT,
+            plant_status_to_proto(snapshot, status).SerializeToString(),
+        )
         await self._publish(
             client, TOPIC_BOILER, boiler_to_proto(snapshot).SerializeToString()
         )
         await self._publish(
             client, TOPIC_TURBINE, turbine_to_proto(snapshot).SerializeToString()
-        )
-        await self._publish(
-            client,
-            TOPIC_PLANT,
-            plant_status_to_proto(snapshot, status).SerializeToString(),
         )
         await self.publish_heartbeat(client)
 

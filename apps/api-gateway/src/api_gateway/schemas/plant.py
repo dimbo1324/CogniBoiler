@@ -96,6 +96,17 @@ class EquipmentHealthResponse(BaseModel):
     maintenance_critical: bool
 
 
+class PerformanceResponse(BaseModel):
+    fuel_heat_input_w: float
+    heat_to_cycle_w: float
+    net_efficiency: float = Field(..., description="0..1; 0 when not generating.")
+    turbine_heat_rate_j_per_j: float
+    plant_heat_rate_j_per_j: float
+    co2_intensity_kg_per_j: float
+    boiler_efficiency: float
+    electrical_power_w: float = Field(..., description="True output, not the reading.")
+
+
 class FaultResponse(BaseModel):
     fault_id: str
     kind: str
@@ -124,6 +135,7 @@ class PlantStateResponse(BaseModel):
     emissions: EmissionsResponse
     condenser: CondenserResponse
     health: EquipmentHealthResponse
+    performance: PerformanceResponse
     faults: list[FaultResponse]
     sensors: list[SensorStatusResponse]
 

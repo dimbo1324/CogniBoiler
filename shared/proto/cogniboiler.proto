@@ -125,6 +125,18 @@ message EquipmentHealthMsg {
   bool maintenance_critical = 9;
 }
 
+// Unit performance, computed by the physics engine from the true heat balance.
+message PerformanceMsg {
+  double fuel_heat_input_w = 1; // fuel mass flow × lower heating value [W]
+  double heat_to_cycle_w = 2; // heat absorbed by water and steam [W]
+  double net_efficiency = 3; // electrical output over fuel heat input, 0..1; 0 when not generating
+  double turbine_heat_rate_j_per_j = 4; // heat to cycle over electrical output [J/J]; 0 when not generating
+  double plant_heat_rate_j_per_j = 5; // fuel heat input over electrical output [J/J]; 0 when not generating
+  double co2_intensity_kg_per_j = 6; // CO2 per joule of electricity [kg/J]; 0 when not generating
+  double boiler_efficiency = 7; // heat to cycle over fuel heat input, 0..1
+  double electrical_power_w = 8; // true net electrical output [W], not the instrument reading
+}
+
 message SensorStatusMsg {
   string sensor_id = 1;
   SensorQuality quality = 2;
@@ -164,6 +176,7 @@ message SystemStateMsg {
   repeated FaultMsg active_faults = 8;
   repeated SensorStatusMsg sensors = 9;
   SimulationStatusMsg simulation = 10;
+  PerformanceMsg performance = 11;
 }
 
 // Published on sensors/plant alongside sensors/boiler and sensors/turbine.
@@ -176,6 +189,7 @@ message PlantStatusMsg {
   SimulationStatusMsg simulation = 6;
   ActuatorStateMsg actuators = 7;
   int64 timestamp_ms = 8;
+  PerformanceMsg performance = 9;
 }
 
 // ─── Control messages ─────────────────────────────────────────────────────────

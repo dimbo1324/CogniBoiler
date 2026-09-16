@@ -4,18 +4,19 @@ InfluxDB writer for CogniBoiler sensor telemetry.
 Converts protobuf messages into InfluxDB Points and writes them
 via the official influxdb-client-python library.
 
-Data model (one Point per MQTT message, multiple fields):
+Data model (one Point per MQTT message, multiple fields, SI units):
     boiler_sensors measurement:
-        tags:   quality (GOOD | UNCERTAIN | BAD)
-        fields: pressure_pa, water_level_m, water_temp_k,
-                flue_gas_temp_k, internal_energy_j
+        tags:   quality (good | uncertain | bad), scenario
+        fields: every numeric field of BoilerStateMsg except timestamp_ms
         time:   BoilerStateMsg.timestamp_ms -> nanoseconds
 
     turbine_sensors measurement:
-        fields: electrical_power_w, shaft_power_w,
-                enthalpy_in_j_kg, enthalpy_out_j_kg,
-                exhaust_pressure_pa, steam_flow_kg_s
+        tags:   scenario
+        fields: every numeric field of TurbineStateMsg except timestamp_ms
         time:   TurbineStateMsg.timestamp_ms -> nanoseconds
+
+The scenario tag is the scenario of the latest plant status; it is omitted until the
+first plant status arrives. Plant status, KPIs and events are built in historian.points.
 
 Writing one multi-field Point per message (vs one Point per field)
 gives atomic writes and faster range queries.
@@ -27,6 +28,7 @@ import logging
 from typing import Protocol, cast
 
 import cogniboiler_pb2 as pb
+from google.protobuf.message import Message
 from influxdb_client.client.influxdb_client import InfluxDBClient as _InfluxDBClient
 from influxdb_client.client.write.point import Point as _Point
 from influxdb_client.client.write_api import SYNCHRONOUS
@@ -46,6 +48,8 @@ _QUALITY_TAG: dict[int, str] = {
     pb.SensorQuality.UNCERTAIN: "uncertain",
     pb.SensorQuality.BAD: "bad",
 }
+
+_NOT_FIELDS: frozenset[str] = frozenset({"timestamp_ms", "quality"})
 
 
 class PointLike(Protocol):
@@ -72,7 +76,7 @@ class InfluxDBClientLike(Protocol):
     def close(self) -> None: ...
 
 
-def _new_point(measurement: str) -> PointLike:
+def new_point(measurement: str) -> PointLike:
     """Create a Point while containing the untyped third-party constructor."""
     return cast(PointLike, _Point(measurement))  # type: ignore[no-untyped-call]
 
@@ -85,62 +89,59 @@ def _new_client(url: str, token: str, org: str) -> InfluxDBClientLike:
     )
 
 
+def timestamp_ns(timestamp_ms: int) -> int:
+    return timestamp_ms * 1_000_000
+
+
+def add_numeric_fields(
+    point: PointLike,
+    message: Message,
+    *,
+    prefix: str = "",
+    skip: frozenset[str] = _NOT_FIELDS,
+) -> PointLike:
+    """Every scalar numeric field of a flat message as a float field."""
+    for descriptor in message.DESCRIPTOR.fields:
+        if descriptor.name in skip or descriptor.type == descriptor.TYPE_MESSAGE:
+            continue
+        value = getattr(message, descriptor.name)
+        if isinstance(value, bool):
+            point = point.field(f"{prefix}{descriptor.name}", 1.0 if value else 0.0)
+        elif isinstance(value, int | float):
+            point = point.field(f"{prefix}{descriptor.name}", float(value))
+    return point
+
+
 # ─── Point builders ───────────────────────────────────────────────────────────
 
 
-def build_boiler_point(msg: pb.BoilerStateMsg) -> PointLike:
+def build_boiler_point(
+    msg: pb.BoilerStateMsg, scenario: str | None = None
+) -> PointLike:
     """
     Build an InfluxDB Point from a BoilerStateMsg protobuf message.
 
-    All five sensor fields are written as separate fields on a single Point.
+    Every sensor, flow and heat-duty field is written on a single Point.
     The quality enum is stored as a tag for fast filtering.
-
-    Args:
-        msg: Parsed BoilerStateMsg from MQTT payload.
-
-    Returns:
-        Point ready for writing to InfluxDB.
     """
-    ts_ns = msg.timestamp_ms * 1_000_000
-    quality_tag = _QUALITY_TAG.get(msg.quality, "unknown")
-
-    return (
-        _new_point(MEASUREMENT_BOILER)
-        .tag("quality", quality_tag)
-        .field("pressure_pa", msg.pressure_pa)
-        .field("water_level_m", msg.water_level_m)
-        .field("water_temp_k", msg.water_temp_k)
-        .field("flue_gas_temp_k", msg.flue_gas_temp_k)
-        .field("internal_energy_j", msg.internal_energy_j)
-        .time(ts_ns, WritePrecision.NS)
+    point = new_point(MEASUREMENT_BOILER).tag(
+        "quality", _QUALITY_TAG.get(msg.quality, "unknown")
     )
+    if scenario:
+        point = point.tag("scenario", scenario)
+    point = add_numeric_fields(point, msg)
+    return point.time(timestamp_ns(msg.timestamp_ms), WritePrecision.NS)
 
 
-def build_turbine_point(msg: pb.TurbineStateMsg) -> PointLike:
-    """
-    Build an InfluxDB Point from a TurbineStateMsg protobuf message.
-
-    All six sensor fields are written as separate fields on a single Point.
-
-    Args:
-        msg: Parsed TurbineStateMsg from MQTT payload.
-
-    Returns:
-        Point ready for writing to InfluxDB.
-    """
-    ts_ns = msg.timestamp_ms * 1_000_000
-
-    return (
-        _new_point(MEASUREMENT_TURBINE)
-        .field("electrical_power_w", msg.electrical_power_w)
-        .field("shaft_power_w", msg.shaft_power_w)
-        .field("enthalpy_in_j_kg", msg.enthalpy_in_j_kg)
-        .field("enthalpy_out_j_kg", msg.enthalpy_out_j_kg)
-        .field("exhaust_pressure_pa", msg.exhaust_pressure_pa)
-        .field("steam_flow_kg_s", msg.steam_flow_kg_s)
-        .field("steam_temp_in_k", msg.steam_temp_in_k)
-        .time(ts_ns, WritePrecision.NS)
-    )
+def build_turbine_point(
+    msg: pb.TurbineStateMsg, scenario: str | None = None
+) -> PointLike:
+    """Build an InfluxDB Point from a TurbineStateMsg protobuf message."""
+    point = new_point(MEASUREMENT_TURBINE)
+    if scenario:
+        point = point.tag("scenario", scenario)
+    point = add_numeric_fields(point, msg)
+    return point.time(timestamp_ns(msg.timestamp_ms), WritePrecision.NS)
 
 
 # ─── Writer ───────────────────────────────────────────────────────────────────

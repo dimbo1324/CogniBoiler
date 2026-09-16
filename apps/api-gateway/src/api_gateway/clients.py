@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 from collections.abc import AsyncGenerator, Sequence
 from dataclasses import dataclass
 from datetime import UTC
@@ -40,12 +41,14 @@ class AlarmGatewayConfig:
 
 @dataclass
 class HistorianQueryConfig:
-    """InfluxDB query settings used by the history endpoint."""
+    """InfluxDB query settings used by the history and KPI endpoints."""
 
     url: str = "http://localhost:8086"
     token: str = ""
     org: str = "cogniboiler"
     bucket: str = "sensors"
+    aggregate_bucket: str = "sensors_1m"
+    raw_retention_days: int = 7
 
 
 class QueryRecordLike(Protocol):
@@ -264,12 +267,36 @@ class AlarmGatewayClient:
 # ─── History ──────────────────────────────────────────────────────────────────
 
 NANOSECONDS_PER_MILLISECOND = 1_000_000
+AGGREGATE_WINDOW_S = 60
+# Raw data answers ranges of up to a day; longer or older ranges read the aggregates.
+MAX_RAW_SPAN_MS = 86_400_000
 
 # Aggregation windows a history query may use, so neighbouring queries line up.
 HISTORY_WINDOWS_S: tuple[int, ...] = (
     1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600,
     43200, 86400,
 )  # fmt: skip
+
+KPI_FIELDS: tuple[str, ...] = (
+    "electrical_power_w",
+    "fuel_heat_input_w",
+    "heat_to_cycle_w",
+    "co2_kg_s",
+    "nox_ppmv",
+    "overall_health_pct",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class HistorySource:
+    """Where a range is read from: raw telemetry or one-minute aggregates."""
+
+    bucket: str
+    aggregated: bool
+
+    @property
+    def name(self) -> str:
+        return "aggregate" if self.aggregated else "raw"
 
 
 def history_window_s(start_ms: int, end_ms: int, max_points: int) -> int:
@@ -288,6 +315,22 @@ def history_window_s(start_ms: int, end_ms: int, max_points: int) -> int:
     return math.ceil(needed / 86400) * 86400
 
 
+def choose_source(
+    config: HistorianQueryConfig, start_ms: int, end_ms: int, now_ms: int
+) -> HistorySource:
+    """Raw data for recent ranges of up to a day; aggregates for older or longer ones."""
+    raw_horizon_ms = now_ms - config.raw_retention_days * 86_400_000
+    if start_ms >= raw_horizon_ms and end_ms - start_ms <= MAX_RAW_SPAN_MS:
+        return HistorySource(config.bucket, aggregated=False)
+    return HistorySource(config.aggregate_bucket, aggregated=True)
+
+
+def _flux_range(start_ms: int, end_ms: int) -> str:
+    start_ns = start_ms * NANOSECONDS_PER_MILLISECOND
+    stop_ns = end_ms * NANOSECONDS_PER_MILLISECOND
+    return f"range(start: time(v: {start_ns}), stop: time(v: {stop_ns}))"
+
+
 def build_history_query(
     *,
     bucket: str,
@@ -297,19 +340,21 @@ def build_history_query(
     limit: int,
     window_s: int = 0,
     fields: Sequence[str] = (),
+    aggregated: bool = False,
 ) -> str:
     """Flux for one measurement over [start_ms, end_ms], one pivoted row per time.
 
     With window_s every numeric field is averaged per window; tags are dropped, so
     series split by instrument quality or scenario merge back into one row per window.
+    From the aggregate bucket only the one-minute means are read.
     Flux's time(v:) takes integer nanoseconds; InfluxDB rejects float seconds with 400.
     """
-    start_ns = start_ms * NANOSECONDS_PER_MILLISECOND
-    stop_ns = end_ms * NANOSECONDS_PER_MILLISECOND
-    field_filter = ""
+    filters = f'\n  |> filter(fn: (r) => r._measurement == "{measurement}")'
+    if aggregated:
+        filters += '\n  |> filter(fn: (r) => r.agg == "mean")'
     if fields:
         condition = " or ".join(f'r._field == "{field}"' for field in fields)
-        field_filter = f"\n  |> filter(fn: (r) => {condition})"
+        filters += f"\n  |> filter(fn: (r) => {condition})"
     aggregation = ""
     if window_s > 0:
         aggregation = (
@@ -320,13 +365,49 @@ def build_history_query(
     return f"""import "types"
 
 from(bucket: "{bucket}")
-  |> range(start: time(v: {start_ns}), stop: time(v: {stop_ns}))
-  |> filter(fn: (r) => r._measurement == "{measurement}"){field_filter}{aggregation}
+  |> {_flux_range(start_ms, end_ms)}{filters}{aggregation}
   |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
   |> group()
   |> sort(columns: ["_time"], desc: false)
   |> limit(n: {limit})
 """
+
+
+def build_kpi_query(
+    *, bucket: str, start_ms: int, end_ms: int, aggregated: bool
+) -> str:
+    """
+    Flux for the KPI inputs over a range: the mean of each input, the peak NOx, the
+    lowest health index and the number of samples. Rows: _field, stat, _value.
+    """
+    condition = " or ".join(f'r._field == "{field}"' for field in KPI_FIELDS)
+
+    def source(agg: str) -> str:
+        agg_filter = f' and r.agg == "{agg}"' if aggregated else ""
+        return (
+            f'from(bucket: "{bucket}") |> {_flux_range(start_ms, end_ms)}'
+            f' |> filter(fn: (r) => r._measurement == "plant_status"{agg_filter})'
+            f" |> filter(fn: (r) => {condition})"
+            ' |> group(columns: ["_field"])'
+        )
+
+    keep = '|> keep(columns: ["_field", "stat", "_value"])'
+    as_float = "|> map(fn: (r) => ({r with _value: float(v: r._value)}))"
+    return (
+        f'means = {source("mean")} |> mean() |> set(key: "stat", value: "mean") {keep}\n'
+        f'peaks = {source("max")} |> filter(fn: (r) => r._field == "nox_ppmv")'
+        f' |> max() |> set(key: "stat", value: "max") {keep}\n'
+        f'lows = {source("min")} |> filter(fn: (r) => r._field == "overall_health_pct")'
+        f' |> min() |> set(key: "stat", value: "min") {keep}\n'
+        f"samples = {source('mean')}"
+        ' |> filter(fn: (r) => r._field == "electrical_power_w")'
+        f' |> count() {as_float} |> set(key: "stat", value: "count") {keep}\n'
+        "union(tables: [means, peaks, lows, samples]) |> group()\n"
+    )
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
 
 
 class HistorianQueryClient:
@@ -344,14 +425,13 @@ class HistorianQueryClient:
         return bool(self._client.ping())
 
     def query_rows(self, flux: str) -> list[dict[str, Any]]:
-        """Run a Flux query; each record becomes a dict with timestamp_ms added."""
+        """Run a Flux query; each record becomes a dict, with timestamp_ms if timed."""
         tables = self._query_api.query(flux, org=self.config.org)
         rows: list[dict[str, Any]] = []
         for table in tables:
             for record in table.records:
-                record = cast(QueryRecordLike, record)
-                values = dict(record.values)
-                record_time = record.get_time()
+                values = dict(cast(QueryRecordLike, record).values)
+                record_time = values.get("_time")
                 if record_time is not None:
                     values["timestamp_ms"] = int(
                         record_time.astimezone(UTC).timestamp() * 1000
@@ -369,13 +449,35 @@ class HistorianQueryClient:
         window_s: int = 0,
         fields: Sequence[str] = (),
     ) -> list[dict[str, Any]]:
+        source = choose_source(self.config, start_ms, end_ms, _now_ms())
+        if source.aggregated:
+            window_s = max(window_s, AGGREGATE_WINDOW_S)
         flux = build_history_query(
-            bucket=self.config.bucket,
+            bucket=source.bucket,
             measurement=measurement,
             start_ms=start_ms,
             end_ms=end_ms,
             limit=limit,
             window_s=window_s,
             fields=fields,
+            aggregated=source.aggregated,
         )
         return self.query_rows(flux)
+
+    def fetch_kpi_inputs(
+        self, *, start_ms: int, end_ms: int
+    ) -> tuple[HistorySource, dict[tuple[str, str], float]]:
+        """KPI inputs over a range, keyed by (field, stat)."""
+        source = choose_source(self.config, start_ms, end_ms, _now_ms())
+        flux = build_kpi_query(
+            bucket=source.bucket,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            aggregated=source.aggregated,
+        )
+        values: dict[tuple[str, str], float] = {}
+        for row in self.query_rows(flux):
+            value = row.get("_value")
+            if isinstance(value, int | float) and math.isfinite(value):
+                values[(str(row.get("_field")), str(row.get("stat")))] = float(value)
+        return source, values

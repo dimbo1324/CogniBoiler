@@ -39,6 +39,7 @@ from api_gateway.routers import (
     commands,
     health,
     history,
+    kpi,
     plc,
     simulation,
     status,
@@ -70,6 +71,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             token=settings.influx_token,
             org=settings.influx_org,
             bucket=settings.influx_bucket,
+            aggregate_bucket=settings.influx_aggregate_bucket,
+            raw_retention_days=settings.influx_raw_retention_days,
         )
     )
     hub = RealtimeHub(
@@ -153,6 +156,7 @@ def create_app() -> FastAPI:
         commands.router,
         plc.router,
         history.router,
+        kpi.router,
         alarms.router,
         audit.router,
         users.router,
