@@ -1,33 +1,22 @@
 """
 CogniBoiler API Gateway — FastAPI application entry point.
 
-This module creates the FastAPI application instance, registers all
-routers, and configures middleware. It is the single file that ties
-the entire gateway together.
-
 Starting the server:
     uvicorn api_gateway.main:app --reload --port 8000
-
-In production (Phase 7):
-    uvicorn api_gateway.main:app \
-        --host 0.0.0.0 --port 8000 \
-        --ssl-keyfile certs/server.key \
-        --ssl-certfile certs/server.crt \
-        --workers 4
 """
 
 from __future__ import annotations
 
-import hashlib
+import asyncio
 import logging
-import time
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api_gateway.auth.jwt_handler import decode_access_token
+from api_gateway.audit import AuditMiddleware
+from api_gateway.auth.throttle import LoginThrottle, ThrottlePolicy
 from api_gateway.clients import (
     AlarmGatewayClient,
     AlarmGatewayConfig,
@@ -39,9 +28,10 @@ from api_gateway.clients import (
     PLCGatewayConfig,
 )
 from api_gateway.config import settings
-from api_gateway.db_init import ensure_schema_and_seed_defaults
-from api_gateway.dependencies import AsyncSessionLocal
-from api_gateway.models.user import AuditLog
+from api_gateway.db_init import seed_roles_and_demo_users
+from api_gateway.problems import install_problem_handlers
+from api_gateway.realtime.hub import RealtimeHub
+from api_gateway.realtime.sources import run_mqtt_events, run_plc_status, run_telemetry
 from api_gateway.routers import (
     alarms,
     audit,
@@ -50,30 +40,20 @@ from api_gateway.routers import (
     health,
     history,
     plc,
+    simulation,
     status,
+    users,
     websocket,
 )
 
 logger = logging.getLogger(__name__)
 
-# ─── Lifespan ─────────────────────────────────────────────────────────────────
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    """
-    Application lifespan manager.
-
-    Code before `yield` runs on startup.
-    Code after  `yield` runs on shutdown.
-
-    Phase 5.4 will add:
-      - SQLAlchemy async engine initialisation
-      - MQTT client connection
-      - gRPC channel pool warm-up
-    """
+    """Upstream clients and realtime sources live exactly as long as the application."""
     if settings.auto_init_db:
-        await ensure_schema_and_seed_defaults()
+        await seed_roles_and_demo_users()
 
     app.state.physics_client = PhysicsGatewayClient(
         PhysicsGatewayConfig(target=settings.physics_grpc_target)
@@ -92,17 +72,38 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             bucket=settings.influx_bucket,
         )
     )
+    hub = RealtimeHub(
+        queue_size=settings.ws_send_queue_size, max_rate_hz=settings.ws_max_rate_hz
+    )
+    app.state.realtime_hub = hub
+    sources = [
+        asyncio.create_task(
+            run_telemetry(hub, app.state.physics_client), name="realtime-telemetry"
+        ),
+        asyncio.create_task(
+            run_plc_status(
+                hub, app.state.plc_client, settings.ws_plc_status_interval_s
+            ),
+            name="realtime-plc-status",
+        ),
+        asyncio.create_task(
+            run_mqtt_events(hub, settings.mqtt_host, settings.mqtt_port),
+            name="realtime-mqtt-events",
+        ),
+    ]
 
     logger.info("Starting %s v%s", settings.app_name, settings.app_version)
-    yield
-    await app.state.physics_client.close()
-    await app.state.plc_client.close()
-    await app.state.alarm_client.close()
-    app.state.historian_client.close()
-    logger.info("Shutting down %s", settings.app_name)
-
-
-# ─── Application factory ──────────────────────────────────────────────────────
+    try:
+        yield
+    finally:
+        for task in sources:
+            task.cancel()
+        await asyncio.gather(*sources, return_exceptions=True)
+        await app.state.physics_client.close()
+        await app.state.plc_client.close()
+        await app.state.alarm_client.close()
+        app.state.historian_client.close()
+        logger.info("Shutting down %s", settings.app_name)
 
 
 def create_app() -> FastAPI:
@@ -110,96 +111,55 @@ def create_app() -> FastAPI:
     Create and configure the FastAPI application.
 
     Separated from module-level instantiation so that tests can call
-    create_app() to get a fresh instance with overridden dependencies,
-    without importing side-effects at module level.
-
-    Returns:
-        Configured FastAPI application instance.
+    create_app() to get a fresh instance with overridden dependencies.
     """
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
         description=(
-            "REST API gateway for the CogniBoiler digital twin platform. "
-            "Provides authenticated access to boiler/turbine state, "
-            "operator commands, and real-time WebSocket streaming."
+            "REST and WebSocket gateway of the CogniBoiler digital twin: sign-in and "
+            "sessions, plant state, PLC commands, simulation control, alarms, history, "
+            "audit and user administration. Errors are Problem Details (RFC 9457)."
         ),
         docs_url="/docs",
         redoc_url="/redoc",
         lifespan=lifespan,
     )
+    app.state.login_throttle = LoginThrottle(
+        per_account=ThrottlePolicy(
+            settings.login_max_failures_per_account, settings.login_failure_window_s
+        ),
+        per_client=ThrottlePolicy(
+            settings.login_max_failures_per_client, settings.login_failure_window_s
+        ),
+    )
+    install_problem_handlers(app)
 
-    # ── CORS ──────────────────────────────────────────────────────────────────
-    # In production replace ["*"] with the actual frontend origin.
+    app.add_middleware(AuditMiddleware)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=settings.cors_allowed_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PATCH", "DELETE"],
+        allow_headers=["Authorization", "Content-Type"],
+        expose_headers=["Retry-After", "X-Process-Time"],
     )
 
-    # ── Request timing middleware ─────────────────────────────────────────────
-    # Adds X-Process-Time header to every response.
-    @app.middleware("http")
-    async def add_process_time_header(
-        request: Request,
-        call_next: Callable[[Request], Awaitable[Response]],
-    ) -> Response:
-        start = time.perf_counter()
-        request_body = await request.body()
-        response: Response = await call_next(request)
-        elapsed = time.perf_counter() - start
-        response.headers["X-Process-Time"] = f"{elapsed:.4f}s"
-
-        request_hash = (
-            hashlib.sha256(request_body).hexdigest() if request_body else None
-        )
-        user_id: int | None = None
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header.removeprefix("Bearer ").strip()
-            try:
-                payload = decode_access_token(token)
-                user_id = int(str(payload["sub"]))
-            except Exception:
-                user_id = None
-
-        try:
-            async with AsyncSessionLocal() as session:
-                session.add(
-                    AuditLog(
-                        user_id=user_id,
-                        ip_address=request.client.host if request.client else "unknown",
-                        method=request.method,
-                        endpoint=request.url.path,
-                        request_body_hash=request_hash,
-                        response_status=response.status_code,
-                        duration_ms=int(elapsed * 1000),
-                        timestamp_ms=int(time.time() * 1000),
-                        detail=request.url.query or None,
-                    )
-                )
-                await session.commit()
-        except Exception as exc:
-            logger.debug("Audit write skipped: %s", exc)
-
-        return response
-
-    # ── Routers ───────────────────────────────────────────────────────────────
-    app.include_router(health.router)
-    app.include_router(auth.router)
-    app.include_router(status.router)
-    app.include_router(commands.router)
-    app.include_router(plc.router)
-    app.include_router(history.router)
-    app.include_router(alarms.router)
-    app.include_router(audit.router)
-    app.include_router(websocket.router)
-
+    for router in (
+        health.router,
+        auth.router,
+        status.router,
+        simulation.router,
+        commands.router,
+        plc.router,
+        history.router,
+        alarms.router,
+        audit.router,
+        users.router,
+        websocket.router,
+    ):
+        app.include_router(router)
     return app
 
-
-# ─── Application instance ─────────────────────────────────────────────────────
 
 app = create_app()

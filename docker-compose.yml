@@ -199,6 +199,8 @@ services:
       PHYSICS_GRPC_TARGET: physics-engine:50052
       PLC_GRPC_TARGET: plc-controller:50051
       ALARM_GRPC_TARGET: alert-manager:50053
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
       INFLUX_URL: http://influxdb:8086
       INFLUX_TOKEN: ${INFLUXDB_ADMIN_TOKEN:?run dev-secrets}
       INFLUX_ORG: ${INFLUXDB_ORG:?run dev-secrets}
@@ -206,6 +208,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      mosquitto:
+        condition: service_healthy
       influxdb:
         condition: service_healthy
       physics-engine:

@@ -1,4 +1,9 @@
-"""Development/bootstrap DB initialization for local core stack runs."""
+"""
+Seed data for local development: the four roles and the demo users.
+
+The schema itself comes only from the Alembic chain (the `migrate` job in Compose, or
+`alembic upgrade head` from the host); seeding an unmigrated database fails loudly.
+"""
 
 from __future__ import annotations
 
@@ -10,8 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api_gateway.auth.password import hash_password
 from api_gateway.config import settings
-from api_gateway.dependencies import AsyncSessionLocal, engine
-from api_gateway.models.user import Base, Role, User, UserRole
+from api_gateway.dependencies import AsyncSessionLocal
+from api_gateway.models.user import Role, User, UserRole
 
 logger = logging.getLogger(__name__)
 
@@ -33,16 +38,13 @@ def demo_users() -> tuple[tuple[str, str], ...]:
     )
 
 
-async def ensure_schema_and_seed_defaults() -> None:
+async def seed_roles_and_demo_users() -> None:
     """
-    Create tables and seed roles and demo users for local development.
+    Seed the roles and demo users for local development.
 
     Passwords come from settings (DEMO_*_PASSWORD); a user whose password is empty is
     not created, so no credential is ever hardcoded here.
     """
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
     async with AsyncSessionLocal() as session:
         role_names = [name for name, _ in ROLE_DESCRIPTIONS]
         role_rows = (

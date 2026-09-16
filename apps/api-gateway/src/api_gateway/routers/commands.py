@@ -1,16 +1,20 @@
-"""Operator command endpoints backed by the live PLC service."""
+"""
+Operator command endpoints backed by the live PLC service.
+
+The PLC records the authenticated username as the operator of every command; the audit
+row of the request carries the PLC's verdict as its outcome.
+"""
 
 from __future__ import annotations
 
-from typing import Annotated
-
 import cogniboiler_pb2 as pb2
 import grpc
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Request
 
-from api_gateway.auth.jwt_handler import TokenData
-from api_gateway.auth.rbac import require_role
+from api_gateway.audit import command_outcome, set_audit_detail, set_audit_outcome
+from api_gateway.auth.rbac import EngineerUser, OperatorUser
 from api_gateway.clients import PLCGatewayClient
+from api_gateway.problems import upstream_unavailable
 from api_gateway.schemas.command import (
     CommandAckResponse,
     ControlModeRequest,
@@ -34,7 +38,8 @@ def _plc_client(request: Request) -> PLCGatewayClient:
     return request.app.state.plc_client  # type: ignore[no-any-return]
 
 
-def _ack(ack: pb2.CommandAck) -> CommandAckResponse:
+def _ack(request: Request, ack: pb2.CommandAck) -> CommandAckResponse:
+    set_audit_outcome(request, command_outcome(ack.accepted, ack.reason))
     return CommandAckResponse(
         accepted=ack.accepted,
         reason=ack.reason,
@@ -42,18 +47,11 @@ def _ack(ack: pb2.CommandAck) -> CommandAckResponse:
     )
 
 
-def _unavailable(exc: grpc.RpcError) -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail=f"PLCService unavailable: {exc}",
-    )
-
-
 @router.post("/valve", response_model=CommandAckResponse)
 async def send_valve_command(
     request: Request,
     body: ValveCommandRequest,
-    token: Annotated[TokenData, Depends(require_role("operator"))],
+    user: OperatorUser,
 ) -> CommandAckResponse:
     """Send a manual valve command to the PLC; the PLC switches to MANUAL."""
     command = pb2.ControlCommandMsg(
@@ -61,52 +59,52 @@ async def send_valve_command(
         feedwater_valve=body.feedwater_valve,
         steam_valve=body.steam_valve,
         source=pb2.CommandSource.OPERATOR,
-        operator_id=str(token["sub"]),
+        operator_id=user.username,
     )
     if body.spray_valve is not None:
         command.spray_valve = body.spray_valve
     try:
         ack = await _plc_client(request).send_command(command)
     except grpc.RpcError as exc:
-        raise _unavailable(exc) from exc
-    return _ack(ack)
+        raise upstream_unavailable("PLCService", exc) from exc
+    return _ack(request, ack)
 
 
 @router.post("/load", response_model=CommandAckResponse)
 async def set_load_demand(
     request: Request,
     body: LoadDemandRequest,
-    token: Annotated[TokenData, Depends(require_role("operator"))],
+    user: OperatorUser,
 ) -> CommandAckResponse:
     """Set the electrical load the PLC drives the unit to in AUTO."""
     try:
-        ack = await _plc_client(request).set_load_demand(body.load_w, str(token["sub"]))
+        ack = await _plc_client(request).set_load_demand(body.load_w, user.username)
     except grpc.RpcError as exc:
-        raise _unavailable(exc) from exc
-    return _ack(ack)
+        raise upstream_unavailable("PLCService", exc) from exc
+    return _ack(request, ack)
 
 
 @router.post("/mode", response_model=CommandAckResponse)
 async def set_control_mode(
     request: Request,
     body: ControlModeRequest,
-    token: Annotated[TokenData, Depends(require_role("operator"))],
+    user: OperatorUser,
 ) -> CommandAckResponse:
     """Switch the PLC between AUTO and MANUAL, or trip the unit."""
     try:
         ack = await _plc_client(request).set_control_mode(
-            _MODES[body.mode], str(token["sub"])
+            _MODES[body.mode], user.username
         )
     except grpc.RpcError as exc:
-        raise _unavailable(exc) from exc
-    return _ack(ack)
+        raise upstream_unavailable("PLCService", exc) from exc
+    return _ack(request, ack)
 
 
 @router.post("/setpoint", response_model=CommandAckResponse)
 async def update_setpoints(
     request: Request,
     body: SetpointRequest,
-    token: Annotated[TokenData, Depends(require_role("engineer"))],
+    user: EngineerUser,
 ) -> CommandAckResponse:
     """Update live PLC setpoints and return the acceptance status."""
     try:
@@ -116,24 +114,30 @@ async def update_setpoints(
                 water_level_m=body.water_level_m,
                 steam_temp_k=body.steam_temp_k,
                 timestamp_ms=0,
-                operator_id=str(token["sub"]),
+                operator_id=user.username,
             )
         )
     except grpc.RpcError as exc:
-        raise _unavailable(exc) from exc
-    return _ack(ack)
+        raise upstream_unavailable("PLCService", exc) from exc
+    return _ack(request, ack)
 
 
 @router.post("/reset", response_model=CommandAckResponse)
 async def reset_emergency_stop(
     request: Request,
-    body: ResetRequest,
-    token: Annotated[TokenData, Depends(require_role("engineer"))],
+    user: EngineerUser,
+    body: ResetRequest | None = None,
 ) -> CommandAckResponse:
-    """Reset the PLC emergency stop latch once its cause is gone; back to AUTO."""
-    operator_id = body.operator_id or str(token["sub"])
+    """
+    Reset the PLC emergency stop latch once its cause is gone; back to AUTO.
+
+    The reset is recorded under the authenticated user. An operator_id in the body no
+    longer overrides that; it is kept in the audit detail as a note.
+    """
+    if body is not None and body.operator_id and body.operator_id != user.username:
+        set_audit_detail(request, f"stated operator_id={body.operator_id}")
     try:
-        ack = await _plc_client(request).reset_emergency_stop(operator_id)
+        ack = await _plc_client(request).reset_emergency_stop(user.username)
     except grpc.RpcError as exc:
-        raise _unavailable(exc) from exc
-    return _ack(ack)
+        raise upstream_unavailable("PLCService", exc) from exc
+    return _ack(request, ack)

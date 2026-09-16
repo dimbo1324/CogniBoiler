@@ -25,6 +25,7 @@ import cogniboiler_pb2 as pb2
 import jwt as pyjwt
 import pytest
 import pytest_asyncio
+from api_gateway.auth.identity import load_account
 from api_gateway.auth.jwt_handler import (
     create_access_token,
     create_refresh_token,
@@ -33,6 +34,7 @@ from api_gateway.auth.jwt_handler import (
 )
 from api_gateway.auth.password import hash_password, verify_password
 from api_gateway.auth.rbac import _role_level
+from api_gateway.auth.sessions import ClientInfo, open_session
 from api_gateway.dependencies import get_db
 from api_gateway.main import create_app
 from api_gateway.models.user import Base, Role, User, UserRole
@@ -104,6 +106,8 @@ class FakeHistorianClient:
         start_ms: int,
         end_ms: int,
         limit: int,
+        window_s: int = 0,
+        fields: tuple[str, ...] = (),
     ) -> list[dict[str, object]]:
         return []
 
@@ -226,40 +230,43 @@ async def client(app: FastAPI) -> AsyncGenerator[AsyncClient]:
 # ─── Valid tokens fixtures ────────────────────────────────────────────────────
 
 
-@pytest.fixture
-def viewer_tokens() -> dict[str, str]:
+async def _session_tokens(app: FastAPI, username: str) -> dict[str, str]:
+    """A signed-in session of a seeded user, stored in the test database."""
+    sessions = app.dependency_overrides[get_db]()
+    db = await anext(sessions)
+    try:
+        account = await load_account(db, username=username)
+        assert account is not None
+        tokens = await open_session(
+            db, account, ClientInfo(ip="127.0.0.1", user_agent="pytest")
+        )
+    finally:
+        await sessions.aclose()
+    return {"access": tokens.access.token, "refresh": tokens.refresh.token}
+
+
+@pytest_asyncio.fixture
+async def viewer_tokens(app: FastAPI) -> dict[str, str]:
     """JWT token pair for a viewer user (lowest privilege)."""
-    return {
-        "access": create_access_token(user_id=10, role="viewer"),
-        "refresh": create_refresh_token(user_id=10, role="viewer"),
-    }
+    return await _session_tokens(app, "viewer1")
 
 
-@pytest.fixture
-def operator_tokens() -> dict[str, str]:
+@pytest_asyncio.fixture
+async def operator_tokens(app: FastAPI) -> dict[str, str]:
     """JWT token pair for an operator user."""
-    return {
-        "access": create_access_token(user_id=20, role="operator"),
-        "refresh": create_refresh_token(user_id=20, role="operator"),
-    }
+    return await _session_tokens(app, "operator1")
 
 
-@pytest.fixture
-def engineer_tokens() -> dict[str, str]:
+@pytest_asyncio.fixture
+async def engineer_tokens(app: FastAPI) -> dict[str, str]:
     """JWT token pair for an engineer user."""
-    return {
-        "access": create_access_token(user_id=30, role="engineer"),
-        "refresh": create_refresh_token(user_id=30, role="engineer"),
-    }
+    return await _session_tokens(app, "engineer1")
 
 
-@pytest.fixture
-def admin_tokens() -> dict[str, str]:
+@pytest_asyncio.fixture
+async def admin_tokens(app: FastAPI) -> dict[str, str]:
     """JWT token pair for an admin user."""
-    return {
-        "access": create_access_token(user_id=40, role="admin"),
-        "refresh": create_refresh_token(user_id=40, role="admin"),
-    }
+    return await _session_tokens(app, "admin1")
 
 
 # ─── 1. Password tests ────────────────────────────────────────────────────────
@@ -513,10 +520,10 @@ class TestAuthEndpoints:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_logout_blacklists_refresh_token(self, client: AsyncClient) -> None:
-        # Generate a dedicated token pair for this test to avoid
-        # cross-test blacklist pollution from shared fixtures.
-        refresh = create_refresh_token(user_id=99, role="viewer")
+    async def test_logout_closes_the_session(
+        self, client: AsyncClient, viewer_tokens: dict[str, str]
+    ) -> None:
+        refresh = viewer_tokens["refresh"]
         await client.post("/auth/logout", json={"refresh_token": refresh})
         # The same token must now be rejected at /auth/refresh
         response = await client.post("/auth/refresh", json={"refresh_token": refresh})
@@ -732,6 +739,8 @@ class RecordedHistorianClient(FakeHistorianClient):
         start_ms: int,
         end_ms: int,
         limit: int,
+        window_s: int = 0,
+        fields: tuple[str, ...] = (),
     ) -> list[dict[str, object]]:
         from datetime import UTC, datetime
 
@@ -759,6 +768,8 @@ class FailingHistorianClient(FakeHistorianClient):
         start_ms: int,
         end_ms: int,
         limit: int,
+        window_s: int = 0,
+        fields: tuple[str, ...] = (),
     ) -> list[dict[str, object]]:
         raise ConnectionRefusedError("influxdb:8086 refused the connection")
 

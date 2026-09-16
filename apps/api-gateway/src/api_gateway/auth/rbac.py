@@ -2,24 +2,20 @@
 Role-Based Access Control (RBAC) via FastAPI dependency injection.
 
 Role hierarchy (least -> most privileged):
-    viewer   -> read-only access to status and history
-    operator -> viewer + valve commands within safe limits
-    engineer -> operator + PID setpoint changes, model parameters
-    admin    -> engineer + user management, security configuration
+    viewer   -> read-only access to status, history, alarms
+    operator -> viewer + load, mode, valve commands, alarm acknowledgement
+    engineer -> operator + setpoints, E-Stop reset, simulation control
+    admin    -> engineer + users and the audit log
 
-How it works:
-    Each router endpoint declares a dependency:
-        @router.post("/commands/valve")
-        async def send_valve_command(
-            _: TokenData = Depends(require_role("operator")),
-        ):
-            ...
+Each endpoint declares the minimum role through one of the annotated aliases:
 
-    FastAPI automatically resolves the dependency chain on every request:
-        1. extract_bearer_token() pulls the raw JWT from Authorization header
-        2. decode_access_token()  verifies RS256 signature and expiry
-        3. require_role()         checks the role claim against the hierarchy
-        4. Returns the decoded payload (available to the endpoint if needed)
+    @router.post("/commands/load")
+    async def set_load(user: OperatorUser) -> ...:
+        ...
+
+FastAPI resolves the chain on every request: the bearer token is read, resolved to an
+active user in an open session (database), and the user's current role is compared with
+the requirement. The user is also handed to the audit middleware.
 """
 
 from __future__ import annotations
@@ -27,124 +23,86 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Annotated
 
-import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from api_gateway.auth.jwt_handler import TokenData, decode_access_token
+from api_gateway.audit import AuditActor, set_audit_actor
+from api_gateway.auth.identity import (
+    AuthenticationError,
+    CurrentUser,
+    resolve_access_token,
+    role_level,
+)
+from api_gateway.dependencies import DbSession
+from api_gateway.problems import ProblemError
 
-# ─── Role hierarchy ───────────────────────────────────────────────────────────
+_bearer_scheme = HTTPBearer(auto_error=False)
 
-# Roles ordered from least to most privileged.
-_ROLE_HIERARCHY: list[str] = ["viewer", "operator", "engineer", "admin"]
+_BEARER_CHALLENGE = {"WWW-Authenticate": "Bearer"}
 
 
 def _role_level(role: str) -> int:
-    """
-    Return the numeric privilege level of a role.
-
-    Unknown roles return -1, effectively denying all access.
-
-    Args:
-        role: Role string from the JWT payload.
-
-    Returns:
-        Integer level: 0 (viewer) … 3 (admin), or -1 if unknown.
-    """
-    try:
-        return _ROLE_HIERARCHY.index(role)
-    except ValueError:
-        return -1
-
-
-# ─── Bearer token extractor ───────────────────────────────────────────────────
-
-_bearer_scheme = HTTPBearer(auto_error=True)
-
-
-async def extract_bearer_token(
-    credentials: Annotated[HTTPAuthorizationCredentials, Depends(_bearer_scheme)],
-) -> str:
-    """
-    FastAPI dependency: extract the raw JWT string from the request.
-
-    Returns:
-        Raw JWT string.
-    """
-    return credentials.credentials
-
-
-# ─── Current user dependency ─────────────────────────────────────────────────
+    """Numeric privilege level of a role; -1 for unknown roles."""
+    return role_level(role)
 
 
 async def get_current_user(
-    token: Annotated[str, Depends(extract_bearer_token)],
-) -> TokenData:
+    request: Request,
+    db: DbSession,
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(_bearer_scheme)
+    ],
+) -> CurrentUser:
     """
-    FastAPI dependency: verify the JWT and return the decoded payload.
+    FastAPI dependency: the active user behind the bearer token.
 
     Raises:
-        HTTPException 401: Token is invalid or expired.
+        ProblemError 401: no token, an invalid or expired token, a closed session or a
+            blocked account.
     """
+    if credentials is None:
+        raise ProblemError(
+            401,
+            "auth.token_missing",
+            "Authentication is required.",
+            headers=_BEARER_CHALLENGE,
+        )
     try:
-        return decode_access_token(token)
-    except jwt.ExpiredSignatureError as err:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token has expired.",
-            headers={"WWW-Authenticate": "Bearer"},
-        ) from err
-    except jwt.PyJWTError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token: {exc}",
-            headers={"WWW-Authenticate": "Bearer"},
+        user = await resolve_access_token(db, credentials.credentials)
+    except AuthenticationError as exc:
+        raise ProblemError(
+            401, exc.code, exc.detail, headers=_BEARER_CHALLENGE
         ) from exc
+    set_audit_actor(request, AuditActor(user.id, user.username, user.role))
+    return user
 
 
-# ─── Role-based access guard ──────────────────────────────────────────────────
-
-
-def require_role(minimum_role: str) -> Callable[..., Awaitable[TokenData]]:
+def require_role(minimum_role: str) -> Callable[..., Awaitable[CurrentUser]]:
     """
-    FastAPI dependency factory: enforce a minimum role requirement.
-
-    Returns a dependency function that checks the authenticated user's
-    role against the required minimum. Uses the role hierarchy so that
-    higher-privileged users always pass lower-privilege checks.
-
-    Usage:
-        @router.post("/commands/valve")
-        async def send_command(
-            payload: TokenData = Depends(require_role("operator")),
-        ):
-            user_id = payload["sub"]
-
-    Args:
-        minimum_role: Minimum role required ("viewer", "operator",
-                      "engineer", or "admin").
-
-    Returns:
-        An async FastAPI dependency function.
+    FastAPI dependency factory: the current user, if their role is at least minimum_role.
 
     Raises:
-        HTTPException 403: User's role is below the required minimum.
-        HTTPException 401: Token is invalid (propagated from get_current_user).
+        ProblemError 403: the user's role is below the requirement.
+        ProblemError 401: propagated from get_current_user.
     """
-    required_level = _role_level(minimum_role)
 
     async def _dependency(
-        payload: Annotated[TokenData, Depends(get_current_user)],
-    ) -> TokenData:
-        user_role = str(payload.get("role", ""))
-        if _role_level(user_role) < required_level:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    f"Insufficient permissions. "
-                    f"Required: {minimum_role}, your role: {user_role}."
-                ),
+        user: Annotated[CurrentUser, Depends(get_current_user)],
+    ) -> CurrentUser:
+        if not user.at_least(minimum_role):
+            raise ProblemError(
+                403,
+                "auth.forbidden",
+                f"This action requires the {minimum_role} role or higher.",
+                extra={"required_role": minimum_role, "role": user.role},
             )
-        return payload
+        return user
 
     return _dependency
+
+
+AuthenticatedUser = Annotated[CurrentUser, Depends(get_current_user)]
+ViewerUser = Annotated[CurrentUser, Depends(require_role("viewer"))]
+OperatorUser = Annotated[CurrentUser, Depends(require_role("operator"))]
+EngineerUser = Annotated[CurrentUser, Depends(require_role("engineer"))]
+AdminUser = Annotated[CurrentUser, Depends(require_role("admin"))]

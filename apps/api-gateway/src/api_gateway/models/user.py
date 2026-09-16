@@ -2,16 +2,15 @@
 SQLAlchemy ORM models for the CogniBoiler API Gateway.
 
 Tables:
-    users           — registered operator accounts
-    roles           — RBAC role definitions
-    user_roles      — many-to-many: users ↔ roles
-    token_blacklist — invalidated refresh tokens (logout)
-    audit_log       — immutable record of every API call
+    users          — registered accounts; blocked, never deleted
+    roles          — RBAC role definitions
+    user_roles     — many-to-many: users ↔ roles
+    refresh_tokens — sign-in sessions: one family of rotated refresh tokens per sign-in
+    audit_log      — append-only record of mutations, sign-ins and refusals
+    scenario_runs  — who loaded which scenario and injected or cleared which fault
 
-Immutability of audit_log:
-    The audit_log table is INSERT-only by design. In production,
-    a dedicated PostgreSQL user with GRANT INSERT (no UPDATE/DELETE)
-    is used. This is enforced at the DB level, not in Python.
+The append-only rule of audit_log is enforced by database triggers created in the
+migration chain (revision 0003), not by this module.
 
 All timestamps are stored as UTC epoch milliseconds (int) for
 consistency with the protobuf schema and InfluxDB timestamps.
@@ -46,8 +45,8 @@ class User(Base):
     """
     Registered user account.
 
-    Passwords are stored as Argon2id hashes — never plain text.
-    The is_active flag allows soft-deletion without removing audit history.
+    Passwords are stored as Argon2id hashes — never plain text. An account is blocked
+    with is_active and never deleted, so the audit trail keeps pointing at it.
     """
 
     __tablename__ = "users"
@@ -70,12 +69,17 @@ class User(Base):
         Boolean,
         nullable=False,
         default=True,
-        comment="False = soft-deleted, cannot log in",
+        comment="False = blocked, cannot sign in",
     )
     created_at_ms: Mapped[int] = mapped_column(
         BigInteger,
         nullable=False,
         comment="Account creation time [UTC epoch ms]",
+    )
+    last_login_at_ms: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
+        comment="Latest successful sign-in [UTC epoch ms]",
     )
 
     # Relationships
@@ -96,7 +100,7 @@ class Role(Base):
     RBAC role definition.
 
     Pre-seeded roles: viewer, operator, engineer, admin.
-    The hierarchy is enforced by rbac.py, not by the DB schema.
+    The hierarchy is enforced by the auth package, not by the DB schema.
     """
 
     __tablename__ = "roles"
@@ -128,9 +132,8 @@ class UserRole(Base):
     """
     Many-to-many association between users and roles.
 
-    One user can have multiple roles, though in practice each user
-    has exactly one role in the current implementation.
-    The unique constraint prevents duplicate assignments.
+    The API keeps exactly one role per user; if several rows exist, the most
+    privileged one is effective. The unique constraint prevents duplicates.
     """
 
     __tablename__ = "user_roles"
@@ -162,50 +165,57 @@ class UserRole(Base):
         return f"<UserRole user_id={self.user_id} role_id={self.role_id}>"
 
 
-# ─── token_blacklist ──────────────────────────────────────────────────────────
+# ─── refresh_tokens ───────────────────────────────────────────────────────────
 
 
-class TokenBlacklist(Base):
+class RefreshToken(Base):
     """
-    Invalidated refresh tokens (logout / rotation).
+    One issued refresh token of a sign-in session.
 
-    When a user logs out, their refresh token is inserted here.
-    The auth router checks this table before issuing new access tokens.
-
-    Old entries (past exp_ms) can be purged by a scheduled job —
-    they serve no purpose after natural expiry.
+    Every sign-in opens a family; each refresh marks the presented token used and
+    issues its successor in the same family with the same absolute expiry. Access
+    tokens carry the family id, so revoking a family ends the session at once.
     """
 
-    __tablename__ = "token_blacklist"
+    __tablename__ = "refresh_tokens"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    token_jti: Mapped[str] = mapped_column(
-        String(256),
-        nullable=False,
-        unique=True,
-        index=True,
-        comment="Full refresh token string (or JWT jti claim)",
+    jti: Mapped[str] = mapped_column(
+        String(36), nullable=False, unique=True, index=True, comment="JWT id"
+    )
+    family_id: Mapped[str] = mapped_column(
+        String(36), nullable=False, index=True, comment="Session id shared by rotations"
     )
     user_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        comment="Owner of the invalidated token",
     )
-    revoked_at_ms: Mapped[int] = mapped_column(
-        BigInteger,
-        nullable=False,
-        comment="When the token was revoked [UTC epoch ms]",
+    issued_at_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    expires_at_ms: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, comment="Absolute session expiry [UTC epoch ms]"
     )
-    exp_ms: Mapped[int] = mapped_column(
-        BigInteger,
-        nullable=False,
-        comment="Token natural expiry [UTC epoch ms] — for cleanup jobs",
+    used_at_ms: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True, comment="Exchanged for its successor [UTC epoch ms]"
     )
+    replaced_by_jti: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    revoked_at_ms: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True, comment="Session closed [UTC epoch ms]"
+    )
+    revoked_reason: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        comment="logout | reuse | password_change | role_change | blocked | admin",
+    )
+    client_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
     def __repr__(self) -> str:
-        return f"<TokenBlacklist id={self.id} user_id={self.user_id}>"
+        return (
+            f"<RefreshToken id={self.id} family={self.family_id} "
+            f"user_id={self.user_id}>"
+        )
 
 
 # ─── audit_log ────────────────────────────────────────────────────────────────
@@ -213,21 +223,12 @@ class TokenBlacklist(Base):
 
 class AuditLog(Base):
     """
-    Immutable audit trail of every API call.
+    Append-only audit trail.
 
-    Every request processed by the API Gateway is recorded here.
-    In production, the DB user writing to this table has INSERT-only
-    privileges — UPDATE and DELETE are physically impossible.
-
-    Fields:
-        user_id:            Who made the request (NULL for anonymous).
-        ip_address:         Client IP address.
-        method:             HTTP method (GET, POST, etc.).
-        endpoint:           Request path (/api/v1/status).
-        request_body_hash:  SHA-256 of request body (not stored in full).
-        response_status:    HTTP status code returned.
-        duration_ms:        Request processing time [ms].
-        timestamp_ms:       When the request was received [UTC epoch ms].
+    One row per mutating request, sign-in, sign-out and refused request. The body is
+    kept only as a SHA-256 digest; who acted is recorded by id, name and the role they
+    held at that moment, and outcome says how the action ended (a PLC refusal is an
+    HTTP 200 whose outcome is "refused").
     """
 
     __tablename__ = "audit_log"
@@ -241,6 +242,12 @@ class AuditLog(Base):
         index=True,
         comment="NULL for unauthenticated requests",
     )
+    username: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, comment="Name of the acting user"
+    )
+    role: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, comment="Role the user held when acting"
+    )
     ip_address: Mapped[str] = mapped_column(
         String(45),
         nullable=False,
@@ -249,7 +256,7 @@ class AuditLog(Base):
     method: Mapped[str] = mapped_column(
         String(10),
         nullable=False,
-        comment="HTTP method: GET, POST, PUT, DELETE, ...",
+        comment="HTTP method, or WS for WebSocket sign-ins",
     )
     endpoint: Mapped[str] = mapped_column(
         String(256),
@@ -280,7 +287,12 @@ class AuditLog(Base):
     detail: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
-        comment="Optional extra context (error message, command parameters)",
+        comment="Query string or the account name of a sign-in attempt",
+    )
+    outcome: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        comment="How the action ended, e.g. accepted, refused: <reason>",
     )
 
     user: Mapped[User | None] = relationship("User", back_populates="audit_logs")
@@ -290,3 +302,41 @@ class AuditLog(Base):
             f"<AuditLog id={self.id} method={self.method!r} "
             f"endpoint={self.endpoint!r} status={self.response_status}>"
         )
+
+
+# ─── scenario_runs ────────────────────────────────────────────────────────────
+
+
+class ScenarioRun(Base):
+    """
+    A simulation action that changed what the plant is doing: a scenario loaded, a
+    fault injected or cleared. Kept next to the audit log so a recorded episode can be
+    traced to the person who started it.
+    """
+
+    __tablename__ = "scenario_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        comment="scenario | fault_injected | fault_cleared",
+    )
+    scenario: Mapped[str] = mapped_column(String(64), nullable=False)
+    run_id: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, comment="Physics run id after the action"
+    )
+    fault_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    fault_label: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    severity: Mapped[float | None] = mapped_column(nullable=True)
+    simulation_time_s: Mapped[float] = mapped_column(nullable=False)
+    user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    username: Mapped[str] = mapped_column(String(64), nullable=False)
+    at_ms: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, index=True, comment="[UTC epoch ms]"
+    )
+
+    def __repr__(self) -> str:
+        return f"<ScenarioRun id={self.id} kind={self.kind!r} run_id={self.run_id}>"

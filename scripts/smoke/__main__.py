@@ -135,6 +135,19 @@ def run_checks(
         f"HTTP {health.status}",
     )
 
+    ready = call(base_url, "GET", "/ready")
+    components = dig(ready.body, "components")
+    down = (
+        [c.get("name") for c in components if c.get("state") != "up"]
+        if isinstance(components, list)
+        else ["?"]
+    )
+    report.record(
+        "gateway ready with every upstream",
+        ready.status == 200 and dig(ready.body, "status") == "ready",
+        f"HTTP {ready.status}, down: {', '.join(map(str, down)) or 'none'}",
+    )
+
     tokens = login_all(base_url, config["users"], env, report)
 
     anonymous = call(base_url, "GET", "/api/v1/status")
@@ -191,12 +204,15 @@ def run_checks(
 
     admin = tokens.get("admin")
     if admin:
-        audit = call(base_url, "GET", "/api/v1/audit?limit=20", token=admin)
-        entries = len(audit.body) if isinstance(audit.body, list) else 0
+        audit = call(
+            base_url, "GET", "/api/v1/audit?endpoint=/auth/login&limit=20", token=admin
+        )
+        entries = dig(audit.body, "items")
+        count = len(entries) if isinstance(entries, list) else 0
         report.record(
-            "audit log records requests",
-            audit.status == 200 and entries > 0,
-            f"HTTP {audit.status}, {entries} entries",
+            "audit log records sign-ins",
+            audit.status == 200 and count > 0,
+            f"HTTP {audit.status}, {count} entries",
         )
     return report
 

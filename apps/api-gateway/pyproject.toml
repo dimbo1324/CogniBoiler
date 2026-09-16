@@ -19,6 +19,7 @@ dependencies = [
     "pwdlib[argon2]>=0.3.0",
     "alembic>=1.18.4",
     "influxdb-client>=1.49.0",
+    "aiomqtt>=2.5.1",
 ]
 [build-system]
 requires = ["hatchling"]

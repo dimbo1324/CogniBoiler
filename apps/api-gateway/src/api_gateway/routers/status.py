@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Annotated
-
 import cogniboiler_pb2 as pb2
 import grpc
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Request
 
-from api_gateway.auth.jwt_handler import TokenData
-from api_gateway.auth.rbac import require_role
+from api_gateway.auth.rbac import ViewerUser
 from api_gateway.clients import PhysicsGatewayClient
+from api_gateway.problems import upstream_unavailable
 from api_gateway.schemas.sensor import (
     BoilerStatusResponse,
     SystemStatusResponse,
@@ -28,16 +26,13 @@ def _physics_client(request: Request) -> PhysicsGatewayClient:
 @router.get("/status", response_model=SystemStatusResponse)
 async def get_system_status(
     request: Request,
-    _: Annotated[TokenData, Depends(require_role("viewer"))],
+    _: ViewerUser,
 ) -> SystemStatusResponse:
     """Return the current boiler and turbine state from live gRPC."""
     try:
         current = await _physics_client(request).get_system_state()
     except grpc.RpcError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"PhysicsService unavailable: {exc}",
-        ) from exc
+        raise upstream_unavailable("PhysicsService", exc) from exc
 
     boiler = BoilerStatusResponse(
         pressure_pa=current.boiler.pressure_pa,

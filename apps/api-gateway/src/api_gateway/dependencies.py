@@ -25,10 +25,11 @@ Configuration:
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from api_gateway.config import settings
@@ -78,6 +79,22 @@ async def get_db() -> AsyncGenerator[AsyncSession]:
     """
     async with AsyncSessionLocal() as session:
         yield session
+
+
+@asynccontextmanager
+async def session_scope(app: FastAPI) -> AsyncIterator[AsyncSession]:
+    """
+    A session for code that runs outside a route's dependencies — the audit middleware
+    and WebSocket handlers. It honours app.dependency_overrides[get_db], so tests and
+    the running gateway write to the same database the routes use.
+    """
+    provider = app.dependency_overrides.get(get_db, get_db)
+    sessions = provider()
+    session = await anext(sessions)
+    try:
+        yield session
+    finally:
+        await sessions.aclose()
 
 
 # ─── Type alias ───────────────────────────────────────────────────────────────

@@ -18,8 +18,9 @@ import pytest
 from api_gateway.models.user import (
     AuditLog,
     Base,
+    RefreshToken,
     Role,
-    TokenBlacklist,
+    ScenarioRun,
     User,
     UserRole,
 )
@@ -57,14 +58,15 @@ async def db_session(db_engine):  # type: ignore[no-untyped-def]
 
 
 class TestMetadata:
-    def test_all_five_tables_registered(self) -> None:
+    def test_all_tables_registered(self) -> None:
         tables = set(Base.metadata.tables.keys())
         assert tables == {
             "users",
             "roles",
             "user_roles",
-            "token_blacklist",
+            "refresh_tokens",
             "audit_log",
+            "scenario_runs",
         }
 
     def test_users_table_name(self) -> None:
@@ -76,8 +78,11 @@ class TestMetadata:
     def test_user_roles_table_name(self) -> None:
         assert UserRole.__tablename__ == "user_roles"
 
-    def test_token_blacklist_table_name(self) -> None:
-        assert TokenBlacklist.__tablename__ == "token_blacklist"
+    def test_refresh_tokens_table_name(self) -> None:
+        assert RefreshToken.__tablename__ == "refresh_tokens"
+
+    def test_scenario_runs_table_name(self) -> None:
+        assert ScenarioRun.__tablename__ == "scenario_runs"
 
     def test_audit_log_table_name(self) -> None:
         assert AuditLog.__tablename__ == "audit_log"
@@ -136,14 +141,22 @@ class TestSchema:
         assert expected <= cols
 
     @pytest.mark.asyncio
-    async def test_token_blacklist_columns_exist(self, db_engine) -> None:  # type: ignore[no-untyped-def]
+    async def test_refresh_tokens_columns_exist(self, db_engine) -> None:  # type: ignore[no-untyped-def]
         async with db_engine.connect() as conn:
             cols = await conn.run_sync(
                 lambda sync_conn: {
-                    c["name"] for c in inspect(sync_conn).get_columns("token_blacklist")
+                    c["name"] for c in inspect(sync_conn).get_columns("refresh_tokens")
                 }
             )
-        assert {"id", "token_jti", "user_id", "revoked_at_ms", "exp_ms"} <= cols
+        assert {
+            "id",
+            "jti",
+            "family_id",
+            "user_id",
+            "expires_at_ms",
+            "used_at_ms",
+            "revoked_at_ms",
+        } <= cols
 
 
 # ─── 3. ORM CRUD tests ────────────────────────────────────────────────────────
@@ -260,9 +273,9 @@ class TestUserRoleCRUD:
             await db_session.flush()
 
 
-class TestTokenBlacklist:
+class TestRefreshToken:
     @pytest.mark.asyncio
-    async def test_add_token_to_blacklist(self, db_session: AsyncSession) -> None:
+    async def test_add_refresh_token(self, db_session: AsyncSession) -> None:
         import time
 
         ts = int(time.time() * 1000)
@@ -272,18 +285,19 @@ class TestTokenBlacklist:
         db_session.add(user)
         await db_session.flush()
 
-        token = TokenBlacklist(
-            token_jti="some.jwt.token",
+        token = RefreshToken(
+            jti="0b3c5a52-2f4e-4bb4-9d7f-1f8d1c0e2a11",
+            family_id="5f0c9d8e-7a6b-4c3d-9e2f-1a0b9c8d7e6f",
             user_id=user.id,
-            revoked_at_ms=ts,
-            exp_ms=ts + 7 * 24 * 3600 * 1000,
+            issued_at_ms=ts,
+            expires_at_ms=ts + 7 * 24 * 3600 * 1000,
         )
         db_session.add(token)
         await db_session.commit()
         assert token.id is not None
 
     @pytest.mark.asyncio
-    async def test_token_jti_unique(self, db_session: AsyncSession) -> None:
+    async def test_refresh_token_jti_unique(self, db_session: AsyncSession) -> None:
         import time
 
         from sqlalchemy.exc import IntegrityError
@@ -295,16 +309,24 @@ class TestTokenBlacklist:
         db_session.add(user)
         await db_session.flush()
 
-        jti = "duplicate.token"
+        jti = "duplicate-token-id"
         db_session.add(
-            TokenBlacklist(
-                token_jti=jti, user_id=user.id, revoked_at_ms=ts, exp_ms=ts + 1000
+            RefreshToken(
+                jti=jti,
+                family_id="family",
+                user_id=user.id,
+                issued_at_ms=ts,
+                expires_at_ms=ts + 1000,
             )
         )
         await db_session.flush()
         db_session.add(
-            TokenBlacklist(
-                token_jti=jti, user_id=user.id, revoked_at_ms=ts, exp_ms=ts + 1000
+            RefreshToken(
+                jti=jti,
+                family_id="family",
+                user_id=user.id,
+                issued_at_ms=ts,
+                expires_at_ms=ts + 1000,
             )
         )
         with pytest.raises(IntegrityError):

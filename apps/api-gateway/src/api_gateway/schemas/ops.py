@@ -21,9 +21,14 @@ class HistoryPointResponse(BaseModel):
 
 
 class HistoryResponse(BaseModel):
-    """Historical telemetry response payload."""
+    """Historical telemetry over a bounded range at an automatic resolution."""
 
     measurement: str
+    start_ms: int = Field(..., description="Range start [UTC epoch ms].")
+    end_ms: int = Field(..., description="Range end [UTC epoch ms].")
+    window_s: int = Field(
+        ..., description="Each point is the mean over a window this long [s]."
+    )
     points: list[HistoryPointResponse]
 
 
@@ -119,6 +124,8 @@ class AuditResponse(BaseModel):
 
     id: int
     user_id: int | None
+    username: str | None = Field(..., description="Acting user.")
+    role: str | None = Field(..., description="Role the user held when acting.")
     ip_address: str
     method: str
     endpoint: str
@@ -127,3 +134,15 @@ class AuditResponse(BaseModel):
     duration_ms: int
     timestamp_ms: int
     detail: str | None
+    outcome: str | None = Field(
+        ..., description="How the action ended, e.g. accepted, refused: <reason>."
+    )
+
+
+class AuditPageResponse(BaseModel):
+    """A page of audit entries, newest first."""
+
+    items: list[AuditResponse]
+    total: int
+    limit: int
+    offset: int
