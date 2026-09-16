@@ -10,9 +10,9 @@ duplicated across services. Invariants I1–I3 in `invariants.md` rest on this t
 | `physics-engine` | Process state, the integration step, the live runtime and simulation control (pause, speed, scenarios), faults and instrument behaviour, MQTT telemetry, `PhysicsService` | Control policy, operator auth, alarm routing |
 | `plc-controller` | Control intent: load demand, setpoints, AUTO/MANUAL/ESTOP, coordinated control loops, safety interlocks, E-Stop latch and reset permission, validated command forwarding, alarm condition detection, PLC events | Canonical process state, HTTP/auth, alarm lifecycle, telemetry storage |
 | `alert-manager` | Alarm lifecycle: activation, acknowledgement, return to normal, history; the `alarm_events` and `alarm_transitions` data; `AlarmService` | Process state, authentication, control, deciding what is an alarm condition |
-| `historian` | Time-series ingestion into InfluxDB | Control decisions, alarm policy |
-| `opcua-server` | Projection of live state to OPC UA clients | Control ownership (writes, when added, go through the PLC), persistence |
-| `api-gateway` | The edge for people: authentication, RBAC, audit, REST, WebSocket, orchestration of calls; the Alembic migration chain | The integration step, PLC internals, alarm state |
+| `historian` | Time-series recording in InfluxDB: telemetry, KPIs, scenario and fault labels, alarm changes and PLC events as history; the retention and downsampling policy | Control decisions, alarm policy, computing KPIs (physics owns the heat balance) |
+| `opcua-server` | Projection of plant, PLC and alarm state to OPC UA clients; OPC UA methods, forwarded to the gateway as the signed-in user | Authorization decisions and audit (the gateway's), direct commands to the PLC or the alarm service, persistence |
+| `api-gateway` | The edge for people and the authority for users: sessions, RBAC, audit, users, scenario-run records, REST and WebSocket channels, orchestration of calls; the Alembic migration chain | The integration step, PLC internals, alarm state, KPI formulas |
 | `web` (planned, `apps/web`) | Presentation: screens, unit conversion for display | Business rules, authorization decisions |
 
 ## Command and state flow
@@ -27,7 +27,10 @@ duplicated across services. Invariants I1–I3 in `invariants.md` rest on this t
    telemetry as observers only.
 5. `plc-controller` publishes alarm conditions; `alert-manager` owns the alarms they become,
    and the gateway reads and acknowledges them only through `AlarmService`. Nobody but the
-   physics engine mutates the simulator.
+   physics engine mutates the simulator; the gateway reaches its simulation controls
+   (pause, speed, scenarios, faults) for engineers, never its valves.
+6. An OPC UA method is not a second path: `opcua-server` signs its user in at the gateway and
+   calls the same REST routes as the console, so steps 1–3 and the audit apply unchanged.
 
 ## Recorded boundary notes
 
@@ -36,3 +39,5 @@ duplicated across services. Invariants I1–I3 in `invariants.md` rest on this t
   alarm data but not the chain (decision in the internal decision log, Q2).
 - `plc-controller` imports `physics_engine` only in its tests, as an in-process plant; the
   dependency is a development group, not a runtime dependency.
+- `opcua-server` reads `PLCService` and `AlarmService` directly (observation) but writes only
+  through the gateway (decision 2026-09-16 in the internal decision log).

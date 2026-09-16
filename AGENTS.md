@@ -344,13 +344,17 @@ uv workspace on Python 3.14; every service is a package with `src/` and `tests/`
 - `apps/plc-controller` — virtual PLC: command validation, load demand and setpoints,
   coordinated control in AUTO, AUTO/MANUAL/ESTOP, safety interlocks and the E-Stop latch,
   alarm conditions and PLC events on MQTT, `PLCService` gRPC API.
-- `apps/api-gateway` — FastAPI edge: JWT RS256, RBAC, audit log, REST and WebSocket,
-  gRPC clients to the PLC, physics and alarm services, PostgreSQL via SQLAlchemy async,
-  the Alembic migration chain in `apps/api-gateway/migrations`.
-- `apps/historian` — MQTT telemetry subscriber writing to InfluxDB.
+- `apps/api-gateway` — FastAPI edge and user authority: JWT RS256 sessions with rotated
+  refresh tokens, RBAC, users, append-only audit, Problem Details, REST and WebSocket
+  channels, simulation control, history and KPIs; gRPC clients to the PLC, physics and
+  alarm services, PostgreSQL via SQLAlchemy async, the Alembic migration chain in
+  `apps/api-gateway/migrations`.
+- `apps/historian` — records telemetry, KPIs, scenario and fault labels, alarm changes and
+  PLC events into InfluxDB; owns retention and one-minute downsampling.
 - `apps/alert-manager` — alarm lifecycle from PLC conditions, alarm tables in PostgreSQL,
   `AlarmService` gRPC API, alarm changes on MQTT.
-- `apps/opcua-server` — OPC UA (IEC 62541) projection of live state.
+- `apps/opcua-server` — OPC UA (IEC 62541) projection of plant, PLC and alarm state; its
+  methods run through the gateway as the signed-in user.
 - `apps/web` — the operator console (React + TypeScript + Vite, pnpm).
 - `apps/ai-predictor` — deferred placeholder, **not** a workspace member.
 

@@ -11,7 +11,7 @@ the roadmap stage you are working on before touching code.
 Rules:
 
 - The browser talks only to the API gateway: REST under `/api/v1` and `/auth`, and the
-  `/ws/realtime` WebSocket. Never to MQTT, gRPC, InfluxDB or PostgreSQL.
+  `/ws` WebSocket. Never to MQTT, gRPC, InfluxDB or PostgreSQL.
 - One client layer owns HTTP, token refresh and the WebSocket; components never call
   `fetch` directly.
 - The UI is not the authority: it hides actions a role cannot perform, but the gateway

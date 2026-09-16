@@ -437,14 +437,16 @@ CogniBoiler is **under active development**, working toward a complete, demonstr
 
 What runs today, end to end, with one command:
 
-- **physics-engine** — boiler and turbine model, live runtime, gRPC state API, MQTT telemetry;
-- **plc-controller** — command validation, setpoints, PID control, safety interlocks and E-Stop;
-- **api-gateway** — FastAPI with JWT RS256 authentication, role-based access, audit log, REST and WebSocket;
-- **historian** (InfluxDB), **alert-manager** (PostgreSQL), **opcua-server** (read-only OPC UA);
-- **Grafana** with a provisioned process dashboard;
+- **physics-engine** — energy-conserving 300 MW drum unit, scenarios and labelled faults, simulation control, unit performance, gRPC state API, MQTT telemetry;
+- **plc-controller** — coordinated load, pressure, level and steam-temperature control, AUTO/MANUAL/ESTOP, safety interlocks and an E-Stop latch;
+- **alert-manager** — alarm lifecycle with acknowledgement and history;
+- **api-gateway** — sessions with rotated refresh tokens, roles, user administration, append-only audit, REST with Problem Details, WebSocket channels (`/ws`), simulation control, history and KPIs;
+- **historian** — telemetry, KPIs, scenario and fault labels, alarm changes and PLC events in InfluxDB, with retention and one-minute aggregates;
+- **opcua-server** — OPC UA address space of the plant, PLC and alarms, with methods run as the signed-in gateway user;
+- **Grafana** with provisioned Process, Efficiency and emissions, Alarms and Platform dashboards;
 - **web** — the operator console skeleton (React + TypeScript + Vite).
 
-Known gaps are listed in [docs/architecture/overview.md](docs/architecture/overview.md#known-gaps). The most visible one: the nominal operating point is not yet an equilibrium, so the automatic control loop does not hold the plant steady for long.
+Known gaps are listed in [docs/architecture/overview.md](docs/architecture/overview.md#known-gaps). The most visible one: the web console is still a skeleton.
 
 ---
 
@@ -461,9 +463,9 @@ python dev_tools_scripts_runner.py smoke            # end-to-end check through t
 
 | What | Where |
 |---|---|
-| API and OpenAPI docs | http://localhost:8000/docs |
+| API and OpenAPI docs | http://localhost:8000/docs · readiness http://localhost:8000/ready |
 | Grafana | http://localhost:3000 (credentials in `.env`) |
-| OPC UA | `opc.tcp://localhost:4840/cogniboiler` |
+| OPC UA | `opc.tcp://localhost:4840/cogniboiler` — anonymous read; sign in as a demo user to call methods |
 | Web console (dev server) | `pnpm --dir apps/web install`, then `pnpm --dir apps/web dev` → http://localhost:5173 |
 
 Demo users `admin`, `engineer`, `operator` and `viewer` are created on start; their passwords are the `DEMO_*_PASSWORD` values in `.env`. Nothing in `.env` is ever committed.

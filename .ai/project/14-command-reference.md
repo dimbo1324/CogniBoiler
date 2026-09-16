@@ -24,14 +24,14 @@ regenerating secrets, run `stack down --volumes`.
 | Component | Host port | Notes |
 |---|---|---|
 | Mosquitto (MQTT / WebSocket) | 1883 / 9001 | anonymous access, development only |
-| InfluxDB 2 | 8086 | org and bucket from `.env` |
-| PostgreSQL 16 | 5432 | users, roles, audit log; alarm lifecycle tables owned by alert-manager |
-| Grafana | 3000 | provisioned InfluxDB datasource and dashboards |
+| InfluxDB 2 | 8086 | org and raw bucket (7 days) from `.env`; `sensors_1m` one-minute aggregates (90 days), set up by the historian |
+| PostgreSQL 16 | 5432 | users, roles, sessions, append-only audit log, scenario runs; alarm lifecycle tables owned by alert-manager |
+| Grafana | 3000 | provisioned InfluxDB datasource (uid `influxdb`) and dashboards Process, Efficiency and emissions, Alarms, Platform |
 | physics-engine gRPC | — | `PhysicsService` on :50052 inside the Compose network only: publishing it would open a path to the valves around the PLC |
 | plc-controller gRPC | — | `PLCService` on :50051 inside the Compose network only |
 | alert-manager gRPC | — | `AlarmService` on :50053 inside the Compose network only |
-| opcua-server | 4840 | `opc.tcp://localhost:4840/cogniboiler` |
-| api-gateway | 8000 | REST under `/api/v1`, `/auth`, `/health`, OpenAPI at `/docs`, WebSocket `/ws/realtime` |
+| opcua-server | 4840 | `opc.tcp://localhost:4840/cogniboiler`; anonymous read, methods need a gateway user (username and password) |
+| api-gateway | 8000 | REST under `/api/v1`, `/auth`, `/health`, `/ready`, OpenAPI at `/docs`, WebSocket `/ws` (token in the first frame) |
 | web console | 5173 (dev) | Vite dev server proxies `/api`, `/auth` and `/ws` to the gateway |
 
 ## Running a service from the host
@@ -43,7 +43,7 @@ uv run --package physics-engine python -m physics_engine --speed 1   # --scenari
 uv run --package plc-controller python -m plc_controller --physics-target localhost:50052
 uv run --package historian python -m historian
 uv run --package alert-manager python -m alert_manager               # AlarmService on :50053
-uv run --package opcua-server python -m opcua_server
+uv run --package opcua-server python -m opcua_server                 # --gateway-url http://localhost:8000
 uv run --package api-gateway uvicorn api_gateway.main:app --reload --port 8000
 ```
 
@@ -51,22 +51,24 @@ Host-run services read `.env` from the repository root for secrets. alert-manage
 start until the migrations have created its tables (`stack up --infra-only` runs `migrate`
 only with the full stack; from the host, apply `alembic upgrade head` first).
 
-Simulation control has no REST route yet: pause, speed, stepping, scenarios and faults are
-`PhysicsService` RPCs (`LoadScenario`, `InjectFault`, `SetSimulationSpeed`, …).
+Simulation control for engineers is REST: `/api/v1/simulation/pause`, `/resume`, `/speed`,
+`/step`, `/scenario`, `/faults` (the gateway calls the `PhysicsService` RPCs and records
+scenario loads and fault changes in `scenario_runs`). Errors are Problem Details with a
+stable `code`.
 
 ## MQTT topics
 
 | Topic | Payload | Publisher → subscribers |
 |---|---|---|
+| `sensors/plant` | protobuf `PlantStatusMsg`, first in each step | physics-engine → historian, opcua-server |
 | `sensors/boiler` | protobuf `BoilerStateMsg` (measured values) | physics-engine → historian, opcua-server |
 | `sensors/turbine` | protobuf `TurbineStateMsg` (measured values) | physics-engine → historian, opcua-server |
-| `sensors/plant` | protobuf `PlantStatusMsg` | physics-engine → (none yet) |
-| `sensors/system/heartbeat` | text timestamp | physics-engine → historian, opcua-server |
+| `sensors/system/heartbeat` | text timestamp | physics-engine → (skipped) |
 | `alerts/warning`, `alerts/critical` | JSON alarm condition, `state` active/cleared | plc-controller → alert-manager |
 | `alerts/snapshot` | JSON active condition keys, every 10 s | plc-controller → alert-manager |
-| `plc/events` | JSON PLC event | plc-controller → (none yet) |
-| `alarms/changes` | JSON alarm state change | alert-manager → (none yet) |
-| `status/physics-engine`, `status/plc-controller` | retained `online`/`offline` | the service itself (MQTT will) |
+| `plc/events` | JSON PLC event | plc-controller → api-gateway (`/ws` plc), historian |
+| `alarms/changes` | JSON alarm state change | alert-manager → api-gateway (`/ws` alarms), historian, opcua-server |
+| `status/physics-engine`, `status/plc-controller` | retained `online`/`offline` | the service itself (MQTT will) → historian |
 
 ## Contracts and code generation
 
@@ -92,7 +94,9 @@ pnpm --dir apps/web run lint ; pnpm --dir apps/web run typecheck ; pnpm --dir ap
 - **Claude desktop app on Windows.** Commands an agent runs from the desktop app write to
   `%APPDATA%` and `%LOCALAPPDATA%` inside the app's package container, invisible outside
   it. Per-user tooling therefore goes outside AppData (`UV_PYTHON_INSTALL_DIR`,
-  `UV_CACHE_DIR` in the user environment).
+  `UV_CACHE_DIR` in the user environment). Docker Desktop started from such a session
+  runs inside the container and its backend crashes on its AppData sockets: the owner
+  starts Docker Desktop (found 2026-09-16).
 - **Git Bash path conversion.** `git show origin/branch:path` gets mangled into a Windows
   path; prefix the command with `MSYS_NO_PATHCONV=1`.
 - **Line endings.** The repository normalizes to LF (pre-commit `mixed-line-ending`).

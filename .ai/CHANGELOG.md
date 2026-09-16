@@ -6,6 +6,23 @@ History of changes to the AI assistant rule system (`.ai/`, `CLAUDE.md`, `AGENTS
 
 Format: date, what changed, why, who decided. Newest first.
 
+## 2026-09-16 — Project modules follow S5, S8 and S10
+
+**What changed.** `project/10-project-map.md` describes the gateway as the user authority
+(sessions, users, append-only audit, WebSocket channels, simulation control, KPIs), the
+historian's retention and downsampling, and OPC UA methods running through the gateway.
+`project/14-command-reference.md` replaces `/ws/realtime` with `/ws`, lists `/ready`, the
+aggregate bucket, the Grafana dashboards, the REST simulation routes and the new MQTT
+subscribers, and notes that Docker Desktop must be started by the owner when an agent runs
+inside the Claude desktop app. The frontend agent on both sides (`.claude/agents`,
+`.codex/agents`) names `/ws`.
+
+**Why.** The S5, S8 and S10 implementation made those statements false, and starting Docker
+Desktop from a session crashed its backend. These are factual corrections, which
+`universal/08-rules-evolution.md` allows without approval; no rule was loosened.
+
+**Decided by.** Agent, as factual corrections to the owner-requested work of 2026-09-16.
+
 ## 2026-09-15 — Project modules follow S2–S4
 
 **What changed.** `project/10-project-map.md` describes the PLC's coordinated control and
