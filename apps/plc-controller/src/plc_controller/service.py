@@ -196,6 +196,8 @@ class PLCService:
         self._trip_cause: SafetySnapshot | None = None
         self._run_id: int | None = None
         self._last_simulation_time_s: float | None = None
+        self._scans_completed = 0
+        self._last_scanned_step = -1
 
         self._control_task: asyncio.Task[None] | None = None
         self._task_error = ""
@@ -245,7 +247,13 @@ class PLCService:
             "commands_forwarded": self._commands_forwarded,
             "warnings": self._interlock.warning_count,
             "trips": self._interlock.trip_count,
+            "scans": self._scans_completed,
         }
+
+    @property
+    def last_scanned_step(self) -> int:
+        """Plant step count of the latest state the scan loop finished; -1 before any."""
+        return self._last_scanned_step
 
     async def physics_status(self) -> str:
         """Overall PLC status: degraded while tripped or cut off from the plant."""
@@ -600,6 +608,8 @@ class PLCService:
             try:
                 async for state in self._physics.stream_system_state():
                     await self.process_state(state)
+                    self._scans_completed += 1
+                    self._last_scanned_step = state.simulation.step_count
                     if self._stream_failing:
                         logger.info("PLC scan stream restored")
                     self._stream_failing = False

@@ -146,17 +146,17 @@ class TestPLCGrpc:
         self.physics_channel = grpc.aio.insecure_channel(f"localhost:{physics_port}")
         self.physics_stub = pb2_grpc.PhysicsServiceStub(self.physics_channel)
 
-        plc_service = PLCService(
+        self.plc_service = PLCService(
             physics_client=PhysicsClient(
                 PhysicsClientConfig(target=f"localhost:{physics_port}")
             ),
             control_interval_s=0.05,
             enable_alert_publishing=False,
         )
-        await plc_service.start()
+        await self.plc_service.start()
         self.server = grpc.aio.server()
         pb2_grpc.add_PLCServiceServicer_to_server(
-            PLCServicer(plc_service),
+            PLCServicer(self.plc_service),
             self.server,
         )
         port = self.server.add_insecure_port("[::]:0")  # OS picks free port
@@ -164,6 +164,7 @@ class TestPLCGrpc:
         self.channel = grpc.aio.insecure_channel(f"localhost:{port}")
         self.stub = pb2_grpc.PLCServiceStub(self.channel)
         yield
+        await self.plc_service.close()
         await self.channel.close()
         await self.physics_channel.close()
         await self.server.stop(grace=0)
@@ -288,12 +289,17 @@ class TestPLCGrpc:
     async def test_auto_control_holds_nominal_state_for_ten_minutes_simulated(
         self,
     ) -> None:
-        deadline = time.monotonic() + 10.0
-        while (
-            self.physics_runtime.snapshot.simulation_time_s < 600.0
-            and time.monotonic() < deadline
-        ):
-            await asyncio.sleep(0.05)
+        # Lockstep over gRPC: one plant step, then the PLC scan of exactly that step, so
+        # the outcome does not depend on how fast this machine runs the plant (debt Д2).
+        await self.physics_runtime.pause()
+        while self.physics_runtime.snapshot.simulation_time_s < 600.0:
+            status = await self.physics_runtime.step(1)
+            deadline = time.monotonic() + 5.0
+            while self.plc_service.last_scanned_step < status.step_count:
+                assert time.monotonic() < deadline, (
+                    f"PLC did not scan step {status.step_count} within 5 s"
+                )
+                await asyncio.sleep(0.001)
 
         state = await self.physics_stub.GetSystemState(pb2.Empty())
         assert abs(state.boiler.pressure_pa - 140.0e5) <= 20.0e5
