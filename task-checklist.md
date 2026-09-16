@@ -1,59 +1,58 @@
-# Task: S2–S4 business logic — physics, PLC, alarms
+# Task: remaining business logic — S5 gateway, S8 historian, S10 OPC UA
 
-Owner request of 2026-09-15: implement the business logic of roadmap stages S2, S3 and S4
-"without tests and the rest", carefully and at senior level. Work on branch
-`feat/s2-s4-physics-plc-alarms`, merged into `main` locally after a green gate; no push until
-the owner asks.
+Owner request of 2026-09-16: "продолжи реализацию оставшейся бизнес логики". Read as the
+backend business logic of the stages whose dependencies are done — S5 (API gateway 1.0),
+S8 (historian and Grafana) and S10 (OPC UA 1.0) — in the same mode as S2–S4: no new tests.
+The console (S6, S7), observability (S9), hardening (S11), delivery (S12) and the demo (S13)
+are presentation and infrastructure and stay open. Work on branch
+`feat/s5-s8-s10-gateway-historian-opcua`, merged into `main` locally after a green gate; no
+push until the owner asks.
 
 Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 
 ## Preparation
 
-+ Orientation: roadmap S2–S4, vision §5.1–5.3, every affected service, its contracts and tests
-+ Owner instruction recorded: no new tests for S2–S4 (decision log, debt Д11)
+[ ] Orientation: roadmap S5, S8, S10, vision, gateway, historian, OPC UA server, their tests
+[ ] Scope and the no-new-tests mode recorded in the decision log; Q1 (refresh token in the browser) decided
 
-## S2 — physics
+## S5 — API gateway 1.0
 
-+ Energy-conserving 300 MW plant recalibrated from a rated heat balance; IAPWS-IF97 saturation tables
-+ Steady operating points for any load; the 250 MW point holds 8 h open loop with zero drift
-+ Deterministic PlantSimulator; runtime with pause, step on request, speed, scenario load and faults
-+ Condenser, emissions and equipment wear in the live loop; telemetry of measured values and instrument quality
-+ Six scenarios and labelled faults; PhysicsService simulation-control RPCs
-+ Drum safety valves and a realistic furnace gas inventory, found by the PLC trip scenario
-- Tests of the new plant behaviour — not written, by owner instruction (Д11)
+[ ] Every request resolves the user from the database: blocked users and revoked access tokens stop at once
+[ ] Refresh-token rotation with family revocation on reuse; logout revokes the family (migration 0003)
+[ ] Refresh token in an httpOnly SameSite=Strict cookie as well as the body
+[ ] Login rate limiting; one answer for an unknown user, a wrong password and a blocked account
+[ ] Own profile and password change; user administration for admin with lock-out protection
+[ ] Audit: who, with which role, what was asked and how it ended; immutable in the database; filters and pages; write failures logged loudly
+[ ] Problem Details (RFC 9457) for every error
+[ ] `/ready` with the state of the database and every upstream
+[ ] WebSocket channels telemetry, plc and alarms: authentication in the first message, expiry, re-authentication
+[ ] Full plant snapshot over REST; simulation control for engineers
+[ ] History with automatic resolution
 
-## S3 — PLC
+## S8 — historian and Grafana
 
-+ PID and safety moved into plc-controller; plc-controller no longer imports physics_engine
-+ Coordinated control: load, pressure through fuel with a firing limit, three-element level, spray; ramps; bumpless takeover
-+ AUTO/MANUAL/ESTOP, interlocks armed by operating state, cause-dependent trip response, reset refused while the cause is present
-+ Alarm conditions with deadband, snapshots and PLC events over MQTT
-+ Tuned against the deterministic plant: hold, 250→300 MW, 180→300 MW, hot start, fouling, steam leak, pump trip and reset
-+ Gateway: load, mode, spray and PLC status endpoints
-+ The AUTO integration test runs without its xfail
-+ ml dataset generator rebuilt on the plant and the real PLC logic
-- Tests of the control and protection logic — not written, by owner instruction (Д11)
+[ ] Plant performance (net efficiency, heat rate) computed by physics and published in the contract
+[ ] Historian stores plant status, KPIs, scenario and fault labels, alarm changes, PLC events, service availability and its own stats
+[ ] Raw data 7 days, one-minute aggregates 90 days, downsampling task ensured at start
+[ ] Gateway KPI endpoint over a time range; history reads aggregates for long ranges
+[ ] Grafana dashboards: process, efficiency and emissions, alarms, platform
 
-## S4 — alarms
+## S10 — OPC UA 1.0
 
-+ Alarm lifecycle with deduplication, clear hold against chatter and snapshot reconciliation
-+ Alembic 0002 alarm tables; alert-manager creates no schema
-+ AlarmService gRPC; the gateway lists and acknowledges alarms only through it
-+ Alarm changes published on MQTT
-- Alarm changes delivered to the console over WebSocket — S5 scope (WebSocket channels)
-- Tests of the lifecycle — not written, by owner instruction (Д11)
+[ ] Full address space: boiler, turbine, valves, emissions, performance, health, simulation, PLC, alarms; units and instrument quality as status codes; read-only for clients
+[ ] PLC status and alarms projected from PLCService and AlarmService
+[ ] Methods: load demand, control mode, E-Stop reset, valve command, acknowledge one and all alarms — through the gateway, as the session's user
+[ ] Username authentication against the gateway without blocking the server loop
 
 ## Verification
 
-+ Full quality gate green after each stage (13/13)
-+ Migration 0002 up and down on SQLite, and applied to the existing PostgreSQL volume
-+ Stack rebuilt: every container healthy; smoke 11/11
-+ Demo scenario end to end through the gateway: 300 MW, pump trip, alarms, refused reset,
-  acknowledgement, reset, back to 300 MW; alarm history and audit log show who acted
+[ ] Full quality gate green
+[ ] Migration 0003 up and down on SQLite and applied to the existing PostgreSQL volume
+[ ] Stack rebuilt: containers healthy, smoke green
+[ ] End-to-end run through the gateway, WebSocket, Grafana data and an OPC UA client
 
 ## Completion
 
-+ State documents: roadmap statuses and defects, architecture overview, service boundaries,
-  invariants, decision log, project rule modules with changelog, AGENTS.md
-+ Checklist filled honestly
-+ Final report in Russian; merged into `main` locally, not pushed
+[ ] State documents: roadmap, architecture overview, service boundaries, invariants, decision log, rule modules with changelog, AGENTS.md
+[ ] Checklist filled honestly
+[ ] Final report in Russian; merged into `main` locally, not pushed
