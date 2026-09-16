@@ -91,13 +91,13 @@ class TestAddressSpace:
         assert len(names) == len(set(names)), "Duplicate browse names found"
 
     def test_boiler_variables_count(self) -> None:
-        assert len(BOILER_VARIABLES) == 5
+        assert len(BOILER_VARIABLES) == 16
 
     def test_turbine_variables_count(self) -> None:
-        assert len(TURBINE_VARIABLES) == 4
+        assert len(TURBINE_VARIABLES) == 8
 
     def test_total_variables_count(self) -> None:
-        assert len(ALL_VARIABLES) == 9
+        assert len(ALL_VARIABLES) == 84
 
     def test_all_variables_have_non_empty_unit(self) -> None:
         for var in ALL_VARIABLES:
@@ -138,7 +138,7 @@ class TestAddressSpace:
         assert len(node_ids) == len(set(node_ids))
 
     def test_boiler_field_mapping_count(self) -> None:
-        assert len(BOILER_FIELD_TO_NODEID) == 5
+        assert len(BOILER_FIELD_TO_NODEID) == 16
 
     def test_boiler_field_keys_are_valid_proto_fields(self) -> None:
         """All keys must be real BoilerStateMsg field names."""
@@ -162,7 +162,7 @@ class TestAddressSpace:
         assert len(node_ids) == len(set(node_ids))
 
     def test_turbine_field_mapping_count(self) -> None:
-        assert len(TURBINE_FIELD_TO_NODEID) == 4
+        assert len(TURBINE_FIELD_TO_NODEID) == 8
 
     def test_turbine_field_keys_are_valid_proto_fields(self) -> None:
         """All keys must be real TurbineStateMsg field names."""
@@ -193,7 +193,7 @@ class TestMQTTOPCBridge:
         self, bridge: MQTTOPCBridge, opc: MagicMock
     ) -> None:
         await bridge._handle_message(TOPIC_BOILER, make_boiler_payload())
-        assert opc.update_variable.await_count == 5  # 5 boiler fields
+        assert opc.update_variable.await_count == 16  # 16 boiler fields
 
     @pytest.mark.asyncio
     async def test_boiler_pressure_mapped_to_correct_node_id(
@@ -210,7 +210,7 @@ class TestMQTTOPCBridge:
         self, bridge: MQTTOPCBridge, opc: MagicMock
     ) -> None:
         await bridge._handle_message(TOPIC_TURBINE, make_turbine_payload())
-        assert opc.update_variable.await_count == 4  # 4 turbine fields
+        assert opc.update_variable.await_count == 8  # 8 turbine fields
 
     @pytest.mark.asyncio
     async def test_turbine_electrical_power_mapped_to_correct_node_id(
@@ -331,5 +331,5 @@ class TestMQTTOPCBridge:
         await bridge._handle_message(TOPIC_BOILER, make_boiler_payload())
         await bridge._handle_message(TOPIC_TURBINE, make_turbine_payload())
         assert bridge.stats["mapped"] == 2
-        # 5 boiler fields + 4 turbine fields = 9 total node updates
-        assert opc.update_variable.await_count == 9
+        # 16 boiler fields + 8 turbine fields = 24 total node updates
+        assert opc.update_variable.await_count == 24

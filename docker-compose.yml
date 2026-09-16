@@ -167,7 +167,7 @@ services:
 
   opcua-server:
     <<: *python-service
-    command: ["python", "-m", "opcua_server", "--mqtt-host", "mosquitto", "--plc-target", "plc-controller:50051", "--opc-port", "4840"]
+    command: ["python", "-m", "opcua_server", "--mqtt-host", "mosquitto", "--plc-target", "plc-controller:50051", "--alarm-target", "alert-manager:50053", "--gateway-url", "http://api-gateway:8000", "--opc-port", "4840"]
     ports:
       - "127.0.0.1:4840:4840"
     depends_on:
