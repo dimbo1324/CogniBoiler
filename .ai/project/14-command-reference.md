@@ -32,7 +32,7 @@ regenerating secrets, run `stack down --volumes`.
 | alert-manager gRPC | — | `AlarmService` on :50053 inside the Compose network only |
 | opcua-server | 4840 | `opc.tcp://localhost:4840/cogniboiler`; anonymous read, methods need a gateway user (username and password) |
 | api-gateway | 8000 | REST under `/api/v1`, `/auth`, `/health`, `/ready`, OpenAPI at `/docs`, WebSocket `/ws` (token in the first frame) |
-| web console | 5173 (dev) | Vite dev server proxies `/api`, `/auth` and `/ws` to the gateway |
+| web console | 5173 (dev) | Vite dev server on 127.0.0.1 proxies `/api`, `/auth`, `/health` and `/ws` to the gateway |
 
 ## Running a service from the host
 
@@ -73,6 +73,9 @@ stable `code`.
 ## Contracts and code generation
 
 - Edit `shared/proto/cogniboiler.proto`, then `generate-proto`; commit both together.
+- Change a gateway route or schema, then `generate-openapi`: it rewrites
+  `shared/openapi/api-gateway.json` and the console types `apps/web/src/api/schema.gen.ts`;
+  commit them with the change. The console never declares a gateway shape by hand.
 - Schema change: add an Alembic revision under `apps/api-gateway/migrations/versions/`,
   then `uv run --package api-gateway alembic -c apps/api-gateway/alembic.ini upgrade head`.
 
@@ -82,7 +85,14 @@ stable `code`.
 pnpm --dir apps/web install
 pnpm --dir apps/web dev          # http://localhost:5173
 pnpm --dir apps/web run lint ; pnpm --dir apps/web run typecheck ; pnpm --dir apps/web run test
+python dev_tools_scripts_runner.py console-e2e   # Playwright against the running stack
 ```
+
+`console-e2e` installs Playwright's Chromium on first use (`--no-install` skips it) and starts
+the Vite dev server when no `--url` is given. The checks sign in with the demo passwords from
+`.env`; they never print them. The access token stays in memory and the refresh token in the
+gateway's httpOnly cookie, so the console needs the gateway on the same origin (the Vite proxy,
+or nginx in the stack).
 
 ## Platform notes
 
@@ -94,7 +104,9 @@ pnpm --dir apps/web run lint ; pnpm --dir apps/web run typecheck ; pnpm --dir ap
 - **Claude desktop app on Windows.** Commands an agent runs from the desktop app write to
   `%APPDATA%` and `%LOCALAPPDATA%` inside the app's package container, invisible outside
   it. Per-user tooling therefore goes outside AppData (`UV_PYTHON_INSTALL_DIR`,
-  `UV_CACHE_DIR` in the user environment). Docker Desktop started from such a session
+  `UV_CACHE_DIR` in the user environment; `PLAYWRIGHT_BROWSERS_PATH` for Playwright's
+  browsers). Such a session reaches only IPv4 loopback, which is why every dev server and
+  published port binds 127.0.0.1. Docker Desktop started from such a session
   runs inside the container and its backend crashes on its AppData sockets: the owner
   starts Docker Desktop (found 2026-09-16).
 - **Git Bash path conversion.** `git show origin/branch:path` gets mangled into a Windows

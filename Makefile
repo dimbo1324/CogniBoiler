@@ -4,7 +4,7 @@
 PYTHON ?= python
 RUN := $(PYTHON) dev_tools_scripts_runner.py
 
-.PHONY: help install secrets gate gate-quick format format-check agents proto up up-infra status down smoke doctor hooks clean selftest web-install web-dev
+.PHONY: help install secrets gate gate-quick format format-check agents proto openapi up up-infra status down smoke console-e2e doctor hooks clean selftest web-install web-dev
 
 .DEFAULT_GOAL := help
 
@@ -41,6 +41,9 @@ agents:
 proto:
 	$(RUN) generate-proto
 
+openapi:
+	$(RUN) generate-openapi
+
 up:
 	$(RUN) stack up
 
@@ -55,6 +58,9 @@ down:
 
 smoke:
 	$(RUN) smoke
+
+console-e2e:
+	$(RUN) console-e2e
 
 doctor:
 	$(RUN) doctor

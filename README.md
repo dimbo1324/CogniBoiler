@@ -444,9 +444,9 @@ What runs today, end to end, with one command:
 - **historian** — telemetry, KPIs, scenario and fault labels, alarm changes and PLC events in InfluxDB, with retention and one-minute aggregates;
 - **opcua-server** — OPC UA address space of the plant, PLC and alarms, with methods run as the signed-in gateway user;
 - **Grafana** with provisioned Process, Efficiency and emissions, Alarms and Platform dashboards;
-- **web** — the operator console skeleton (React + TypeScript + Vite).
+- **web** — the operator console (React + TypeScript + Vite): sign-in, a live SVG mimic of the unit, trends with history and KPIs, alarms with acknowledgement and an audible annunciator, light and dark themes.
 
-Known gaps are listed in [docs/architecture/overview.md](docs/architecture/overview.md#known-gaps). The most visible one: the web console is still a skeleton.
+Known gaps are listed in [docs/architecture/overview.md](docs/architecture/overview.md#known-gaps). The most visible one: the console's control, engineer and administration screens are still to come.
 
 ---
 
@@ -466,11 +466,13 @@ python dev_tools_scripts_runner.py smoke            # end-to-end check through t
 | API and OpenAPI docs | http://localhost:8000/docs · readiness http://localhost:8000/ready |
 | Grafana | http://localhost:3000 (credentials in `.env`) |
 | OPC UA | `opc.tcp://localhost:4840/cogniboiler` — anonymous read; sign in as a demo user to call methods |
-| Web console (dev server) | `pnpm --dir apps/web install`, then `pnpm --dir apps/web dev` → http://localhost:5173 |
+| Web console (dev server) | `pnpm --dir apps/web install`, then `pnpm --dir apps/web dev` → http://localhost:5173; sign in as a demo user |
 
 Demo users `admin`, `engineer`, `operator` and `viewer` are created on start; their passwords are the `DEMO_*_PASSWORD` values in `.env`. Nothing in `.env` is ever committed.
 
 Stop with `python dev_tools_scripts_runner.py stack down` (add `--volumes` to wipe the databases).
+
+`python dev_tools_scripts_runner.py console-e2e` runs the console's Playwright checks against the running stack; it installs Playwright's Chromium on first use and reads the demo passwords from `.env`.
 
 ---
 

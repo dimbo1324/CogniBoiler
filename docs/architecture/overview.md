@@ -4,12 +4,12 @@
 > updated whenever the shape of the system changes: a new service, endpoint group, topic,
 > table, screen, or operational job. The plan lives in the internal roadmap.
 
-**Last revised:** 2026-09-16 · **Version:** 0.1.0 · **Python:** 3.14
+**Last revised:** 2026-09-18 · **Version:** 0.1.0 · **Python:** 3.14
 
 ## The shape of the system
 
 ```text
-        people (REST, WebSocket)                       OPC UA clients (opc.tcp :4840)
+   web console in a browser (REST, WebSocket)          OPC UA clients (opc.tcp :4840)
                   │                                              │ methods as the signed-in user
                   ▼                                              ▼
         api-gateway (FastAPI, :8000) ◀──────── REST ─────── opcua-server
@@ -45,6 +45,7 @@ performs their writes through the gateway, as the signed-in user.
 | historian | `apps/historian` | Records `sensors/*`, `alarms/changes`, `plc/events` and `status/+` into InfluxDB, labels values with the scenario, writes simulation events, its own counters, and applies the storage policy (7-day raw bucket, 90-day one-minute aggregates, downsampling task) |
 | alert-manager | `apps/alert-manager` | Alarm lifecycle (ACTIVE_UNACK → ACTIVE_ACK → CLEARED, CLEARED_UNACK), one open alarm per condition, chatter hold on clears, reconciliation from source snapshots, transition history, `AlarmService` gRPC, changes on `alarms/changes` |
 | opcua-server | `apps/opcua-server` | OPC UA (asyncua 2) address space of 84 read-only variables in ten folders with engineering units and instrument quality as status codes; PLC and alarm folders from `PLCService` and `AlarmService`; methods for load, mode, E-Stop reset, valves and acknowledgement, performed through the gateway as the signed-in user |
+| web | `apps/web` | Operator console (React, TypeScript, Vite): sign-in, live SVG mimic, trends with history and KPIs, alarms with acknowledgement and an audible annunciator, light and dark themes. Talks only to the gateway — REST and `/ws` on the same origin |
 | ai-predictor | `apps/ai-predictor` | Deferred placeholder; **not** a workspace member |
 
 ## Contracts
@@ -82,6 +83,10 @@ heat input, heat to the cycle, boiler and net efficiency, turbine and plant heat
 Reserved for the deferred AI stage, not implemented: `insights/*`.
 
 ### REST (api-gateway)
+
+The OpenAPI schema is committed as `shared/openapi/api-gateway.json`; the console's
+TypeScript types are generated from it (`apps/web/src/api/schema.gen.ts`, script
+`generate-openapi`) and the gate fails when either falls behind the gateway's routes.
 
 Every error is `application/problem+json` (RFC 9457) with `type`, `title`, `status`,
 `detail`, `instance` and a stable `code` (for example `auth.invalid_credentials`,
@@ -169,13 +174,19 @@ the gateway, and run with that user's role and audit trail.
 - `smoke` checks a running stack through the gateway: health and readiness, logins, role
   refusals, live state, a setpoint accepted by the PLC, alarms, history, KPIs and the audit
   log of sign-ins. CI runs it against a freshly built stack.
-- `apps/web` is the operator console skeleton: React 19 + TypeScript (6.0) + Vite 8, a
-  gateway health screen, the network client module and the unit-conversion module.
+- `apps/web` is the operator console: React 19 + TypeScript (6.0) + Vite 8, React Router,
+  TanStack Query and uPlot. One HTTP module keeps the access token in memory and refreshes
+  it through the httpOnly cookie; one WebSocket client authenticates in the first frame and
+  renews in-band; one module converts SI units for display. The Vite dev server proxies
+  `/api`, `/auth`, `/health` and `/ws` to the gateway, so the browser sees one origin.
+  Vitest covers the modules and screens; Playwright (`apps/web/e2e`, script `console-e2e`)
+  checks the console against a running stack with the demo users from `.env`.
 - `python dev_tools_scripts_runner.py` is the developer-tools orchestrator: `quality-gate`,
-  `format-code`, `sync-agents`, `stack`, `dev-secrets`, `smoke`, `generate-proto`, `doctor`,
-  `install-hooks`, `clean-caches`, `selftest`.
-- The quality gate runs ruff, strict mypy, every service test suite, the protobuf and
-  `AGENTS.md` sync checks, the scripts' own tests, and the frontend checks when
+  `format-code`, `sync-agents`, `stack`, `dev-secrets`, `smoke`, `console-e2e`,
+  `generate-proto`, `generate-openapi`, `doctor`, `install-hooks`, `clean-caches`,
+  `selftest`.
+- The quality gate runs ruff, strict mypy, every service test suite, the protobuf,
+  OpenAPI and `AGENTS.md` sync checks, the scripts' own tests, and the frontend checks when
   `apps/web/node_modules` exists.
 - `ml/preprocessing/generate_dataset.py` runs labelled closed-loop episodes — the
   deterministic plant scanned by the real PLC logic — for the deferred AI stage.
@@ -187,9 +198,8 @@ Recorded with their planned fix in the internal roadmap:
 - the logic added in S2–S5, S8 and S10 has no dedicated tests yet (owner decision for that
   work); of the PLC integration tests, only the AUTO hold test runs in lockstep with the
   plant, the others still pace it by wall clock;
-- the OpenAPI schema is not committed or checked in the gate;
 - the application connects to PostgreSQL as the table owner, which could disable the audit
   triggers; sign-in throttling state lives in the single gateway process;
 - MQTT is anonymous and OPC UA uses no security policy (credentials travel in clear on the
-  local network); the web console is only a skeleton; logs are plain text and there are no
-  service metrics.
+  local network); the web console has no control, engineer, audit, user or platform
+  screens yet; logs are plain text and there are no service metrics.

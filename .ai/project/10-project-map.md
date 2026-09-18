@@ -21,8 +21,7 @@ uv workspace on Python 3.14; every service is a package with `src/` and `tests/`
 - `apps/api-gateway` — FastAPI edge and user authority: JWT RS256 sessions with rotated
   refresh tokens, RBAC, users, append-only audit, Problem Details, REST and WebSocket
   channels, simulation control, history and KPIs; gRPC clients to the PLC, physics and
-  alarm services, PostgreSQL via SQLAlchemy async, the Alembic migration chain in
-  `apps/api-gateway/migrations`.
+  alarm services; the Alembic chain in `apps/api-gateway/migrations`.
 - `apps/historian` — records telemetry, KPIs, scenario and fault labels, alarm changes and
   PLC events into InfluxDB; owns retention and one-minute downsampling.
 - `apps/alert-manager` — alarm lifecycle from PLC conditions, alarm tables in PostgreSQL,

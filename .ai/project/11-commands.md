@@ -13,7 +13,7 @@ python dev_tools_scripts_runner.py <name>   # run one directly; `help` prints th
 
 The orchestrator is stdlib-only and runs on any Python 3.14; a script that needs a project
 package hands itself to `uv run`. With no arguments and no terminal it runs
-`quality-gate`, which is what makes it safe for an agent or CI to call.
+`quality-gate`, which makes it safe for an agent or CI to call.
 
 | Script | Purpose |
 |---|---|
@@ -21,9 +21,10 @@ package hands itself to `uv run`. With no arguments and no terminal it runs
 | `format-code` (`--check`) | ruff for Python, Prettier for the frontend |
 | `sync-agents` (`--check`) | regenerate `AGENTS.md` from `.ai/` |
 | `stack up` / `status` / `logs <svc>` / `down` | the Docker Compose stack |
-| `dev-secrets` | create or complete `.env` with generated development secrets |
-| `smoke` | end-to-end check of a running stack through the gateway; CI runs it |
-| `generate-proto` (`--check`) | regenerate `shared/generated` after a `.proto` change |
+| `dev-secrets` | `.env` with generated development secrets |
+| `smoke` | end-to-end check of a running stack; CI runs it |
+| `console-e2e` (`--url`) | Playwright checks of the console |
+| `generate-proto`, `generate-openapi` (`--check`) | gRPC stubs; OpenAPI schema and console types |
 | `doctor` | read-only toolchain check |
 | `install-hooks` | the pre-commit hook, once per clone |
 | `clean-caches` (`--apply`) | **deletes files**; a dry run unless `--apply` |
@@ -61,8 +62,8 @@ Service-by-service run commands, ports, topics and platform notes are in
 - The full gate is green before any merge to `main`; `--quick` is the minimum before a
   push. Documentation- and configuration-only changes still run it.
 - The gate runs every section even after one fails and ends with a single summary.
-- `sync-agents --check` and `generate-proto --check` are gate sections on purpose: a
-  source edited without regenerating its artifact breaks the build.
+- The `--check` modes of `sync-agents`, `generate-proto` and `generate-openapi` are gate
+  sections on purpose: a source edited without regenerating its artifact breaks the build.
 - Frontend sections are skipped locally without `apps/web/node_modules` and fail when the
   `CI` variable is set.
 - The pre-commit hook only formats and checks file hygiene. Lint, strict typing and tests

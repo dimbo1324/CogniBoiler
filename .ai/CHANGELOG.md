@@ -6,6 +6,27 @@ History of changes to the AI assistant rule system (`.ai/`, `CLAUDE.md`, `AGENTS
 
 Format: date, what changed, why, who decided. Newest first.
 
+## 2026-09-18 — Commands follow S6: the OpenAPI contract and the console checks
+
+**What changed.** `project/11-commands.md` lists the new scripts `console-e2e` and
+`generate-openapi` and names `generate-openapi --check` among the gate sections that fail
+when an artifact is not regenerated. `project/14-command-reference.md` says how to regenerate
+the gateway contract and the console types, how the Playwright checks run and read the demo
+passwords, that the Vite dev server binds 127.0.0.1, and that a session of the Claude desktop
+app reaches only IPv4 loopback and keeps Playwright's browsers outside AppData. The frontend
+agent on both sides (`.claude/agents`, `.codex/agents`) points at the client modules, the
+generated types, the token storage decision and `console-e2e`, and says that only Playwright
+types a demo password into a page.
+
+**Why.** S6 added a contract check to the gate and two scripts; without these lines the next
+session would hand-write gateway types or not know how to verify the console. The IPv4 note
+records friction met in this task. Factual additions and clarifications, which
+`universal/08-rules-evolution.md` allows without approval; no rule was loosened. To keep
+`AGENTS.md` within its 30 KiB budget, a few table cells and the gateway line of
+`project/10-project-map.md` were shortened without changing what they say.
+
+**Decided by.** Agent, as part of the owner-requested S6 work of 2026-09-18.
+
 ## 2026-09-16 — Project modules follow S5, S8 and S10
 
 **What changed.** `project/10-project-map.md` describes the gateway as the user authority

@@ -14,20 +14,23 @@ Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 
 ## S6 — console: observation (`feat/console-observation`)
 
-[ ] Q3 decided (chart library) and recorded in the decision log
-[ ] OpenAPI schema of the gateway committed, console types generated from it, both checked
-    in the gate (closes Д12)
-[ ] Client layer: HTTP with the access token in memory, one refresh at a time through the
-    httpOnly cookie, Problem Details errors; WebSocket with first-frame auth, in-band token
-    renewal, subscriptions and reconnect with backoff
-[ ] Sign-in without information leaks, sign-out, session expiry
-[ ] Mimic (SVG): furnace, drum, superheater, turbine, generator, condenser, feedwater; live
-    values in bar, °C, t/h and MW, valve positions, PLC mode, E-Stop, active alarms
-[ ] Trends: parameter choice, live / 15 min / 1 h / 24 h, live stream joined to history, KPIs
-[ ] Alarms: active with acknowledgement, history with filters, flashing and sound for
-    unacknowledged critical alarms
-[ ] Units module with tests; light and dark theme
-[ ] Unit tests for the client layer and the screens' logic
++ Q3 decided (uPlot) and recorded in the decision log, with the stage decision itself
++ OpenAPI schema of the gateway committed (`shared/openapi`), console types generated from
+  it, both checked by the gate section `generate-openapi --check` (Д12 closed)
++ Client layer: HTTP with the access token in memory, one refresh at a time through the
+  httpOnly cookie, Problem Details errors; WebSocket with first-frame auth, in-band token
+  renewal, subscriptions and reconnect with backoff
++ Sign-in without information leaks, throttling wait, restore after a reload, sign-out,
+  session end with a notice
++ Mimic (SVG): furnace, drum, superheater, turbine, generator, condenser, feedwater; live
+  values in bar, °C, t/h and MW, valve positions, PLC mode, E-Stop, equipment outlined by
+  PLC alarm conditions, instrument quality
++ Trends: 18 parameters, live / 15 min / 1 h / 24 h, live stream joined to history, KPIs
++ Alarms: active with acknowledgement, history with filters and pages, transitions,
+  flashing and a beep for unacknowledged critical alarms until silenced
++ Units module with tests; light and dark theme
++ 70 Vitest cases; Playwright checks (script `console-e2e`) green against the running stack
+- Demo minutes 0–3 in the browser need the load and fault panels of S7: checked there
 
 ## S7 — console: control and administration (`feat/console-control-admin`)
 
