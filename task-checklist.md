@@ -1,56 +1,80 @@
-# Task: two invariants and debt Д15 (fuel, emissions, part-load efficiency)
+# Task: operator console (S6, S7), observability (S9), hardening (S11), delivery (S12)
 
-Owner instruction of 2026-09-18, answering the final report of the previous task: publish
-`main`, adopt both proposed invariants, and take debt Д15. Work on branch
-`fix/emissions-and-part-load-efficiency`, merged into `main` locally after a green gate and
-published, since the owner asked for the push in this task.
+Owner instruction of 2026-09-18: implement S6 and S7 (the console: sign-in, mimic, trends,
+alarms, control and engineer panels, audit, users, Playwright), S9 (JSON logs with a
+correlation id, `/metrics`, Prometheus), S11 (MQTT passwords, nginx and TLS, a database
+role without rights to change the audit log — Д13, OPC UA security policy — Д14, dependency
+audit) and S12 (Compose profiles, e2e in CI, image publishing, release by tag).
+
+One branch per stage, in roadmap order, each merged into `main` with `git merge --ff-only`
+after a green full gate. No push to `origin/main`: the owner did not ask for a publish in
+this task. Task branches may be pushed to run CI (allowed work-in-progress pushes).
 
 Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 
-## Publishing
+## S6 — console: observation (`feat/console-observation`)
 
-+ `main` pushed to `origin` (408b33d..c2d59e2): S2–S4, S5, S8 and S10 are now on GitHub
+[ ] Q3 decided (chart library) and recorded in the decision log
+[ ] OpenAPI schema of the gateway committed, console types generated from it, both checked
+    in the gate (closes Д12)
+[ ] Client layer: HTTP with the access token in memory, one refresh at a time through the
+    httpOnly cookie, Problem Details errors; WebSocket with first-frame auth, in-band token
+    renewal, subscriptions and reconnect with backoff
+[ ] Sign-in without information leaks, sign-out, session expiry
+[ ] Mimic (SVG): furnace, drum, superheater, turbine, generator, condenser, feedwater; live
+    values in bar, °C, t/h and MW, valve positions, PLC mode, E-Stop, active alarms
+[ ] Trends: parameter choice, live / 15 min / 1 h / 24 h, live stream joined to history, KPIs
+[ ] Alarms: active with acknowledgement, history with filters, flashing and sound for
+    unacknowledged critical alarms
+[ ] Units module with tests; light and dark theme
+[ ] Unit tests for the client layer and the screens' logic
 
-## Invariants
+## S7 — console: control and administration (`feat/console-control-admin`)
 
-+ I10 "the audit log is append-only" and I11 "every write from a protocol edge goes through
-  the gateway" added to `docs/architecture/invariants.md`, each with how it is enforced
-  today and the debt that still weakens it (Д13)
-+ I9 states the fact after 2026-09-16: the AUTO hold test runs in lockstep
-+ Decision recorded in the internal decision log
+[ ] Control panel: load, mode, manual valves, setpoints, E-Stop reset — confirmation for
+    each, hidden from roles that may not use it (the gateway still refuses)
+[ ] Engineer panel: scenarios, faults, speed, pause, resume, step; scenario run log
+[ ] Audit (admin): filters and pages
+[ ] Users (admin): create, role, block, password reset, sign out everywhere
+[ ] Platform: service health, telemetry age
+[ ] Playwright e2e against the running stack, green locally, including the demo scenario
 
-## Debt Д15 — the plant model
+## S9 — observability (`feat/observability`)
 
-+ One fuel definition: pipeline natural gas with inerts at 42 MJ/kg; stoichiometric air
-  14.44 kg/kg (0.344 kg per MJ) and CO2 2.343 kg/kg (55.8 g per MJ) derived from it
-+ Flue gas Cp 1300 J/(kg·K) and furnace inventory 2115 kg chosen so that mass flow × Cp and
-  mass × Cp stay at their calibrated values: the thermal design point does not move
-+ NOx left as it was: the Zeldovich law is anchored on the flame-zone temperature and the
-  plant feeds exactly that (furnace exit + 300 K, 1700 K at rated, ≈45 ppmv). The 2157 ppmv
-  in the previous report came from my measurement script passing the adiabatic flame
-  temperature; the stack check caught it
-+ Governing valve throttles at part load (Stodola) and the isentropic efficiency takes a
-  part-load penalty; net efficiency no longer rises at part load
-+ Heat rate 9803 kJ/kWh at 300 MW, minimum 9781 at 275 MW, 9994 at 180 MW
-- Sliding pressure, which would avoid the throttling loss, not implemented — it stays the
-  development recorded under open question Q5
+[ ] JSON logs with `service`, `level`, `event`, `timestamp`, `correlation_id` in every service
+[ ] Correlation id from the HTTP request through gRPC metadata to the PLC, physics and alarm
+    services
+[ ] `/metrics` in every service: physics step, PLC scan, MQTT messages, InfluxDB writes,
+    HTTP requests and errors
+[ ] Prometheus in the `observability` profile; Grafana "Platform" dashboard on service metrics
+
+## S11 — hardening (`security/hardening`)
+
+[ ] MQTT with a password per service and topic ACLs, anonymous access off, no browser
+    WebSocket listener
+[ ] nginx in front of the console and the API, non-root; optional self-signed TLS
+[ ] Database roles for the gateway and alert-manager without DDL and without UPDATE, DELETE
+    or TRUNCATE on `audit_log` (closes Д13)
+[ ] OPC UA Basic256Sha256 security policy; credentials never in clear (closes Д14)
+[ ] Dependency audit: pip-audit and pnpm audit script, Trivy in CI, reports as artifacts
+[ ] Secrets review: nothing in the repository or the images
+
+## S12 — delivery (`feat/delivery`)
+
+[ ] Multi-stage Dockerfile with a target per service, runtime without uv
+[ ] Compose profiles infra, core, observability, full; `stack up` uses them
+[ ] CI: e2e on the running stack (smoke and Playwright)
+[ ] Images published to GHCR from `main` and tags; release by tag `v*`
 
 ## Verification
 
-+ Operating points 180–300 MW solve with zero derivatives; 8 h open loop without drift
-+ Closed loop with the real PLC: hold 250 MW, 250→300, 180→300, feedwater pump drill (trip
-  at 0.463 m, refused reset, reset, recovery), hot start, burner fouling, steam leak
-+ 172 physics and PLC tests; full quality gate green (13/13)
-+ Stack rebuilt with the new physics: containers healthy, smoke 13/13, and through the
-  gateway 297 MW gives 37.2 % net, 9680 kJ/kWh, 540 kg CO2/MWh, 39.6 ppmv NOx and stack
-  442.6 K, while 180 MW gives 36.35 % and 9905 kJ/kWh — the part-load penalty is visible
-  on the running unit
-+ One existing test adapted, none deleted or weakened: the inlet-pressure case compared two
-  states a throttle-governed machine cannot reach; a new case pins the throttling
+[ ] Full gate green before every merge
+[ ] Stack rebuilt from scratch, all containers healthy, smoke green, Playwright green
+[ ] CI run on a pushed task branch
 
 ## Completion
 
-+ State documents: ROADMAP (Д15 closed, S2 amendment), architecture overview, decision log,
-  invariants
-+ Checklist filled honestly
-+ Final report in Russian; merged into `main` and pushed, as the owner asked
+[ ] ROADMAP statuses for S6, S7, S9, S11, S12 and the debt table; architecture overview;
+    README; rule modules and command reference; decision log
+[ ] Checklist filled honestly
+[ ] Final report in Russian
