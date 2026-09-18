@@ -11,7 +11,10 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm run build
 
-FROM nginxinc/nginx-unprivileged:1.29-alpine
+FROM nginxinc/nginx-unprivileged:1.30-alpine AS runtime
+USER root
+RUN apk upgrade --no-cache
+USER 101
 COPY --from=nginx default.conf /etc/nginx/conf.d/default.conf
 COPY --from=nginx site.inc headers.inc proxy.inc /etc/nginx/cogniboiler/
 COPY --from=nginx --chmod=0755 40-cogniboiler-tls.sh /docker-entrypoint.d/40-cogniboiler-tls.sh

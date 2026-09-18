@@ -1,22 +1,25 @@
 # The whole platform on one machine. Secrets come from .env, created by:
 #   python dev_tools_scripts_runner.py dev-secrets
-# Start with:  python dev_tools_scripts_runner.py stack up
+# Start with:  python dev_tools_scripts_runner.py stack up          (profile `full`)
+# Profiles: `infra` (broker, databases), `core` (infra, the services, the console),
+# `observability` (Prometheus, Grafana, InfluxDB), `full` (everything).
+# Images are built locally as cogniboiler/<service>:dev. To run a published release
+# instead, set COGNIBOILER_REGISTRY=ghcr.io/dimbo1324/cogniboiler and COGNIBOILER_TAG to
+# the release (v1.0.0) and start with `stack up --no-build`: Compose pulls the images.
 # InfluxDB and PostgreSQL read their credentials only on first start: after regenerating
 # secrets, recreate the volumes with `stack down --volumes`.
 name: cogniboiler
 
-x-python-service: &python-service
-  build:
-    context: .
-    dockerfile: Dockerfile
-  image: cogniboiler/services:dev
+x-service: &service
   restart: unless-stopped
+  profiles: ["core", "full"]
 
 services:
   # Every client has its own account and topic rights; the accounts are written from .env
   # on each start by start-broker.sh.
   mosquitto:
     image: eclipse-mosquitto:2.0
+    profiles: ["infra", "core", "full"]
     entrypoint: ["/bin/sh", "/cogniboiler/start-broker.sh"]
     ports:
       - "127.0.0.1:1883:1883"
@@ -43,6 +46,7 @@ services:
 
   influxdb:
     image: influxdb:2.7
+    profiles: ["infra", "core", "observability", "full"]
     ports:
       - "127.0.0.1:8086:8086"
     environment:
@@ -65,6 +69,7 @@ services:
 
   postgresql:
     image: postgres:16-alpine
+    profiles: ["infra", "core", "full"]
     ports:
       - "127.0.0.1:5432:5432"
     environment:
@@ -82,6 +87,7 @@ services:
 
   grafana:
     image: grafana/grafana:10.4.0
+    profiles: ["observability", "full"]
     ports:
       - "127.0.0.1:3000:3000"
     environment:
@@ -106,7 +112,9 @@ services:
       retries: 5
 
   migrate:
-    <<: *python-service
+    <<: *service
+    build: { context: ., target: api-gateway }
+    image: ${COGNIBOILER_REGISTRY:-cogniboiler}/api-gateway:${COGNIBOILER_TAG:-dev}
     # The only service that connects as the owner of the tables: it migrates the schema and
     # gives the application roles their passwords.
     command: ["sh", "-c", "python -m alembic -c apps/api-gateway/alembic.ini upgrade head && python -m api_gateway.db_roles"]
@@ -120,7 +128,9 @@ services:
     restart: "no"
 
   physics-engine:
-    <<: *python-service
+    <<: *service
+    build: { context: ., target: physics-engine }
+    image: ${COGNIBOILER_REGISTRY:-cogniboiler}/physics-engine:${COGNIBOILER_TAG:-dev}
     command: ["python", "-m", "physics_engine", "--mqtt-host", "mosquitto", "--grpc-port", "50052", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     environment:
       MQTT_USERNAME: physics-engine
@@ -136,7 +146,9 @@ services:
       start_period: 20s
 
   plc-controller:
-    <<: *python-service
+    <<: *service
+    build: { context: ., target: plc-controller }
+    image: ${COGNIBOILER_REGISTRY:-cogniboiler}/plc-controller:${COGNIBOILER_TAG:-dev}
     command: ["python", "-m", "plc_controller", "--port", "50051", "--physics-target", "physics-engine:50052", "--mqtt-host", "mosquitto", "--mqtt-port", "1883", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     environment:
       MQTT_USERNAME: plc-controller
@@ -154,7 +166,9 @@ services:
       start_period: 20s
 
   historian:
-    <<: *python-service
+    <<: *service
+    build: { context: ., target: historian }
+    image: ${COGNIBOILER_REGISTRY:-cogniboiler}/historian:${COGNIBOILER_TAG:-dev}
     command: ["python", "-m", "historian", "--mqtt-host", "mosquitto", "--influx-url", "http://influxdb:8086", "--influx-org", "${INFLUXDB_ORG:?run dev-secrets}", "--influx-bucket", "${INFLUXDB_BUCKET:?run dev-secrets}", "--batch-size", "50", "--flush-interval-s", "2.0", "--liveness-file", "/tmp/cogniboiler-liveness", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     environment:
       MQTT_USERNAME: historian
@@ -173,7 +187,9 @@ services:
       start_period: 20s
 
   alert-manager:
-    <<: *python-service
+    <<: *service
+    build: { context: ., target: alert-manager }
+    image: ${COGNIBOILER_REGISTRY:-cogniboiler}/alert-manager:${COGNIBOILER_TAG:-dev}
     command: ["python", "-m", "alert_manager", "--mqtt-host", "mosquitto", "--mqtt-port", "1883", "--grpc-port", "50053", "--liveness-file", "/tmp/cogniboiler-liveness", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     environment:
       MQTT_USERNAME: alert-manager
@@ -192,7 +208,9 @@ services:
       start_period: 20s
 
   opcua-server:
-    <<: *python-service
+    <<: *service
+    build: { context: ., target: opcua-server }
+    image: ${COGNIBOILER_REGISTRY:-cogniboiler}/opcua-server:${COGNIBOILER_TAG:-dev}
     command: ["python", "-m", "opcua_server", "--mqtt-host", "mosquitto", "--plc-target", "plc-controller:50051", "--alarm-target", "alert-manager:50053", "--gateway-url", "http://api-gateway:8000", "--opc-port", "4840", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     ports:
       - "127.0.0.1:4840:4840"
@@ -214,7 +232,9 @@ services:
       start_period: 20s
 
   api-gateway:
-    <<: *python-service
+    <<: *service
+    build: { context: ., target: api-gateway }
+    image: ${COGNIBOILER_REGISTRY:-cogniboiler}/api-gateway:${COGNIBOILER_TAG:-dev}
     # Reached only through the web service (nginx) and from inside the network: no host
     # port. It trusts X-Forwarded-For only from private addresses, which on this network
     # means nginx or another service of the stack.
@@ -262,11 +282,12 @@ services:
   # The console and the gateway's public routes on one origin: HTTP on 8080 and, with the
   # certificate from .env, HTTPS on 8443. The only way in from the host besides tools.
   web:
+    <<: *service
     build:
       context: ./apps/web
       additional_contexts:
         nginx: ./infrastructure/nginx
-    image: cogniboiler/web:dev
+    image: ${COGNIBOILER_REGISTRY:-cogniboiler}/web:${COGNIBOILER_TAG:-dev}
     ports:
       - "127.0.0.1:8080:8080"
       - "127.0.0.1:8443:8443"
@@ -276,17 +297,16 @@ services:
     depends_on:
       api-gateway:
         condition: service_healthy
-    restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # Service metrics for the Platform dashboard; `stack up` enables this profile.
+  # Service metrics for the Platform dashboard.
   prometheus:
     image: prom/prometheus:v3.8.0
-    profiles: ["observability"]
+    profiles: ["observability", "full"]
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=7d"]
     ports:
       - "127.0.0.1:9090:9090"

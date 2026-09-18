@@ -1,9 +1,8 @@
 {
-  "_comment": "The project name is fixed so container and volume names do not depend on the checkout's directory name. Every action enables the listed Compose profiles, so `down` also stops the services they add.",
+  "_comment": "The project name is fixed so container and volume names do not depend on the checkout's directory name. `up` starts the chosen Compose profile; every other action uses the profile that holds every service, so `down` stops them all.",
   "project_name": "cogniboiler",
   "compose_file": "docker-compose.yml",
   "env_file": ".env",
   "wait_timeout_s": 300,
-  "infra_services": ["mosquitto", "influxdb", "postgresql", "grafana"],
-  "profiles": ["observability"]
+  "default_profile": "full"
 }

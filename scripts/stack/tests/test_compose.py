@@ -14,14 +14,14 @@ CONFIG = {
     "project_name": "cogniboiler",
     "compose_file": "docker-compose.yml",
     "wait_timeout_s": 300,
-    "infra_services": ["mosquitto", "postgresql"],
-    "profiles": ["observability"],
+    "default_profile": "full",
 }
 
 
 def args(**values: object) -> argparse.Namespace:
     defaults: dict[str, object] = {
         "action": "up",
+        "profile": None,
         "infra_only": False,
         "no_build": False,
         "volumes": False,
@@ -31,7 +31,7 @@ def args(**values: object) -> argparse.Namespace:
 
 
 class BuildCommandTest(unittest.TestCase):
-    def test_up_builds_waits_and_enables_the_profiles(self) -> None:
+    def test_up_starts_the_full_profile_by_default(self) -> None:
         command = build_command(args(), CONFIG)
         self.assertEqual(
             command[:6],
@@ -44,18 +44,20 @@ class BuildCommandTest(unittest.TestCase):
                 "docker-compose.yml",
             ],
         )
-        self.assertEqual(command[6:8], ["--profile", "observability"])
+        self.assertEqual(command[6:8], ["--profile", "full"])
         self.assertIn("--wait", command)
         self.assertEqual(command[-1], "--build")
 
-    def test_infra_only_names_the_backing_services(self) -> None:
-        command = build_command(args(infra_only=True, no_build=True), CONFIG)
-        self.assertEqual(command[-2:], ["mosquitto", "postgresql"])
-        self.assertNotIn("--build", command)
+    def test_a_chosen_profile_and_infra_only(self) -> None:
+        core = build_command(args(profile="core", no_build=True), CONFIG)
+        self.assertEqual(core[6:8], ["--profile", "core"])
+        self.assertNotIn("--build", core)
+        infra = build_command(args(infra_only=True), CONFIG)
+        self.assertEqual(infra[6:8], ["--profile", "infra"])
 
-    def test_down_stops_the_profiled_services_too(self) -> None:
+    def test_down_stops_every_service(self) -> None:
         command = build_command(args(action="down", volumes=True), CONFIG)
-        self.assertIn("--profile", command)
+        self.assertEqual(command[6:8], ["--profile", "full"])
         self.assertEqual(command[-2:], ["down", "--volumes"])
 
 

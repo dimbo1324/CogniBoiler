@@ -1,9 +1,11 @@
 """A cross-platform door to docker compose for this repository.
 
-``up`` builds and starts the stack detached and waits for it to become healthy;
-``--infra-only`` starts only the backing services, for running the Python services from
-the host. ``status`` lists containers with their health, ``logs`` follows one service,
-``down`` stops the stack. Deleting volumes wipes the databases, so it asks first.
+``up`` builds and starts a Compose profile detached and waits for it to become healthy:
+``full`` by default, or ``infra`` (broker and databases, for running the Python services
+from the host), ``core`` (infra, the services and the console) or ``observability``
+(Prometheus, Grafana, InfluxDB). ``--infra-only`` is ``--profile infra``. ``status`` lists
+containers with their health, ``logs`` follows one service, ``down`` stops everything.
+Deleting volumes wipes the databases, so it asks first.
 """
 
 from __future__ import annotations
@@ -20,10 +22,7 @@ from scripts._toolkit.processes import NOT_FOUND, run
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
-def compose(config: dict[str, Any], *args: str) -> list[str]:
-    profiles: list[str] = []
-    for profile in config.get("profiles", []):
-        profiles += ["--profile", str(profile)]
+def compose(config: dict[str, Any], profile: str, *args: str) -> list[str]:
     return [
         "docker",
         "compose",
@@ -31,7 +30,8 @@ def compose(config: dict[str, Any], *args: str) -> list[str]:
         str(config["project_name"]),
         "--file",
         str(config["compose_file"]),
-        *profiles,
+        "--profile",
+        profile,
         *args,
     ]
 
@@ -45,9 +45,14 @@ def _parser() -> argparse.ArgumentParser:
 
     up = actions.add_parser("up", help="build and start the stack, wait until healthy")
     up.add_argument(
+        "--profile",
+        choices=["infra", "core", "observability", "full"],
+        help="which part of the stack to start (default: full)",
+    )
+    up.add_argument(
         "--infra-only",
         action="store_true",
-        help="start only the broker, databases and Grafana",
+        help="the same as --profile infra: only the broker and the databases",
     )
     up.add_argument(
         "--no-build", action="store_true", help="reuse existing service images"
@@ -72,9 +77,12 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def build_command(args: argparse.Namespace, config: dict[str, Any]) -> list[str]:
+    everything = str(config["default_profile"])
     if args.action == "up":
+        profile = "infra" if args.infra_only else (args.profile or everything)
         command = compose(
             config,
+            profile,
             "up",
             "--detach",
             "--wait",
@@ -83,16 +91,20 @@ def build_command(args: argparse.Namespace, config: dict[str, Any]) -> list[str]
         )
         if not args.no_build:
             command.append("--build")
-        if args.infra_only:
-            command.extend(str(name) for name in config["infra_services"])
         return command
     if args.action == "status":
-        return compose(config, "ps", "--all")
+        return compose(config, everything, "ps", "--all")
     if args.action == "logs":
         return compose(
-            config, "logs", "--follow", "--tail", str(args.tail), args.service
+            config,
+            everything,
+            "logs",
+            "--follow",
+            "--tail",
+            str(args.tail),
+            args.service,
         )
-    command = compose(config, "down")
+    command = compose(config, everything, "down")
     if args.volumes:
         command.append("--volumes")
     return command
