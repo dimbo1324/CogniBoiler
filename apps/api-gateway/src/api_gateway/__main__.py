@@ -21,6 +21,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="CogniBoiler API gateway")
     parser.add_argument("--host", default="127.0.0.1", help="interface to listen on")
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument(
+        "--forwarded-allow-ips",
+        default="127.0.0.1",
+        help="proxies whose X-Forwarded-For names the client (the audit log's address)",
+    )
     return parser.parse_args()
 
 
@@ -33,4 +38,6 @@ if __name__ == "__main__":
         port=args.port,
         log_config=None,
         server_header=False,
+        proxy_headers=True,
+        forwarded_allow_ips=args.forwarded_allow_ips,
     )

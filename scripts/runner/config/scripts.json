@@ -42,6 +42,26 @@
     ]
   },
   {
+    "title": "audit-deps",
+    "module": "scripts.audit_deps",
+    "category": "quality",
+    "aliases": [
+      "audit"
+    ],
+    "cadence_ref": "on_demand",
+    "summary": {
+      "en": "Audit locked Python and console dependencies for known vulnerabilities.",
+      "ru": "Проверить закреплённые зависимости Python и консоли на известные уязвимости."
+    },
+    "description": {
+      "en": "Exports the exact versions of uv.lock (every workspace package, development tools included) and checks them with pip-audit, run through uvx at a pinned version, against the PyPI and OSV advisories; then runs pnpm audit over the console's lock file. Writes both JSON reports to audit-reports/ (ignored by git) and fails when Python has any known vulnerability or the console one at the configured severity or above. It needs the internet, so it is not a gate section: CI runs it in its own job and keeps the reports as artifacts. Fix a finding by upgrading the package in the lock file, then run the gate.",
+      "ru": "Выгружает точные версии uv.lock (все пакеты workspace вместе с инструментами разработки) и проверяет их pip-audit, запущенным через uvx закреплённой версии, по бюллетеням PyPI и OSV; затем запускает pnpm audit по lock-файлу консоли. Пишет оба JSON-отчёта в audit-reports/ (игнорируется git) и падает, если у Python есть хоть одна известная уязвимость, а у консоли — уровня из конфигурации или выше. Нужен интернет, поэтому это не секция gate: CI запускает его отдельным заданием и хранит отчёты как артефакты. Находку исправляют обновлением пакета в lock-файле и прогоном gate."
+    },
+    "examples": [
+      "--report-dir audit-reports"
+    ]
+  },
+  {
     "title": "sync-agents",
     "module": "scripts.sync_agents",
     "category": "quality",
@@ -95,12 +115,12 @@
     ],
     "cadence_ref": "once_per_clone",
     "summary": {
-      "en": "Create a local .env with development secrets and JWT keys.",
-      "ru": "Создать локальный .env с секретами разработки и JWT-ключами."
+      "en": "Create a local .env with development secrets, keys and certificates.",
+      "ru": "Создать локальный .env с секретами, ключами и сертификатами разработки."
     },
     "description": {
-      "en": "Creates .env from .env.example and fills every empty secret: random database, InfluxDB and Grafana passwords, an InfluxDB token, and a fresh RS256 key pair for the API gateway. Values already present in .env are never overwritten, so it is safe to run again after .env.example gains a key. .env is ignored by git; nothing this script writes may ever be committed. Needs the cryptography package, so run it through uv.",
-      "ru": "Создаёт .env из .env.example и заполняет все пустые секреты: случайные пароли PostgreSQL, InfluxDB и Grafana, токен InfluxDB и новую пару ключей RS256 для API-шлюза. Уже заданные в .env значения никогда не перезаписываются, поэтому запускать повторно безопасно — например, после появления нового ключа в .env.example. .env игнорируется git; ничего из записанного этим скриптом нельзя коммитить. Нужен пакет cryptography, поэтому запускайте через uv."
+      "en": "Creates .env from .env.example and fills every empty secret: random PostgreSQL, InfluxDB and Grafana passwords, an InfluxDB token, a fresh RS256 key pair for the API gateway, the demo users' passwords, one MQTT password per service account, the passwords of the database roles cogniboiler_gateway and cogniboiler_alarms, and self-signed certificates for the console's HTTPS and for the OPC UA server. Values already present in .env are never overwritten, so it is safe to run again after .env.example gains a key; a key and its certificate are generated together or not at all. .env is ignored by git; nothing this script writes may ever be committed. Needs the cryptography package, so run it through uv.",
+      "ru": "Создаёт .env из .env.example и заполняет все пустые секреты: случайные пароли PostgreSQL, InfluxDB и Grafana, токен InfluxDB, новую пару ключей RS256 для API-шлюза, пароли демо-пользователей, пароль MQTT для каждой учётной записи сервиса, пароли ролей БД cogniboiler_gateway и cogniboiler_alarms и самоподписанные сертификаты для HTTPS консоли и OPC UA-сервера. Уже заданные в .env значения никогда не перезаписываются, поэтому запускать повторно безопасно — например, после появления нового ключа в .env.example; ключ и сертификат создаются вместе или никак. .env игнорируется git; ничего из записанного этим скриптом нельзя коммитить. Нужен пакет cryptography, поэтому запускайте через uv."
     },
     "examples": []
   },
@@ -117,11 +137,11 @@
       "ru": "Проверить поднятый стек сквозным прогоном через API-шлюз."
     },
     "description": {
-      "en": "Logs in as the demo admin, engineer and operator with passwords from .env, then proves each data path: gateway health, live state through physics-engine gRPC, a nominal setpoint accepted by plc-controller gRPC, role refusals for an anonymous caller and for an operator changing setpoints, alarm events from PostgreSQL, telemetry history from InfluxDB (waiting up to a minute for the first points), and request entries in the audit log. Every check runs even after one fails. The only write is a setpoint update with the PLC's own nominal values.",
-      "ru": "Входит как демо-пользователи admin, engineer и operator с паролями из .env и проверяет каждый путь данных: здоровье шлюза, живое состояние через gRPC physics-engine, номинальную уставку, принятую gRPC plc-controller, отказы по ролям для анонимного вызова и для оператора, меняющего уставки, события тревог из PostgreSQL, историю телеметрии из InfluxDB (ждёт первые точки до минуты) и записи в журнале аудита. Все проверки выполняются, даже если одна упала. Единственная запись — уставка с номинальными значениями самого ПЛК."
+      "en": "Goes through the stack's nginx entry (http://localhost:8080). Logs in as the demo admin, engineer and operator with passwords from .env, then proves each data path: gateway health, live state through physics-engine gRPC, a nominal setpoint accepted by plc-controller gRPC, role refusals for an anonymous caller and for an operator changing setpoints, alarm events from PostgreSQL, telemetry history from InfluxDB (waiting up to a minute for the first points), and request entries in the audit log. Every check runs even after one fails. The only write is a setpoint update with the PLC's own nominal values.",
+      "ru": "Идёт через nginx стека (http://localhost:8080). Входит как демо-пользователи admin, engineer и operator с паролями из .env и проверяет каждый путь данных: здоровье шлюза, живое состояние через gRPC physics-engine, номинальную уставку, принятую gRPC plc-controller, отказы по ролям для анонимного вызова и для оператора, меняющего уставки, события тревог из PostgreSQL, историю телеметрии из InfluxDB (ждёт первые точки до минуты) и записи в журнале аудита. Все проверки выполняются, даже если одна упала. Единственная запись — уставка с номинальными значениями самого ПЛК."
     },
     "examples": [
-      "--base-url http://localhost:8000"
+      "--base-url http://localhost:8080"
     ]
   },
   {

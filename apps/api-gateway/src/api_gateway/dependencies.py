@@ -43,6 +43,9 @@ engine = create_async_engine(
     settings.database_url,
     pool_pre_ping=True,
     echo=settings.debug,  # log SQL statements in debug mode
+    # A failed statement is logged without its values: they carry user names and
+    # token digests, which do not belong in a log.
+    hide_parameters=True,
 )
 
 # async_sessionmaker replaces the older sessionmaker for async usage.

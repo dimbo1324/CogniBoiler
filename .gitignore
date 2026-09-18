@@ -433,3 +433,6 @@ certs/*.key
 # Personal assistant settings stay local; the shared ones are tracked
 .claude/settings.local.json
 .codex/config.local.toml
+
+# Dependency audit reports (audit-deps)
+audit-reports/

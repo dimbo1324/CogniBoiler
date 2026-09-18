@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -49,6 +50,8 @@ if __name__ == "__main__":
             physics_target=args.physics_target,
             mqtt_host=args.mqtt_host,
             mqtt_port=args.mqtt_port,
+            mqtt_username=os.environ.get("MQTT_USERNAME", "plc-controller"),
+            mqtt_password=os.environ.get("MQTT_PASSWORD") or None,
             metrics_port=args.metrics_port,
             metrics_host=args.metrics_host,
         ),

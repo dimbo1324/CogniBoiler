@@ -1,0 +1,7 @@
+{
+  "_comment": "pip-audit runs through uvx at a pinned version, so it never enters the workspace lock. The console fails at this pnpm severity or above; every Python advisory fails.",
+  "pip_audit_version": "2.9.0",
+  "web_dir": "apps/web",
+  "node_fail_level": "high",
+  "report_dir": "audit-reports"
+}

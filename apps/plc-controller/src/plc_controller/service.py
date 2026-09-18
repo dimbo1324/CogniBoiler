@@ -165,6 +165,8 @@ class PLCService:
         mqtt_port: int = DEFAULT_ALERT_MQTT_PORT,
         enable_control_loop: bool = True,
         enable_alert_publishing: bool = True,
+        mqtt_username: str | None = None,
+        mqtt_password: str | None = None,
     ) -> None:
         self._physics = physics_client or PhysicsClient()
         self._retry_delay_s = max(control_interval_s, 0.05)
@@ -182,6 +184,8 @@ class PLCService:
             mqtt_port,
             enabled=enable_alert_publishing,
             active_conditions=self._alarms.active,
+            username=mqtt_username,
+            password=mqtt_password,
         )
 
         self._lock = asyncio.Lock()

@@ -1,0 +1,33 @@
+# Topic rights per account; anything not granted is refused. Each service publishes only
+# its own contract topics (see docs/architecture/overview.md) and reads only what it uses.
+
+user physics-engine
+topic write sensors/#
+topic readwrite status/physics-engine
+
+user plc-controller
+topic write alerts/#
+topic write plc/events
+topic readwrite status/plc-controller
+
+user alert-manager
+topic read alerts/#
+topic write alarms/changes
+
+user historian
+topic read sensors/#
+topic read alarms/changes
+topic read plc/events
+topic read status/+
+
+user api-gateway
+topic read plc/events
+topic read alarms/changes
+
+user opcua-server
+topic read sensors/#
+topic read alarms/changes
+
+# The container healthcheck reads the broker's own statistics.
+user monitor
+topic read $SYS/#

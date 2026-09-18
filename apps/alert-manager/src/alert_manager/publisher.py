@@ -33,9 +33,13 @@ class AlarmChangePublisher:
         port: int,
         *,
         client_id: str = "alert-manager-publisher",
+        username: str | None = None,
+        password: str | None = None,
     ) -> None:
         self._host = host
         self._port = port
+        self._username = username
+        self._password = password
         self._client_id = client_id
         self._queue: deque[bytes] = deque()
         self._wakeup = asyncio.Event()
@@ -73,7 +77,11 @@ class AlarmChangePublisher:
         while True:
             try:
                 async with Client(
-                    hostname=self._host, port=self._port, identifier=self._client_id
+                    hostname=self._host,
+                    port=self._port,
+                    identifier=self._client_id,
+                    username=self._username,
+                    password=self._password,
                 ) as client:
                     if self._failing:
                         logger.info("Alarm change publisher reconnected to MQTT")

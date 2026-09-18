@@ -72,10 +72,14 @@ class MQTTOPCBridge:
         *,
         max_update_hz: float = 5.0,
         alarms_changed: asyncio.Event | None = None,
+        mqtt_username: str | None = None,
+        mqtt_password: str | None = None,
     ) -> None:
         self._opc = opc_server
         self._host = mqtt_host
         self._port = mqtt_port
+        self._username = mqtt_username
+        self._password = mqtt_password
         self._interval_s = 1.0 / max_update_hz if max_update_hz > 0 else 0.0
         self._alarms_changed = alarms_changed
         self._qualities: dict[int, int] = {}
@@ -188,6 +192,8 @@ class MQTTOPCBridge:
                 async with Client(
                     hostname=self._host,
                     port=self._port,
+                    username=self._username,
+                    password=self._password,
                 ) as client:
                     logger.info(
                         "MQTT→OPC bridge connected to %s:%d",

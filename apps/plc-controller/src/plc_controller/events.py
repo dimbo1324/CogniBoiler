@@ -146,9 +146,13 @@ class PlcPublisher:
         enabled: bool = True,
         client_id: str = SOURCE_SERVICE,
         active_conditions: Callable[[], Sequence[AlarmCondition]] = tuple,
+        username: str | None = None,
+        password: str | None = None,
     ) -> None:
         self._host = host
         self._port = port
+        self._username = username
+        self._password = password
         self._enabled = enabled
         self._client_id = client_id
         self._active_conditions = active_conditions
@@ -214,6 +218,8 @@ class PlcPublisher:
                     hostname=self._host,
                     port=self._port,
                     identifier=self._client_id,
+                    username=self._username,
+                    password=self._password,
                     will=Will(
                         TOPIC_AVAILABILITY, payload="offline", qos=1, retain=True
                     ),

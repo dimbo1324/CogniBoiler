@@ -44,6 +44,7 @@ from opcua_server.address_space import (
 from opcua_server.gateway import GatewayClient
 from opcua_server.identity import install_identity
 from opcua_server.methods import RESULT_ARGUMENTS, MethodHandlers, argument
+from opcua_server.security import ServerCertificate, secure
 from opcua_server.ua_types import (
     AttributeIds,
     ObjectIds,
@@ -112,8 +113,10 @@ class CogniBoilerOPCServer:
         endpoint: str = DEFAULT_ENDPOINT,
         *,
         gateway_url: str = "http://localhost:8000",
+        certificate: ServerCertificate | None = None,
     ) -> None:
         self._endpoint = endpoint
+        self._certificate = certificate
         self._gateway = GatewayClient(gateway_url)
         self._server = Server()
         self._ns: int = NS_IDX
@@ -132,6 +135,7 @@ class CogniBoilerOPCServer:
             [ua.AnonymousIdentityToken, ua.UserNameIdentityToken]
         )
         install_identity(self._server, self._gateway)
+        await secure(self._server, self._certificate)
 
         self._ns = await self._server.register_namespace(NAMESPACE_URI)
         root = await self._server.nodes.objects.add_folder(

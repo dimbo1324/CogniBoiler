@@ -176,6 +176,8 @@ async def serve(
     physics_target: str = "localhost:50052",
     mqtt_host: str = "localhost",
     mqtt_port: int = 1883,
+    mqtt_username: str | None = None,
+    mqtt_password: str | None = None,
     metrics_port: int = 0,
     metrics_host: str = "127.0.0.1",
 ) -> None:
@@ -184,6 +186,8 @@ async def serve(
         physics_client=PhysicsClient(PhysicsClientConfig(target=physics_target)),
         mqtt_host=mqtt_host,
         mqtt_port=mqtt_port,
+        mqtt_username=mqtt_username,
+        mqtt_password=mqtt_password,
     )
     await service.start()
     observe_service(service)

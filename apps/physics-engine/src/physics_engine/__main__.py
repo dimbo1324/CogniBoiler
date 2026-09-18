@@ -13,6 +13,7 @@ import argparse
 import asyncio
 import contextlib
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -59,7 +60,11 @@ async def main(args: argparse.Namespace) -> None:
     if not args.disable_mqtt:
         publisher = MQTTPublisher(
             MQTTConfig(
-                host=args.mqtt_host, port=args.mqtt_port, client_id="physics-engine"
+                host=args.mqtt_host,
+                port=args.mqtt_port,
+                client_id="physics-engine",
+                username=os.environ.get("MQTT_USERNAME", "physics-engine"),
+                password=os.environ.get("MQTT_PASSWORD") or None,
             )
         )
         mirror = asyncio.create_task(

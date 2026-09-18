@@ -92,10 +92,14 @@ class HistorianSubscriber:
         batch_size: int = 1,
         flush_interval_s: float = 2.0,
         client_id: str | None = None,
+        mqtt_username: str | None = None,
+        mqtt_password: str | None = None,
     ) -> None:
         self._writer = writer
         self._host = mqtt_host
         self._port = mqtt_port
+        self._username = mqtt_username
+        self._password = mqtt_password
         self._client_id = client_id
         self._batch_size = max(batch_size, 1)
         self._buffer: list[PointLike] = []
@@ -235,6 +239,8 @@ class HistorianSubscriber:
                     hostname=self._host,
                     port=self._port,
                     identifier=self._client_id,
+                    username=self._username,
+                    password=self._password,
                     clean_session=False if self._client_id else None,
                 ) as client:
                     logger.info(

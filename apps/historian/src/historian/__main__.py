@@ -51,6 +51,8 @@ async def main(args: argparse.Namespace, influx_token: str) -> None:
         batch_size=args.batch_size,
         flush_interval_s=args.flush_interval_s,
         client_id=args.client_id or None,
+        mqtt_username=os.environ.get("MQTT_USERNAME", "historian"),
+        mqtt_password=os.environ.get("MQTT_PASSWORD") or None,
     )
     logger.info(
         "Starting Historian: mqtt=%s:%d influx=%s bucket=%s aggregates=%s batch=%d",

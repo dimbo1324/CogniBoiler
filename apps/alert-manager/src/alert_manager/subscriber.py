@@ -51,9 +51,13 @@ class AlertSubscriber:
         handler: MessageHandler | None = None,
         *,
         client_id: str = "alert-manager",
+        username: str | None = None,
+        password: str | None = None,
     ) -> None:
         self._host = mqtt_host
         self._port = mqtt_port
+        self._username = username
+        self._password = password
         self._handler = handler
         self._client_id = client_id
         self._received = 0
@@ -134,6 +138,8 @@ class AlertSubscriber:
                     hostname=self._host,
                     port=self._port,
                     identifier=self._client_id,
+                    username=self._username,
+                    password=self._password,
                     clean_session=False,
                 ) as client:
                     await client.subscribe(SUBSCRIBE_TOPIC, qos=1)

@@ -21,12 +21,15 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
+from asyncua import ua
+from asyncua.common.utils import ServiceError
 from asyncua.crypto.permission_rules import User, UserRole
 from asyncua.server.internal_session import InternalSession
 from asyncua.server.server import Server
 from asyncua.server.user_managers import UserManager
 
 from opcua_server.gateway import GatewayClient, GatewaySession
+from opcua_server.ua_types import StatusCodes
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +68,30 @@ class GatewayUserManager(UserManager):
         )
 
 
+def sends_password_in_clear(token: object, peer_certificate: bytes | None) -> bool:
+    """
+    A username token whose password is neither encrypted in the token nor on an encrypted
+    channel. The server offers only `None` and `SignAndEncrypt` endpoints, so a channel
+    with a client certificate is encrypted.
+    """
+    return (
+        isinstance(token, ua.UserNameIdentityToken)
+        and not token.EncryptionAlgorithm
+        and not peer_certificate
+    )
+
+
 class _UserAwareSession(InternalSession):
+    def activate_session(
+        self, params: ua.ActivateSessionParameters, peer_certificate: bytes | None
+    ) -> ua.ActivateSessionResult:
+        if sends_password_in_clear(params.UserIdentityToken, peer_certificate):
+            logger.warning(
+                "OPC UA sign-in refused: a password sent in clear on an open channel"
+            )
+            raise ServiceError(StatusCodes.BadIdentityTokenRejected)
+        return super().activate_session(params, peer_certificate)
+
     async def call(self, params: Any) -> Any:
         token = CURRENT_USER.set(self.user)
         try:

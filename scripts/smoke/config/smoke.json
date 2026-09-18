@@ -1,6 +1,6 @@
 {
   "_comment": "Users are the demo accounts the gateway seeds from DEMO_*_PASSWORD. The setpoints are the PLC defaults, so the one write this check makes changes nothing.",
-  "base_url": "http://localhost:8000",
+  "base_url": "http://localhost:8080",
   "env_file": ".env",
   "history_wait_s": 60,
   "users": {

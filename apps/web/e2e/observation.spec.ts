@@ -11,12 +11,19 @@ test("a wrong password is refused without saying whether the account exists", as
 });
 
 test("the operator sees the live mimic, and a reload keeps the session", async ({ page }) => {
+  const policyViolations: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" && message.text().includes("Content Security Policy")) {
+      policyViolations.push(message.text());
+    }
+  });
   await signIn(page, "operator");
   await expect(page.getByLabel("Live data connection")).toHaveText("Live");
   await expect(page.getByTestId("mimic-power")).toContainText("MW");
   await expect(page.getByTestId("mimic-drum-pressure")).toContainText("bar");
   await expect(page.getByRole("banner").getByLabel("PLC mode")).toBeVisible();
   await page.screenshot({ path: "e2e-results/overview.png", fullPage: true });
+  expect(policyViolations).toEqual([]);
 
   await page.reload();
   await expect(page.getByLabel("Signed in as")).toContainText("operator");

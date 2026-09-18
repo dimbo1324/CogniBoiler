@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import sys
 from collections.abc import Coroutine
 from pathlib import Path
@@ -60,9 +61,15 @@ async def main(args: argparse.Namespace) -> int:
         return 1
 
     start_metrics_server(args.metrics_port, args.metrics_host)
-    publisher = AlarmChangePublisher(args.mqtt_host, args.mqtt_port)
+    username = os.environ.get("MQTT_USERNAME", "alert-manager")
+    password = os.environ.get("MQTT_PASSWORD") or None
+    publisher = AlarmChangePublisher(
+        args.mqtt_host, args.mqtt_port, username=username, password=password
+    )
     processor = AlarmProcessor(session_factory(engine), publisher)
-    subscriber = AlertSubscriber(args.mqtt_host, args.mqtt_port, processor)
+    subscriber = AlertSubscriber(
+        args.mqtt_host, args.mqtt_port, processor, username=username, password=password
+    )
     publisher.start()
     server = await start_server(
         AlarmServicer(processor, is_subscribed=lambda: subscriber.connected),

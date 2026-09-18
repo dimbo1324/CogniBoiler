@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -19,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parents[4] / "shared" / "generated"))
 from cogniboiler_observability import configure_logging, start_metrics_server
 
 from opcua_server.client import AlarmReadClient, PLCStatusClient
+from opcua_server.security import certificate_from_environment
 from opcua_server.server import CogniBoilerOPCServer
 from opcua_server.subscriber import MQTTOPCBridge
 from opcua_server.upstreams import run_alarm_projection, run_plc_projection
@@ -31,6 +33,7 @@ async def main(args: argparse.Namespace) -> None:
     opc_server = CogniBoilerOPCServer(
         endpoint=f"opc.tcp://0.0.0.0:{args.opc_port}/cogniboiler",
         gateway_url=args.gateway_url,
+        certificate=certificate_from_environment(),
     )
     alarms_changed = asyncio.Event()
     bridge = MQTTOPCBridge(
@@ -39,6 +42,8 @@ async def main(args: argparse.Namespace) -> None:
         mqtt_port=args.mqtt_port,
         max_update_hz=args.max_update_hz,
         alarms_changed=alarms_changed,
+        mqtt_username=os.environ.get("MQTT_USERNAME", "opcua-server"),
+        mqtt_password=os.environ.get("MQTT_PASSWORD") or None,
     )
     plc = PLCStatusClient(args.plc_target)
     alarms = AlarmReadClient(args.alarm_target)

@@ -92,7 +92,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             name="realtime-plc-status",
         ),
         asyncio.create_task(
-            run_mqtt_events(hub, settings.mqtt_host, settings.mqtt_port),
+            run_mqtt_events(
+                hub,
+                settings.mqtt_host,
+                settings.mqtt_port,
+                settings.mqtt_username or None,
+                settings.mqtt_password or None,
+            ),
             name="realtime-mqtt-events",
         ),
     ]

@@ -94,7 +94,13 @@ def _json_object(payload: bytes | bytearray | Any) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
-async def run_mqtt_events(hub: RealtimeHub, host: str, port: int) -> None:
+async def run_mqtt_events(
+    hub: RealtimeHub,
+    host: str,
+    port: int,
+    username: str | None = None,
+    password: str | None = None,
+) -> None:
     outage = _OutageLog("mqtt events")
     routes: dict[str, tuple[Channel, str]] = {
         TOPIC_PLC_EVENTS: (Channel.PLC, "event"),
@@ -103,7 +109,11 @@ async def run_mqtt_events(hub: RealtimeHub, host: str, port: int) -> None:
     while True:
         try:
             async with Client(
-                hostname=host, port=port, identifier=f"api-gateway-{uuid4().hex[:12]}"
+                hostname=host,
+                port=port,
+                identifier=f"api-gateway-{uuid4().hex[:12]}",
+                username=username,
+                password=password,
             ) as client:
                 for topic in routes:
                     await client.subscribe(topic, qos=1)

@@ -74,6 +74,8 @@ class Settings(BaseSettings):
     # MQTT: PLC events and alarm changes for the WebSocket channels
     mqtt_host: str = "localhost"
     mqtt_port: int = 1883
+    mqtt_username: str = "api-gateway"
+    mqtt_password: str = ""
 
     # gRPC upstreams
     physics_grpc_target: str = "localhost:50052"

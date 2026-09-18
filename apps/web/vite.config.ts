@@ -2,8 +2,9 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
 // The dev server proxies every gateway route, so the browser always talks to one origin —
-// the same shape the production nginx container will have.
-const gateway = "http://localhost:8000";
+// the same shape the stack's nginx has. By default it goes through that nginx (the gateway
+// has no host port); GATEWAY_URL points it at a gateway run from the host instead.
+const gateway = process.env.GATEWAY_URL ?? "http://127.0.0.1:8080";
 
 export default defineConfig({
   plugins: [react()],

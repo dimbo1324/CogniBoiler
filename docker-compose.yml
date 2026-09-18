@@ -13,18 +13,30 @@ x-python-service: &python-service
   restart: unless-stopped
 
 services:
+  # Every client has its own account and topic rights; the accounts are written from .env
+  # on each start by start-broker.sh.
   mosquitto:
     image: eclipse-mosquitto:2.0
+    entrypoint: ["/bin/sh", "/cogniboiler/start-broker.sh"]
     ports:
       - "127.0.0.1:1883:1883"
-      - "127.0.0.1:9001:9001"
+    environment:
+      MQTT_PHYSICS_ENGINE_PASSWORD: ${MQTT_PHYSICS_ENGINE_PASSWORD:?run dev-secrets}
+      MQTT_PLC_CONTROLLER_PASSWORD: ${MQTT_PLC_CONTROLLER_PASSWORD:?run dev-secrets}
+      MQTT_ALERT_MANAGER_PASSWORD: ${MQTT_ALERT_MANAGER_PASSWORD:?run dev-secrets}
+      MQTT_HISTORIAN_PASSWORD: ${MQTT_HISTORIAN_PASSWORD:?run dev-secrets}
+      MQTT_API_GATEWAY_PASSWORD: ${MQTT_API_GATEWAY_PASSWORD:?run dev-secrets}
+      MQTT_OPCUA_SERVER_PASSWORD: ${MQTT_OPCUA_SERVER_PASSWORD:?run dev-secrets}
+      MQTT_MONITOR_PASSWORD: ${MQTT_MONITOR_PASSWORD:?run dev-secrets}
     volumes:
       - ./infrastructure/docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./infrastructure/docker/mosquitto/acl:/cogniboiler/acl:ro
+      - ./infrastructure/docker/mosquitto/start-broker.sh:/cogniboiler/start-broker.sh:ro
       - mosquitto_data:/mosquitto/data
       - mosquitto_log:/mosquitto/log
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-i", "healthcheck", "-W", "3"]
+      test: ["CMD-SHELL", "mosquitto_sub -u monitor -P \"$$MQTT_MONITOR_PASSWORD\" -t '$$SYS/broker/uptime' -C 1 -i healthcheck -W 3"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -95,9 +107,13 @@ services:
 
   migrate:
     <<: *python-service
-    command: ["python", "-m", "alembic", "-c", "apps/api-gateway/alembic.ini", "upgrade", "head"]
+    # The only service that connects as the owner of the tables: it migrates the schema and
+    # gives the application roles their passwords.
+    command: ["sh", "-c", "python -m alembic -c apps/api-gateway/alembic.ini upgrade head && python -m api_gateway.db_roles"]
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:?run dev-secrets}:${POSTGRES_PASSWORD:?run dev-secrets}@postgresql:5432/${POSTGRES_DB:?run dev-secrets}
+      GATEWAY_DB_PASSWORD: ${GATEWAY_DB_PASSWORD:?run dev-secrets}
+      ALARMS_DB_PASSWORD: ${ALARMS_DB_PASSWORD:?run dev-secrets}
     depends_on:
       postgresql:
         condition: service_healthy
@@ -106,6 +122,9 @@ services:
   physics-engine:
     <<: *python-service
     command: ["python", "-m", "physics_engine", "--mqtt-host", "mosquitto", "--grpc-port", "50052", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
+    environment:
+      MQTT_USERNAME: physics-engine
+      MQTT_PASSWORD: ${MQTT_PHYSICS_ENGINE_PASSWORD:?run dev-secrets}
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -119,6 +138,9 @@ services:
   plc-controller:
     <<: *python-service
     command: ["python", "-m", "plc_controller", "--port", "50051", "--physics-target", "physics-engine:50052", "--mqtt-host", "mosquitto", "--mqtt-port", "1883", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
+    environment:
+      MQTT_USERNAME: plc-controller
+      MQTT_PASSWORD: ${MQTT_PLC_CONTROLLER_PASSWORD:?run dev-secrets}
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -135,6 +157,8 @@ services:
     <<: *python-service
     command: ["python", "-m", "historian", "--mqtt-host", "mosquitto", "--influx-url", "http://influxdb:8086", "--influx-org", "${INFLUXDB_ORG:?run dev-secrets}", "--influx-bucket", "${INFLUXDB_BUCKET:?run dev-secrets}", "--batch-size", "50", "--flush-interval-s", "2.0", "--liveness-file", "/tmp/cogniboiler-liveness", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     environment:
+      MQTT_USERNAME: historian
+      MQTT_PASSWORD: ${MQTT_HISTORIAN_PASSWORD:?run dev-secrets}
       INFLUXDB_TOKEN: ${INFLUXDB_ADMIN_TOKEN:?run dev-secrets}
     depends_on:
       mosquitto:
@@ -152,7 +176,9 @@ services:
     <<: *python-service
     command: ["python", "-m", "alert_manager", "--mqtt-host", "mosquitto", "--mqtt-port", "1883", "--grpc-port", "50053", "--liveness-file", "/tmp/cogniboiler-liveness", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     environment:
-      ALERT_MANAGER_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:?run dev-secrets}:${POSTGRES_PASSWORD:?run dev-secrets}@postgresql:5432/${POSTGRES_DB:?run dev-secrets}
+      MQTT_USERNAME: alert-manager
+      MQTT_PASSWORD: ${MQTT_ALERT_MANAGER_PASSWORD:?run dev-secrets}
+      ALERT_MANAGER_DATABASE_URL: postgresql+asyncpg://cogniboiler_alarms:${ALARMS_DB_PASSWORD:?run dev-secrets}@postgresql:5432/${POSTGRES_DB:?run dev-secrets}
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -170,6 +196,11 @@ services:
     command: ["python", "-m", "opcua_server", "--mqtt-host", "mosquitto", "--plc-target", "plc-controller:50051", "--alarm-target", "alert-manager:50053", "--gateway-url", "http://api-gateway:8000", "--opc-port", "4840", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     ports:
       - "127.0.0.1:4840:4840"
+    environment:
+      MQTT_USERNAME: opcua-server
+      MQTT_PASSWORD: ${MQTT_OPCUA_SERVER_PASSWORD:?run dev-secrets}
+      OPCUA_SERVER_CERT: ${OPCUA_SERVER_CERT:-}
+      OPCUA_SERVER_KEY: ${OPCUA_SERVER_KEY:-}
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -184,11 +215,14 @@ services:
 
   api-gateway:
     <<: *python-service
-    command: ["python", "-m", "api_gateway", "--host", "0.0.0.0", "--port", "8000"]
-    ports:
-      - "127.0.0.1:8000:8000"
+    # Reached only through the web service (nginx) and from inside the network: no host
+    # port. It trusts X-Forwarded-For only from private addresses, which on this network
+    # means nginx or another service of the stack.
+    command: ["python", "-m", "api_gateway", "--host", "0.0.0.0", "--port", "8000", "--forwarded-allow-ips", "172.16.0.0/12,10.0.0.0/8,192.168.0.0/16"]
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:?run dev-secrets}:${POSTGRES_PASSWORD:?run dev-secrets}@postgresql:5432/${POSTGRES_DB:?run dev-secrets}
+      MQTT_USERNAME: api-gateway
+      MQTT_PASSWORD: ${MQTT_API_GATEWAY_PASSWORD:?run dev-secrets}
+      DATABASE_URL: postgresql+asyncpg://cogniboiler_gateway:${GATEWAY_DB_PASSWORD:?run dev-secrets}@postgresql:5432/${POSTGRES_DB:?run dev-secrets}
       AUTO_INIT_DB: "true"
       JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:?run dev-secrets}
       JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:?run dev-secrets}
@@ -224,6 +258,30 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+
+  # The console and the gateway's public routes on one origin: HTTP on 8080 and, with the
+  # certificate from .env, HTTPS on 8443. The only way in from the host besides tools.
+  web:
+    build:
+      context: ./apps/web
+      additional_contexts:
+        nginx: ./infrastructure/nginx
+    image: cogniboiler/web:dev
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8443:8443"
+    environment:
+      WEB_TLS_CERT: ${WEB_TLS_CERT:-}
+      WEB_TLS_KEY: ${WEB_TLS_KEY:-}
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # Service metrics for the Platform dashboard; `stack up` enables this profile.
   prometheus:

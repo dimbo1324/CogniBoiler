@@ -1,0 +1,6 @@
+node_modules
+dist
+coverage
+e2e-results
+e2e-report
+*.tsbuildinfo
