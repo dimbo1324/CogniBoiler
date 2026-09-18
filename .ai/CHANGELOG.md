@@ -6,6 +6,25 @@ History of changes to the AI assistant rule system (`.ai/`, `CLAUDE.md`, `AGENTS
 
 Format: date, what changed, why, who decided. Newest first.
 
+## 2026-09-18 — Hardening in the project rules (S11)
+
+**What changed.** `project/12-domain-rules.md` gains the rule that each service has its own
+PostgreSQL role and MQTT account, so a new table grants its rights in its migration and a
+new topic gets its broker ACL entry. `project/11-commands.md` lists `audit-deps`.
+`project/14-command-reference.md` describes the authenticated broker without a WebSocket
+listener, the database roles, the OPC UA endpoints, the nginx entry on 8080/8443, the
+gateway without a host port, and how host-run services pass `MQTT_USERNAME`,
+`MQTT_PASSWORD` and `GATEWAY_URL`. To stay within the 30 KiB budget of `AGENTS.md`, the
+descriptive lines of `project/10-project-map.md` (the summary, the AI note and the service
+list) were condensed without changing a rule; the budget now has almost no room left, which
+is raised with the owner.
+
+**Why.** S11 changed how services authenticate and how the stack is reached; without these
+lines the next table or topic would silently lack its grant or ACL entry. Additions and
+factual corrections, which `universal/08-rules-evolution.md` allows without approval.
+
+**Decided by.** Agent, as part of the owner-requested S11 work of 2026-09-18.
+
 ## 2026-09-18 — Observability in the project rules (S9)
 
 **What changed.** `project/12-domain-rules.md` gains the rule that entry points call

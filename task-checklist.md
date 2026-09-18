@@ -62,14 +62,22 @@ Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 
 ## S11 — hardening (`security/hardening`)
 
-[ ] MQTT with a password per service and topic ACLs, anonymous access off, no browser
-    WebSocket listener
-[ ] nginx in front of the console and the API, non-root; optional self-signed TLS
-[ ] Database roles for the gateway and alert-manager without DDL and without UPDATE, DELETE
-    or TRUNCATE on `audit_log` (closes Д13)
-[ ] OPC UA Basic256Sha256 security policy; credentials never in clear (closes Д14)
-[ ] Dependency audit: pip-audit and pnpm audit script, Trivy in CI, reports as artifacts
-[ ] Secrets review: nothing in the repository or the images
++ MQTT with a password per service and topic ACLs, anonymous access off, no browser
+  WebSocket listener; checked on the stack (anonymous refused, a forged publish dropped)
++ nginx in front of the console and the API, non-root, security headers and CSP; HTTPS on
+  8443 with a self-signed certificate from dev-secrets; the gateway has no host port
++ Database roles for the gateway and alert-manager without DDL and without UPDATE, DELETE
+  or TRUNCATE on `audit_log` (Д13 closed); refusals checked in PostgreSQL, migration 0004
+  downgraded and re-applied on the live database
++ OPC UA Basic256Sha256 with an application certificate; a password in clear is refused
+  (Д14 closed); checked with an asyncua client
++ Dependency audit: `audit-deps` (pip-audit, pnpm audit) found 30 advisories in 13 Python
+  packages, all fixed by upgrades; CI job `audit` and Trivy scans with report artifacts
++ Secrets review: no `.env`, `certs/` or private key in the images or the repository
+- A statement that failed printed a role password into the `migrate` container log:
+  parameters are now hidden in every engine and that password was rotated
+- OPC UA accepts any client certificate (no trust list): recorded as a limitation
++ The PLC E-Stop integration test, flaky under load, now runs in lockstep (Д2 narrowed)
 
 ## S12 — delivery (`feat/delivery`)
 

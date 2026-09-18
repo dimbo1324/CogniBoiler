@@ -120,9 +120,10 @@ valve, who reset a trip and who was refused must be the record that was written.
 
 **Enforced by.** Triggers created in migration `0003_sessions_and_append_only_audit` raise
 on `UPDATE`, `DELETE` and, on PostgreSQL, `TRUNCATE`; the gateway only inserts, and a failed
-insert is logged with the whole record instead of being dropped. The application still
-connects as the table owner, which could disable the triggers — a separate database role is
-debt Д13.
+insert is logged with the whole record instead of being dropped. The gateway connects as
+`cogniboiler_gateway` (migration `0004_application_roles`), which may only `SELECT` and
+`INSERT` on `audit_log` and owns no table, so it can neither change a row nor disable the
+triggers; only the migration job connects as the owner.
 
 ## I11. Every write from a protocol edge goes through the gateway
 

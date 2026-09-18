@@ -19,6 +19,7 @@ package hands itself to `uv run`. With no arguments and no terminal it runs
 |---|---|
 | `quality-gate` (`--quick`) | the one verification path; CI runs exactly this |
 | `format-code` (`--check`) | ruff for Python, Prettier for the frontend |
+| `audit-deps` | known vulnerabilities in the locked dependencies |
 | `sync-agents` (`--check`) | regenerate `AGENTS.md` from `.ai/` |
 | `stack up` / `status` / `logs <svc>` / `down` | the Docker Compose stack |
 | `dev-secrets` | `.env` with generated development secrets |
@@ -39,10 +40,10 @@ runs `selftest` after touching `scripts/`. A new routine job is a new directory 
 ## Direct commands, one layer at a time
 
 ```powershell
-uv sync --all-packages                        # the environment exactly as uv.lock says
-uv run pytest apps/plc-controller/tests       # one service's tests
-uv run ruff check . ; uv run mypy             # lint, strict types
-pnpm --dir apps/web install                   # frontend dependencies, once
+uv sync --all-packages                    # the environment exactly as uv.lock says
+uv run pytest apps/plc-controller/tests   # one service's tests
+uv run ruff check . ; uv run mypy         # lint, strict types
+pnpm --dir apps/web install               # frontend dependencies, once
 ```
 
 Service-by-service run commands, ports, topics and platform notes are in

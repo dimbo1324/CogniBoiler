@@ -23,16 +23,17 @@ regenerating secrets, run `stack down --volumes`.
 
 | Component | Host port | Notes |
 |---|---|---|
-| Mosquitto (MQTT / WebSocket) | 1883 / 9001 | anonymous access, development only |
+| Mosquitto (MQTT) | 1883 | one account per service (`MQTT_<SERVICE>_PASSWORD` in `.env`) and a topic ACL; no anonymous clients, no WebSocket listener |
 | InfluxDB 2 | 8086 | org and raw bucket (7 days) from `.env`; `sensors_1m` one-minute aggregates (90 days), set up by the historian |
-| PostgreSQL 16 | 5432 | users, roles, sessions, append-only audit log, scenario runs; alarm lifecycle tables owned by alert-manager |
+| PostgreSQL 16 | 5432 | users, roles, sessions, append-only audit log, scenario runs; alarm lifecycle tables owned by alert-manager; the services connect as `cogniboiler_gateway` and `cogniboiler_alarms`, only `migrate` as the owner |
 | Grafana | 3000 | provisioned datasources InfluxDB (uid `influxdb`) and Prometheus (uid `prometheus`); dashboards Process, Efficiency and emissions, Alarms, Platform |
 | Prometheus | 9090 | profile `observability` (enabled by `stack`); scrapes `/metrics` of every service, 7 days |
 | physics-engine gRPC | — | `PhysicsService` on :50052 inside the Compose network only: publishing it would open a path to the valves around the PLC |
 | plc-controller gRPC | — | `PLCService` on :50051 inside the Compose network only |
 | alert-manager gRPC | — | `AlarmService` on :50053 inside the Compose network only |
-| opcua-server | 4840 | `opc.tcp://localhost:4840/cogniboiler`; anonymous read, methods need a gateway user (username and password) |
-| api-gateway | 8000 | REST under `/api/v1`, `/auth`, `/health`, `/ready`, `/metrics`, OpenAPI at `/docs`, WebSocket `/ws` (token in the first frame) |
+| opcua-server | 4840 | `opc.tcp://localhost:4840/cogniboiler`; endpoints `None` (anonymous read; a password only encrypted with the server certificate) and `Basic256Sha256/SignAndEncrypt`; methods need a gateway user |
+| web (nginx) | 8080 / 8443 | the console and the gateway's `/api`, `/auth`, `/health`, `/ready`, `/ws`, `/docs`; HTTPS with the self-signed `WEB_TLS_*` certificate |
+| api-gateway | — | :8000 inside the network only (and its `/metrics`); reach it through nginx |
 | web console | 5173 (dev) | Vite dev server on 127.0.0.1 proxies `/api`, `/auth`, `/health` and `/ws` to the gateway |
 
 ## Running a service from the host
@@ -44,7 +45,7 @@ uv run --package physics-engine python -m physics_engine --speed 1   # --scenari
 uv run --package plc-controller python -m plc_controller --physics-target localhost:50052
 uv run --package historian python -m historian
 uv run --package alert-manager python -m alert_manager               # AlarmService on :50053
-uv run --package opcua-server python -m opcua_server                 # --gateway-url http://localhost:8000
+uv run --package opcua-server python -m opcua_server                 # --gateway-url http://localhost:8080
 uv run --package api-gateway python -m api_gateway --port 8000         # or: uvicorn api_gateway.main:app --reload
 ```
 
@@ -56,7 +57,9 @@ historian, 9104 alert-manager, 9105 OPC UA, bound to 127.0.0.1; 9100 on all inte
 Compose). A caller's `X-Correlation-ID` (or a new id) follows a request through gRPC
 metadata and comes back in the response header.
 
-Host-run services read `.env` from the repository root for secrets. alert-manager refuses to
+A host-run service signs in to the broker with `MQTT_USERNAME` (default: its name) and
+`MQTT_PASSWORD` from its environment; the gateway reads `.env` for its settings. A host-run
+gateway listens on :8000, so point the console at it with `GATEWAY_URL=http://127.0.0.1:8000`. alert-manager refuses to
 start until the migrations have created its tables (`stack up --infra-only` runs `migrate`
 only with the full stack; from the host, apply `alembic upgrade head` first).
 

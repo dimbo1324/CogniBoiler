@@ -68,6 +68,13 @@ heat input, heat to the cycle, boiler and net efficiency, turbine and plant heat
 
 ### MQTT
 
+Every client signs in with its own account (`physics-engine`, `plc-controller`,
+`alert-manager`, `historian`, `api-gateway`, `opcua-server`, and `monitor` for the broker's
+healthcheck); anonymous clients are refused. The ACL in
+`infrastructure/docker/mosquitto/acl` lets each account publish only its own topics below
+and read only what it consumes; a denied publish is dropped. There is no WebSocket
+listener: the browser never speaks MQTT.
+
 | Topic | Payload | Publisher → subscribers |
 |---|---|---|
 | `sensors/plant` | protobuf `PlantStatusMsg`: emissions, condenser, health, faults, instrument qualities, simulation status, valves, performance; published first in each step | physics-engine → historian, opcua-server |
@@ -83,6 +90,14 @@ heat input, heat to the cycle, boiler and net efficiency, turbine and plant heat
 Reserved for the deferred AI stage, not implemented: `insights/*`.
 
 ### REST (api-gateway)
+
+People and tools reach the gateway through the `web` service (nginx) on
+`http://localhost:8080`, or `https://localhost:8443` with the self-signed certificate from
+`.env`; the gateway itself has no host port. nginx serves the console, proxies `/api`,
+`/auth`, `/health`, `/ready`, `/ws` and the OpenAPI pages, keeps `/metrics` inside the
+network, and adds a strict Content-Security-Policy, `X-Frame-Options`, `nosniff` and
+`Referrer-Policy` (HSTS on HTTPS). The gateway takes the client address for the audit log
+from nginx's `X-Forwarded-For`.
 
 The OpenAPI schema is committed as `shared/openapi/api-gateway.json`; the console's
 TypeScript types are generated from it (`apps/web/src/api/schema.gen.ts`, script
@@ -142,6 +157,13 @@ upstreams (`UncertainLastUsableValue`). Methods (29xx): `PLC/SetLoadDemand`,
 `Reason`. Anonymous sessions browse and read; methods need a username session, signed in at
 the gateway, and run with that user's role and audit trail.
 
+Security: an application certificate (`urn:cogniboiler:opcua-server`, from `.env`, or a
+temporary self-signed one) and two endpoints — `None`, where a username's password must
+travel encrypted with the server's key (the token policy names Basic256Sha256; a password
+sent in clear is refused with `BadIdentityTokenRejected`), and `Basic256Sha256 /
+SignAndEncrypt`. Client certificates are accepted without a trust list: users are
+authenticated by their password at the gateway.
+
 ### Logs and metrics
 
 Every service writes one JSON object per line to standard output: `timestamp` (UTC),
@@ -176,7 +198,11 @@ all every 10 s in the Compose profile `observability`, which `stack` enables.
   `0003_sessions_and_append_only_audit` — `refresh_tokens` (replacing `token_blacklist`),
   `users.last_login_at_ms`, `audit_log.username`, `role`, `outcome`, triggers that refuse
   `UPDATE`, `DELETE` and `TRUNCATE` on `audit_log`, and `scenario_runs` (who loaded a
-  scenario or injected or cleared a fault).
+  scenario or injected or cleared a fault); `0004_application_roles` — roles
+  `cogniboiler_gateway` (read and write its tables, only `SELECT` and `INSERT` on
+  `audit_log`) and `cogniboiler_alarms` (the alarm tables). Neither owns a table, so neither
+  can alter one, disable a trigger or truncate. Only the `migrate` job connects as the owner;
+  it also gives the roles their passwords (`python -m api_gateway.db_roles`).
 - **InfluxDB**: raw bucket from `.env` (7 days) with `boiler_sensors` (tags `quality`,
   `scenario`), `turbine_sensors` (tag `scenario`), `plant_status` (tag `scenario`; emissions,
   condenser, health, valves, performance, simulation, fault labels), `simulation_events`,
@@ -187,8 +213,11 @@ all every 10 s in the Compose profile `observability`, which `stack` enables.
 ## Runtime and tooling
 
 - `docker-compose.yml` + `Dockerfile` run infrastructure and all services from one
-  Python 3.14 image (`uv sync --frozen --no-dev`, non-root, `python -m` entry points).
-  Every secret is interpolated from `.env`; host ports bind to `127.0.0.1`. A one-shot
+  Python 3.14 image (`uv sync --frozen --no-dev`, non-root, `python -m` entry points);
+  `apps/web/Dockerfile` builds the console and serves it from an unprivileged nginx.
+  Every secret is interpolated from `.env`; host ports bind to `127.0.0.1`: the console
+  and API (8080, 8443), MQTT (1883), OPC UA (4840), and for developers PostgreSQL,
+  InfluxDB, Grafana and Prometheus. A one-shot
   `migrate` service applies Alembic before the gateway and alert-manager start; the gateway
   only seeds roles and demo users. Every long-running service has a healthcheck.
 - Grafana is provisioned with InfluxDB and Prometheus datasources of fixed uids and four
@@ -201,7 +230,9 @@ all every 10 s in the Compose profile `observability`, which `stack` enables.
   `DEMO_*_PASSWORD` when `AUTO_INIT_DB` is set; no credential is hardcoded.
 - `smoke` checks a running stack through the gateway: health and readiness, logins, role
   refusals, live state, a setpoint accepted by the PLC, alarms, history, KPIs and the audit
-  log of sign-ins. CI runs it against a freshly built stack.
+  log of sign-ins. CI runs it against a freshly built stack, scans both images with
+  Trivy and audits the locked dependencies (`audit-deps`: pip-audit and pnpm audit),
+  keeping the reports.
 - `apps/web` is the operator console: React 19 + TypeScript (6.0) + Vite 8, React Router,
   TanStack Query and uPlot. One HTTP module keeps the access token in memory and refreshes
   it through the httpOnly cookie; one WebSocket client authenticates in the first frame and
@@ -211,7 +242,7 @@ all every 10 s in the Compose profile `observability`, which `stack` enables.
   checks the console against a running stack with the demo users from `.env`, including the
   five-minute demo played by an operator, an engineer and an admin at once.
 - `python dev_tools_scripts_runner.py` is the developer-tools orchestrator: `quality-gate`,
-  `format-code`, `sync-agents`, `stack`, `dev-secrets`, `smoke`, `console-e2e`,
+  `format-code`, `audit-deps`, `sync-agents`, `stack`, `dev-secrets`, `smoke`, `console-e2e`,
   `generate-proto`, `generate-openapi`, `doctor`, `install-hooks`, `clean-caches`,
   `selftest`.
 - The quality gate runs ruff, strict mypy, every service test suite, the protobuf,
@@ -227,7 +258,6 @@ Recorded with their planned fix in the internal roadmap:
 - the logic added in S2–S5, S8 and S10 has no dedicated tests yet (owner decision for that
   work); of the PLC integration tests, only the AUTO hold test runs in lockstep with the
   plant, the others still pace it by wall clock;
-- the application connects to PostgreSQL as the table owner, which could disable the audit
-  triggers; sign-in throttling state lives in the single gateway process;
-- MQTT is anonymous and OPC UA uses no security policy (credentials travel in clear on the
-  local network); the console's Playwright checks run locally, not yet in CI.
+- sign-in throttling state lives in the single gateway process;
+- the console's Playwright checks run locally, not yet in CI; OPC UA accepts any client
+  certificate (no trust list).

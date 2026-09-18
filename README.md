@@ -463,13 +463,14 @@ python dev_tools_scripts_runner.py smoke            # end-to-end check through t
 
 | What | Where |
 |---|---|
-| API and OpenAPI docs | http://localhost:8000/docs · readiness http://localhost:8000/ready |
+| Operator console | http://localhost:8080 — sign in as a demo user; https://localhost:8443 with the self-signed certificate from `.env` |
+| API and OpenAPI docs | http://localhost:8080/docs · readiness http://localhost:8080/ready (the gateway is reached only through nginx) |
 | Grafana | http://localhost:3000 (credentials in `.env`) — the Platform dashboard shows service metrics |
 | Prometheus | http://localhost:9090 — every service's `/metrics` |
-| OPC UA | `opc.tcp://localhost:4840/cogniboiler` — anonymous read; sign in as a demo user to call methods |
-| Web console (dev server) | `pnpm --dir apps/web install`, then `pnpm --dir apps/web dev` → http://localhost:5173; sign in as a demo user |
+| OPC UA | `opc.tcp://localhost:4840/cogniboiler` — anonymous read; sign in as a demo user to call methods (the password is encrypted with the server's certificate, or use the Basic256Sha256 endpoint) |
+| Console dev server | `pnpm --dir apps/web install`, then `pnpm --dir apps/web dev` → http://localhost:5173, proxied to the stack |
 
-Demo users `admin`, `engineer`, `operator` and `viewer` are created on start; their passwords are the `DEMO_*_PASSWORD` values in `.env`. Nothing in `.env` is ever committed.
+Demo users `admin`, `engineer`, `operator` and `viewer` are created on start; their passwords are the `DEMO_*_PASSWORD` values in `.env`. `dev-secrets` also writes the broker's per-service accounts, the database roles' passwords and the self-signed certificates for HTTPS and OPC UA. Nothing in `.env` is ever committed.
 
 Stop with `python dev_tools_scripts_runner.py stack down` (add `--volumes` to wipe the databases).
 
@@ -487,6 +488,7 @@ python dev_tools_scripts_runner.py quality-gate     # ruff, strict mypy, all tes
 python dev_tools_scripts_runner.py format-code      # ruff + Prettier
 python dev_tools_scripts_runner.py install-hooks    # pre-commit formatting hook, once per clone
 python dev_tools_scripts_runner.py doctor           # what this machine has and lacks
+python dev_tools_scripts_runner.py audit-deps       # known vulnerabilities in the locked dependencies
 ```
 
 The `Makefile` offers the same commands as short aliases (`make gate`, `make up`, …).

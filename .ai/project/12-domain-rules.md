@@ -53,6 +53,8 @@ These sharpen the universal rules for this codebase. Stricter wins.
 - Every mutating API route requires a role (`viewer` < `operator` < `engineer` < `admin`)
   and writes an audit entry. Default users are seeded only for local development.
 - Passwords are Argon2id hashes; a failed login never reveals whether the user exists.
+- Each service has its own PostgreSQL role and MQTT account: a new table grants its rights
+  in its migration, a new topic gets its broker ACL entry.
 
 ## Tests
 

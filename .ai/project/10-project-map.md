@@ -1,30 +1,30 @@
 # Project: CogniBoiler
 
-A digital twin of a 300 MW gas-fired steam unit — boiler, turbine and a virtual PLC —
-built as Python microservices speaking industrial protocols (MQTT, gRPC, OPC UA), with a
-time-series historian, an authenticated API and a web operator console. It is a
-portfolio project: it must run and demo end to end on one machine with Docker Compose.
+A digital twin of a 300 MW gas-fired steam unit (boiler, turbine, virtual PLC) built as
+Python microservices speaking MQTT, gRPC and OPC UA, with a historian, an authenticated API
+and a web console. It is a portfolio project: it must run and demo end to end on one
+machine with Docker Compose.
 
-**AI is deferred.** The anomaly, efficiency and maintenance models planned for
-`apps/ai-predictor` and `ml/` are out of scope until the owner reopens that stage
-(decision 2026-09-14). The platform must be complete and demonstrable without them.
+**AI is deferred** (decision 2026-09-14): the models planned for `apps/ai-predictor` and
+`ml/` are out of scope until the owner reopens that stage; the platform must be complete
+and demonstrable without them.
 
 ## Repository map
 
 uv workspace on Python 3.14; every service is a package with `src/` and `tests/`:
 
-- `apps/physics-engine` — thermodynamic boiler/turbine model, the live runtime, the
-  `PhysicsService` gRPC API, MQTT telemetry. The single owner of process state.
+- `apps/physics-engine` — boiler/turbine model, live runtime, `PhysicsService` gRPC API,
+  MQTT telemetry; the single owner of process state.
 - `apps/plc-controller` — virtual PLC: command validation, setpoints, coordinated control,
   AUTO/MANUAL/ESTOP, interlocks and the E-Stop latch, alarm conditions and events on MQTT,
   `PLCService` gRPC API.
 - `apps/api-gateway` — FastAPI edge and user authority: JWT sessions with rotated refresh
   tokens, RBAC, users, append-only audit, REST and WebSocket, simulation control, history
   and KPIs; the Alembic chain in `apps/api-gateway/migrations`.
-- `apps/historian` — records telemetry, KPIs, labels, alarm changes and PLC events in
-  InfluxDB; owns retention and downsampling.
-- `apps/alert-manager` — alarm lifecycle from PLC conditions, alarm tables in PostgreSQL,
-  `AlarmService` gRPC API, alarm changes on MQTT.
+- `apps/historian` — telemetry, KPIs, labels, alarm changes and PLC events into InfluxDB;
+  owns retention and downsampling.
+- `apps/alert-manager` — alarm lifecycle, alarm tables in PostgreSQL, `AlarmService` gRPC
+  API, alarm changes on MQTT.
 - `apps/opcua-server` — OPC UA (IEC 62541) projection of plant, PLC and alarm state; its
   methods run through the gateway as the signed-in user.
 - `apps/web` — the operator console (React + TypeScript + Vite, pnpm).
@@ -39,9 +39,9 @@ Shared and supporting areas:
 - `docker-compose.yml`, `Dockerfile`, `.env.example` — the local stack.
 - `infrastructure/` — Mosquitto, Grafana and Prometheus provisioning.
 - `ml/` — deferred AI material.
-- `dev_tools_scripts_runner.py` + `scripts/` — the developer-tools orchestrator.
-  `scripts/runner` is the orchestrator itself, `scripts/_toolkit` the only shared code,
-  one directory per script with its own `config/*.json`. Scripts never import each other.
+- `dev_tools_scripts_runner.py` + `scripts/` — the developer-tools orchestrator
+  (`scripts/runner`); `scripts/_toolkit` is the only shared code, one directory per script
+  with its own `config/*.json`; scripts never import each other.
 - `.ai/`, `.claude/`, `.codex/` — assistant rules and workspaces.
 
 ## Internal vs external documents

@@ -13,7 +13,7 @@ duplicated across services. Invariants I1–I3 in `invariants.md` rest on this t
 | `historian` | Time-series recording in InfluxDB: telemetry, KPIs, scenario and fault labels, alarm changes and PLC events as history; the retention and downsampling policy | Control decisions, alarm policy, computing KPIs (physics owns the heat balance) |
 | `opcua-server` | Projection of plant, PLC and alarm state to OPC UA clients; OPC UA methods, forwarded to the gateway as the signed-in user | Authorization decisions and audit (the gateway's), direct commands to the PLC or the alarm service, persistence |
 | `api-gateway` | The edge for people and the authority for users: sessions, RBAC, audit, users, scenario-run records, REST and WebSocket channels, orchestration of calls; the Alembic migration chain | The integration step, PLC internals, alarm state, KPI formulas |
-| `web` (planned, `apps/web`) | Presentation: screens, unit conversion for display | Business rules, authorization decisions |
+| `web` (`apps/web`, served by nginx) | Presentation: screens, unit conversion for display; the edge for browsers: static files, the proxy to the gateway's public routes, security headers, TLS | Business rules, authorization decisions |
 
 ## Command and state flow
 
@@ -36,7 +36,11 @@ duplicated across services. Invariants I1–I3 in `invariants.md` rest on this t
 
 - The migration chain for every PostgreSQL table, alarm tables included, lives in
   `apps/api-gateway/migrations` and is applied by the `migrate` job; alert-manager owns the
-  alarm data but not the chain (decision in the internal decision log, Q2).
+  alarm data but not the chain (decision in the internal decision log, Q2). Only that job
+  connects as the owner of the tables: the gateway and alert-manager have roles limited to
+  their own tables (migration 0004), and a new table grants its rights in its migration.
+- Each service speaks MQTT under its own account and may publish only its contract topics
+  (the broker's ACL); a new topic needs its ACL entry in the same change.
 - `plc-controller` imports `physics_engine` only in its tests, as an in-process plant; the
   dependency is a development group, not a runtime dependency.
 - `opcua-server` reads `PLCService` and `AlarmService` directly (observation) but writes only
