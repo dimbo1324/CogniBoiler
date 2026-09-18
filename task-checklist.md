@@ -1,61 +1,54 @@
-# Task: remaining business logic — S5 gateway, S8 historian, S10 OPC UA
+# Task: two invariants and debt Д15 (fuel, emissions, part-load efficiency)
 
-Owner request of 2026-09-16: "продолжи реализацию оставшейся бизнес логики". Read as the
-backend business logic of the stages whose dependencies are done — S5 (API gateway 1.0),
-S8 (historian and Grafana) and S10 (OPC UA 1.0) — in the same mode as S2–S4: no new tests.
-The console (S6, S7), observability (S9), hardening (S11), delivery (S12) and the demo (S13)
-are presentation and infrastructure and stay open. Work on branch
-`feat/s5-s8-s10-gateway-historian-opcua`, merged into `main` locally after a green gate; no
-push until the owner asks.
+Owner instruction of 2026-09-18, answering the final report of the previous task: publish
+`main`, adopt both proposed invariants, and take debt Д15. Work on branch
+`fix/emissions-and-part-load-efficiency`, merged into `main` locally after a green gate and
+published, since the owner asked for the push in this task.
 
 Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 
-## Preparation
+## Publishing
 
-+ Orientation: roadmap S5, S8, S10, vision, gateway, historian, OPC UA server, their tests
-+ Scope and the no-new-tests mode recorded in the decision log; Q1 (refresh token in the browser) decided
++ `main` pushed to `origin` (408b33d..c2d59e2): S2–S4, S5, S8 and S10 are now on GitHub
 
-## S5 — API gateway 1.0
+## Invariants
 
-+ Every request resolves the user from the database: blocked users and closed sessions stop at once
-+ Refresh-token rotation with family revocation on reuse; logout revokes the family (migration 0003)
-+ Refresh token in an httpOnly SameSite=Strict cookie as well as the body
-+ Login rate limiting; one answer for an unknown user, a wrong password and a blocked account
-+ Own profile and password change; user administration for admin with lock-out protection
-+ Audit: who, with which role, what was asked and how it ended; immutable in the database; filters and pages; write failures logged loudly
-+ Problem Details (RFC 9457) for every error
-+ `/ready` with the state of the database and every upstream
-+ WebSocket channels telemetry, plc and alarms: authentication in the first message, expiry, re-authentication
-+ Full plant snapshot over REST; simulation control for engineers
-+ History with automatic resolution
-- OpenAPI contract committed and checked in the gate — not done (debt Д12)
++ I10 "the audit log is append-only" and I11 "every write from a protocol edge goes through
+  the gateway" added to `docs/architecture/invariants.md`, each with how it is enforced
+  today and the debt that still weakens it (Д13)
++ I9 states the fact after 2026-09-16: the AUTO hold test runs in lockstep
++ Decision recorded in the internal decision log
 
-## S8 — historian and Grafana
+## Debt Д15 — the plant model
 
-+ Plant performance (net efficiency, heat rate) computed by physics and published in the contract
-+ Historian stores plant status, KPIs, scenario and fault labels, alarm changes, PLC events, service availability and its own stats
-+ Raw data 7 days, one-minute aggregates 90 days, downsampling task ensured at start
-+ Gateway KPI endpoint over a time range; history reads aggregates for long ranges
-+ Grafana dashboards: process, efficiency and emissions, alarms, platform
-
-## S10 — OPC UA 1.0
-
-+ Full address space: boiler, turbine, valves, emissions, performance, health, simulation, PLC, alarms; units and instrument quality as status codes; read-only for clients
-+ PLC status and alarms projected from PLCService and AlarmService
-+ Methods: load demand, control mode, E-Stop reset, valve command, acknowledge one and all alarms — through the gateway, as the session's user
-+ Username authentication against the gateway without blocking the server loop
-- An e2e OPC UA client in the repository — not added (checked from a scratch script instead, debt Д11)
++ One fuel definition: pipeline natural gas with inerts at 42 MJ/kg; stoichiometric air
+  14.44 kg/kg (0.344 kg per MJ) and CO2 2.343 kg/kg (55.8 g per MJ) derived from it
++ Flue gas Cp 1300 J/(kg·K) and furnace inventory 2115 kg chosen so that mass flow × Cp and
+  mass × Cp stay at their calibrated values: the thermal design point does not move
++ NOx left as it was: the Zeldovich law is anchored on the flame-zone temperature and the
+  plant feeds exactly that (furnace exit + 300 K, 1700 K at rated, ≈45 ppmv). The 2157 ppmv
+  in the previous report came from my measurement script passing the adiabatic flame
+  temperature; the stack check caught it
++ Governing valve throttles at part load (Stodola) and the isentropic efficiency takes a
+  part-load penalty; net efficiency no longer rises at part load
++ Heat rate 9803 kJ/kWh at 300 MW, minimum 9781 at 275 MW, 9994 at 180 MW
+- Sliding pressure, which would avoid the throttling loss, not implemented — it stays the
+  development recorded under open question Q5
 
 ## Verification
 
-+ Full quality gate green (13/13); the AUTO integration test made deterministic first, because it failed on the original `main`
-+ Migration 0003 up and down on SQLite and applied to the existing PostgreSQL volume; append-only triggers refuse UPDATE and DELETE on real PostgreSQL
-+ Stack rebuilt: every container healthy; smoke 13/13; InfluxDB shows the 7-day raw bucket, the 90-day aggregate bucket and the downsampling task writing mean, min and max
-+ End-to-end run through the gateway, WebSocket, Grafana and an OPC UA client (2026-09-18T04:40:00-03:00): 300 MW, pump failure, trip at 0.493 m, alarms, refused reset, acknowledgement, fault cleared, reset, back to 300 MW; history, KPIs, scenario runs, audit filters; OPC UA reads and a method as the operator
++ Operating points 180–300 MW solve with zero derivatives; 8 h open loop without drift
++ Closed loop with the real PLC: hold 250 MW, 250→300, 180→300, feedwater pump drill (trip
+  at 0.463 m, refused reset, reset, recovery), hot start, burner fouling, steam leak
++ 172 physics and PLC tests; full quality gate green (13/13)
++ Stack rebuilt with the new physics: containers healthy, smoke green, KPI and CO2 intensity
+  as expected on the dashboards
++ One existing test adapted, none deleted or weakened: the inlet-pressure case compared two
+  states a throttle-governed machine cannot reach; a new case pins the throttling
 
 ## Completion
 
-+ State documents: roadmap, architecture overview, service boundaries, decision log, rule modules with changelog, AGENTS.md, README
-- Invariants registry untouched: two candidates (audit append-only, OPC UA writes through the gateway) are proposed in the final report instead, because changing that registry needs the owner
++ State documents: ROADMAP (Д15 closed, S2 amendment), architecture overview, decision log,
+  invariants
 + Checklist filled honestly
-+ Final report in Russian; merged into `main` locally, not pushed
++ Final report in Russian; merged into `main` and pushed, as the owner asked

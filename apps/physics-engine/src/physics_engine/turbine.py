@@ -23,6 +23,7 @@ from functools import lru_cache
 from physics_engine import steam_tables
 from physics_engine.constants import (
     PRESSURE_NOMINAL,
+    RATED_STEAM_FLOW,
     TEMP_STEAM_NOMINAL,
 )
 
@@ -45,15 +46,53 @@ TURBINE_MECHANICAL_EFFICIENCY: float = 0.98
 # Below this, turbine is considered offline.
 TURBINE_MIN_STEAM_FLOW: float = 10.0  # kg/s
 
+# Part-load penalty on the isentropic efficiency [-]
+# Nozzles and blades are shaped for the design flow; away from it the velocity triangles
+# no longer match and stage losses grow. eta_is = eta_design * (1 - k * (1 - x)^2) with
+# x = steam flow / rated flow costs 1.9 % relative at 60 % flow and 4.3 % at 40 %, the
+# order of magnitude of a real condensing turbine, and nothing at the design point.
+TURBINE_PART_LOAD_PENALTY: float = 0.12
+
+# The isentropic efficiency is rounded to this step before the expansion cache is keyed
+# on it, so a slowly changing load does not evict every cached expansion.
+_EFFICIENCY_RESOLUTION: float = 0.002
+
 # Nominal steam inlet conditions (matches boiler superheater output)
 TURBINE_NOMINAL_INLET_PRESSURE: float = PRESSURE_NOMINAL  # 140 bar
 TURBINE_NOMINAL_INLET_TEMP: float = TEMP_STEAM_NOMINAL  # 825.65 K / 552.5°C
 
 # Expansions are cached on inputs rounded to these resolutions: far below what the
 # plant can resolve, coarse enough that a steady operating point is computed once.
+# fmt: off
 _ENTHALPY_RESOLUTION: float = 100.0  # J/kg
 _INLET_PRESSURE_RESOLUTION: float = 1_000.0  # Pa
 _EXHAUST_PRESSURE_RESOLUTION: float = 10.0  # Pa
+# fmt: on
+
+
+def admission_pressure(inlet_pressure: float, steam_flow: float) -> float:
+    """
+    Steam pressure after the governing valve [Pa].
+
+    The unit runs at constant drum pressure, so at part load the governing valve throttles
+    the steam. A fixed nozzle area passes a flow proportional to the pressure behind it
+    (Stodola for p_exhaust << p_in), so the first-stage pressure follows the flow:
+    rated flow needs the full nominal pressure, half the flow only half of it. Throttling
+    keeps the enthalpy and raises the entropy, which is exactly the part-load loss of
+    constant-pressure operation; sliding pressure would avoid it.
+    """
+    if steam_flow <= 0.0:
+        return inlet_pressure
+    stage_pressure = PRESSURE_NOMINAL * steam_flow / RATED_STEAM_FLOW
+    return min(inlet_pressure, stage_pressure)
+
+
+def part_load_efficiency(design_efficiency: float, steam_flow: float) -> float:
+    """Isentropic efficiency at a steam flow, with the part-load penalty applied."""
+    load = min(max(steam_flow / RATED_STEAM_FLOW, 0.0), 1.0)
+    penalty = TURBINE_PART_LOAD_PENALTY * (1.0 - load) ** 2
+    efficiency = design_efficiency * (1.0 - penalty)
+    return round(efficiency / _EFFICIENCY_RESOLUTION) * _EFFICIENCY_RESOLUTION
 
 
 @dataclass
@@ -119,6 +158,7 @@ class TurbineParameters:
 class _Expansion:
     """Specific quantities of one expansion, independent of mass flow."""
 
+    isentropic_efficiency: float
     temp_in: float
     entropy_in: float
     enthalpy_out_isentropic: float
@@ -141,6 +181,7 @@ def _expand(
     w_actual = isentropic_efficiency * w_ideal
     h_out_actual = enthalpy_in - w_actual
     return _Expansion(
+        isentropic_efficiency=isentropic_efficiency,
         temp_in=temp_in,
         entropy_in=entropy_in,
         enthalpy_out_isentropic=h_out_isentropic,
@@ -211,17 +252,13 @@ class TurbineModel:
         Returns:
             TurbineState with all calculated thermodynamic quantities.
         """
-        p_out = (
-            exhaust_pressure
-            if exhaust_pressure is not None
-            else self.params.exhaust_pressure
-        )
         h_in = steam_tables.steam_enthalpy(steam_temp_in, steam_pressure_in)
-        s_in = steam_tables.steam_entropy(steam_temp_in, steam_pressure_in)
-        expansion = _expand(
-            h_in, s_in, steam_temp_in, p_out, self.params.isentropic_efficiency
+        return self.calculate_from_enthalpy(
+            enthalpy_in=h_in,
+            steam_pressure_in=steam_pressure_in,
+            steam_flow=steam_flow,
+            exhaust_pressure=exhaust_pressure,
         )
-        return self._state(expansion, h_in, steam_pressure_in, steam_flow, p_out)
 
     def calculate_from_enthalpy(
         self,
@@ -234,21 +271,25 @@ class TurbineModel:
         Turbine performance for an inlet state given by enthalpy and pressure.
 
         This is the path the plant uses: spray water mixed into the superheated steam
-        fixes the inlet enthalpy. Expansions are cached, so a steady operating point
-        costs no IAPWS-IF97 evaluation after the first step.
+        fixes the inlet enthalpy. The expansion starts behind the governing valve, at the
+        admission pressure the flow implies, and with the isentropic efficiency of that
+        flow. Expansions are cached, so a steady operating point costs no IAPWS-IF97
+        evaluation after the first step.
         """
         p_out = (
             exhaust_pressure
             if exhaust_pressure is not None
             else self.params.exhaust_pressure
         )
+        p_in = max(admission_pressure(steam_pressure_in, steam_flow), p_out * 1.01)
+        efficiency = part_load_efficiency(self.params.isentropic_efficiency, steam_flow)
         expansion = _cached_expansion_from_enthalpy(
             round(enthalpy_in / _ENTHALPY_RESOLUTION),
-            round(steam_pressure_in / _INLET_PRESSURE_RESOLUTION),
+            round(p_in / _INLET_PRESSURE_RESOLUTION),
             round(p_out / _EXHAUST_PRESSURE_RESOLUTION),
-            self.params.isentropic_efficiency,
+            efficiency,
         )
-        return self._state(expansion, enthalpy_in, steam_pressure_in, steam_flow, p_out)
+        return self._state(expansion, enthalpy_in, p_in, steam_flow, p_out)
 
     def _state(
         self,
@@ -274,7 +315,7 @@ class TurbineModel:
                 electrical_power=0.0,
                 exhaust_pressure=exhaust_pressure,
                 exhaust_temp=expansion.temp_in,
-                isentropic_efficiency=self.params.isentropic_efficiency,
+                isentropic_efficiency=expansion.isentropic_efficiency,
             )
 
         p_shaft = steam_flow * expansion.specific_work_actual
@@ -292,7 +333,7 @@ class TurbineModel:
             electrical_power=p_shaft * self.params.mechanical_efficiency,
             exhaust_pressure=exhaust_pressure,
             exhaust_temp=expansion.exhaust_temp,
-            isentropic_efficiency=self.params.isentropic_efficiency,
+            isentropic_efficiency=expansion.isentropic_efficiency,
         )
 
     def nominal_state(self) -> TurbineState:

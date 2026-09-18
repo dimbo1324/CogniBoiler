@@ -98,25 +98,48 @@ class TestTurbinePhysics:
 
     def test_power_increases_with_inlet_pressure(self, turbine: TurbineModel) -> None:
         """
-        Higher inlet pressure at same T and flow must produce more power.
+        Higher drum pressure must produce more power on the flow it can pass.
 
-        Physics: larger pressure ratio -> greater enthalpy drop -> more work
+        Physics: the admission is choked, so drum pressure sets the flow the nozzles
+        pass (m = Cv · P / P_nominal); the flow then sets the first-stage pressure. A
+        higher drum pressure therefore means more steam and more work. Holding the flow
+        fixed instead would compare states this machine cannot reach: 200 kg/s needs
+        about 114 bar behind the governing valve, whatever the drum does.
         """
+        rated_flow = 245.0
         state_low = turbine.calculate(
             steam_temp_in=825.65,
             steam_pressure_in=100e5,
-            steam_flow=200.0,
+            steam_flow=rated_flow * 100.0 / 140.0,
         )
         state_high = turbine.calculate(
             steam_temp_in=825.65,
-            steam_pressure_in=160e5,
-            steam_flow=200.0,
+            steam_pressure_in=140e5,
+            steam_flow=rated_flow,
         )
         assert state_high.shaft_power > state_low.shaft_power, (
             f"Power did not increase with pressure: "
             f"P_100bar={state_low.shaft_power_mw:.1f} MW, "
-            f"P_160bar={state_high.shaft_power_mw:.1f} MW"
+            f"P_140bar={state_high.shaft_power_mw:.1f} MW"
         )
+
+    def test_governing_valve_throttles_at_part_flow(
+        self, turbine: TurbineModel
+    ) -> None:
+        """
+        Below rated flow the turbine sees the pressure its nozzles pass, not the drum
+        pressure, and the specific work falls with it.
+        """
+        rated = turbine.calculate(
+            steam_temp_in=825.65, steam_pressure_in=140e5, steam_flow=245.0
+        )
+        part = turbine.calculate(
+            steam_temp_in=825.65, steam_pressure_in=140e5, steam_flow=147.0
+        )
+        assert rated.steam_pressure_in == pytest.approx(140e5, rel=1e-3)
+        assert part.steam_pressure_in == pytest.approx(84e5, rel=1e-2)
+        assert part.specific_work_actual < rated.specific_work_actual
+        assert part.isentropic_efficiency < rated.isentropic_efficiency
 
     def test_isentropic_efficiency_applied_correctly(
         self, turbine: TurbineModel

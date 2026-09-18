@@ -22,6 +22,7 @@ import math
 from dataclasses import dataclass
 
 from physics_engine import properties
+from physics_engine.constants import FLUE_GAS_CP
 
 # ─── Heat exchanger design constants ─────────────────────────────────────────
 
@@ -40,7 +41,7 @@ ECO_OVERALL_HTC: float = 60.0  # W/(m²·K)
 # Feedwater leaving the economizer stays this far below saturation (no steaming).
 ECO_SUBCOOLING_MARGIN: float = 10.0  # K
 
-CP_FLUE_GAS: float = 1100.0  # J/(kg·K)
+CP_FLUE_GAS: float = FLUE_GAS_CP  # J/(kg·K)
 
 
 def counterflow_effectiveness(ua: float, c_a: float, c_b: float) -> float:

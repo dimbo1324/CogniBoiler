@@ -23,12 +23,13 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from physics_engine.constants import FUEL_CO2_YIELD, FUEL_HEATING_VALUE
+
 # ─── Physical constants ───────────────────────────────────────────────────────
 
-# Natural gas (≈ 90% CH4) stoichiometric combustion:
-#   CH4 + 2 O2 → CO2 + 2 H2O
-#   M_CH4 = 16 g/mol,  M_CO2 = 44 g/mol  →  2.75 kg CO2 / kg fuel
-CO2_EMISSION_FACTOR: float = 2.75  # kg CO2 / kg natural gas
+# CO2 follows the carbon in the fuel as fired (see constants.FUEL_CO2_YIELD):
+# 2.343 kg CO2 / kg fuel, that is 55.8 g CO2 per MJ — the figure of pipeline natural gas.
+CO2_EMISSION_FACTOR: float = FUEL_CO2_YIELD  # kg CO2 / kg fuel
 
 # ── Thermal NOx (Zeldovich mechanism) ─────────────────────────────────────────
 #
@@ -41,8 +42,11 @@ CO2_EMISSION_FACTOR: float = 2.75  # kg CO2 / kg natural gas
 #
 # A is calibrated to a low-NOx gas burner: a 1 700 K flame zone gives 1.5 g NOx per kg
 # of fuel (≈ 45 ppmv). The same law gives ≈ 0.07 g/kg at 1 500 K and ≈ 16 g/kg at 1 900 K.
+# The caller passes the flame-zone temperature, not the adiabatic flame temperature: the
+# plant feeds the furnace exit gas plus NOX_FLAME_ZONE_OFFSET_K, which is 1 700 K at rated
+# load, so fouling or a leaner mixture moves NOx the way it does on a real unit.
 NOX_ACTIVATION_TEMPERATURE: float = 38_370.0  # K
-NOX_CALIBRATION_TEMP: float = 1_700.0  # K
+NOX_CALIBRATION_TEMP: float = 1_700.0  # K — flame zone at rated load
 NOX_CALIBRATION_EI: float = 0.0015  # kg NOx / kg fuel at the calibration temperature
 NOX_PRE_EXP: float = NOX_CALIBRATION_EI / math.exp(
     -NOX_ACTIVATION_TEMPERATURE / NOX_CALIBRATION_TEMP
@@ -93,19 +97,15 @@ class EmissionsState:
     @property
     def co2_intensity_kg_per_mwh(self) -> float:
         """
-        Specific CO2 intensity [kg CO2 / MWh_fuel_input].
+        Specific CO2 intensity [kg CO2 / MWh of fuel input].
 
-        Fuel-specific value (independent of electrical output).
-        Actual electrical CO2 intensity = this / boiler_efficiency / turbine_efficiency.
-
-        Typical values (kg CO2 / MWh fuel input):
-            Natural gas: ~200 kg/MWh_fuel  (LHV basis)
-            Coal:        ~340 kg/MWh_fuel
+        Fuel-specific value (independent of electrical output): the electrical intensity
+        is this divided by the net efficiency, and PerformanceMsg carries that one.
+        Natural gas is ~200 kg per MWh of fuel on an LHV basis; coal ~340.
         """
-        lhv_mj_per_kg = 42.0
         if self.fuel_flow <= 0.0:
             return 0.0
-        fuel_power_mw = self.fuel_flow * lhv_mj_per_kg  # kg/s · MJ/kg = MW
+        fuel_power_mw = self.fuel_flow * FUEL_HEATING_VALUE / 1.0e6
         return (self.co2_rate * 3600.0) / fuel_power_mw
 
 

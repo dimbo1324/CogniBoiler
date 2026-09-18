@@ -32,8 +32,21 @@ RATED_POWER: float = 300.0e6  # W — maximum continuous electrical output
 NOMINAL_LOAD: float = 250.0e6  # W — the load the plant starts at by default
 RATED_STEAM_FLOW: float = 245.0  # kg/s — turbine steam flow at rated power
 
-# ─── Combustion ─────────────────────────────────────────────────────────────
-FUEL_HEATING_VALUE: float = 42.0e6  # J/kg      — lower heating value of natural gas
+# ─── Fuel and flue gas ──────────────────────────────────────────────────────
+# The fuel is pipeline natural gas (92 % CH4, 4 % C2H6, 2 % C3H8, 2 % N2 by mole)
+# diluted with inerts to 42 MJ/kg — the heating value the whole boiler is calibrated on.
+# Every property of that mixture therefore scales with the combustible fraction
+# 42.0 / 48.05 = 0.874 of the undiluted gas:
+#   LHV          48.05 MJ/kg  -> 42.0 MJ/kg
+#   air (stoich) 16.52 kg/kg  -> 14.44 kg/kg   (0.344 kg air per MJ, as any hydrocarbon)
+#   CO2           2.681 kg/kg ->  2.343 kg/kg  (55.8 g CO2 per MJ)
+# The flue gas Cp is the mean over the furnace-to-stack range, not the cold-gas value:
+# gas mass flow and Cp only ever appear as their product in the energy balances, and
+# that product at rated load is what the heat transfer surfaces were sized against.
+FUEL_HEATING_VALUE: float = 42.0e6  # J/kg      — lower heating value, as fired
+FUEL_STOICHIOMETRIC_AIR: float = 14.44  # kg air / kg fuel
+FUEL_CO2_YIELD: float = 2.343  # kg CO2 / kg fuel
+FLUE_GAS_CP: float = 1_300.0  # J/(kg·K) — mean flue gas specific heat
 COMBUSTION_EFFICIENCY: float = 0.92  # —         — combustion efficiency (92%)
 # Rated firing is ~19.5 kg/s (~820 MW of fuel): the fuel valve sits near 0.78 at
 # 300 MW, leaving control margin. 10 kg/s could not raise the steam a 300 MW turbine

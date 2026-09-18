@@ -62,10 +62,11 @@ ODE_RTOL: float = 1e-4
 ODE_ATOL: float = 1e-6
 ODE_MAX_STEP: float = 5.0  # seconds
 
-# Flue gas inventory of the furnace [kg] — about 10 000 m³ at ~0.25 kg/m³ — and its Cp
+# Flue gas inventory of the furnace [kg] — about 10 000 m³ at ~0.21 kg/m³ — and its Cp
 # [J/(kg·K)]. After a fuel trip this gas gives its heat to the water walls, so an
 # oversized inventory would make the drum pressure climb long after the flame is out.
-FURNACE_GAS_MASS: float = 2500.0
+# Only the product mass x Cp matters for that; it is 2.75e6 J/K, as calibrated in S2.
+FURNACE_GAS_MASS: float = 2115.0
 FURNACE_GAS_CP: float = CP_FLUE_GAS
 
 # Spring-loaded drum safety valves: mechanical protection that acts without the PLC.

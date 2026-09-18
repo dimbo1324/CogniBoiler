@@ -16,7 +16,9 @@ from dataclasses import dataclass
 
 from physics_engine.constants import (
     COMBUSTION_EFFICIENCY,
+    FLUE_GAS_CP,
     FUEL_HEATING_VALUE,
+    FUEL_STOICHIOMETRIC_AIR,
     MAX_FUEL_FLOW,
     TEMP_AMBIENT,
 )
@@ -28,14 +30,14 @@ ETHANE_FRACTION: float = 0.04  # C2H6
 PROPANE_FRACTION: float = 0.02  # C3H8
 NITROGEN_FRACTION: float = 0.02  # N2 (inert)
 
-# Stoichiometric air-fuel ratio for natural gas [kg_air / kg_fuel]
-STOICHIOMETRIC_AFR: float = 17.2
+# Stoichiometric air-fuel ratio of the fuel as fired [kg_air / kg_fuel]
+STOICHIOMETRIC_AFR: float = FUEL_STOICHIOMETRIC_AIR
 
 # Specific heat of combustion air [J/(kg·K)]
 CP_AIR: float = 1010.0
 
-# Specific heat of flue gas [J/(kg·K)]
-CP_FLUE_GAS: float = 1100.0
+# Mean specific heat of flue gas [J/(kg·K)]
+CP_FLUE_GAS: float = FLUE_GAS_CP
 
 
 # Reference lower heating value of natural gas [J/kg]
