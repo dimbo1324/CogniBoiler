@@ -21,10 +21,8 @@ These sharpen the universal rules for this codebase. Stricter wins.
 - Timestamps are UTC epoch milliseconds (`timestamp_ms`) in contracts and storage.
 - `shared/proto/cogniboiler.proto` is a contract: add fields, never renumber or reuse a
   field number; regenerate the stubs with `generate-proto` in the same commit.
-- MQTT topics and payloads (`sensors/*` protobuf; `alerts/*`, `plc/events` and
-  `alarms/changes` JSON; `status/*` retained availability) are a contract listed in
-  `docs/architecture/overview.md`. Changing one updates every publisher and subscriber in
-  the same task.
+- MQTT topics and payloads are a contract listed in `docs/architecture/overview.md`;
+  changing one updates every publisher and subscriber in the same task.
 - Database schema changes go through Alembic migrations only.
 
 ## Control and safety
@@ -42,8 +40,11 @@ These sharpen the universal rules for this codebase. Stricter wins.
 - No blocking work on the event loop: physics steps run in `asyncio.to_thread`, and
   blocking client libraries are wrapped the same way.
 - Network clients reconnect with a delay and log once per failure; they never spin.
-- Entry points pass `loop_factory=asyncio.SelectorEventLoop` on Windows, because aiomqtt
-  needs `add_reader()`, which the proactor loop lacks.
+- On Windows, entry points pass `loop_factory=asyncio.SelectorEventLoop`: aiomqtt needs
+  `add_reader()`.
+- Entry points call `configure_logging(<service>)` (`cogniboiler_observability`) and serve
+  `/metrics`; gRPC channels and servers use its interceptors, so logs are JSON lines with
+  the correlation id.
 
 ## Security
 

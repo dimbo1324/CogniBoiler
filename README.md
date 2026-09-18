@@ -464,7 +464,8 @@ python dev_tools_scripts_runner.py smoke            # end-to-end check through t
 | What | Where |
 |---|---|
 | API and OpenAPI docs | http://localhost:8000/docs · readiness http://localhost:8000/ready |
-| Grafana | http://localhost:3000 (credentials in `.env`) |
+| Grafana | http://localhost:3000 (credentials in `.env`) — the Platform dashboard shows service metrics |
+| Prometheus | http://localhost:9090 — every service's `/metrics` |
 | OPC UA | `opc.tcp://localhost:4840/cogniboiler` — anonymous read; sign in as a demo user to call methods |
 | Web console (dev server) | `pnpm --dir apps/web install`, then `pnpm --dir apps/web dev` → http://localhost:5173; sign in as a demo user |
 

@@ -8,7 +8,7 @@
 
 ```powershell
 python dev_tools_scripts_runner.py dev-secrets        # once: .env with generated secrets
-python dev_tools_scripts_runner.py stack up           # build and start everything, wait for health
+python dev_tools_scripts_runner.py stack up           # build and start everything (and Prometheus), wait for health
 python dev_tools_scripts_runner.py stack up --infra-only
 python dev_tools_scripts_runner.py stack status
 python dev_tools_scripts_runner.py stack logs api-gateway
@@ -26,12 +26,13 @@ regenerating secrets, run `stack down --volumes`.
 | Mosquitto (MQTT / WebSocket) | 1883 / 9001 | anonymous access, development only |
 | InfluxDB 2 | 8086 | org and raw bucket (7 days) from `.env`; `sensors_1m` one-minute aggregates (90 days), set up by the historian |
 | PostgreSQL 16 | 5432 | users, roles, sessions, append-only audit log, scenario runs; alarm lifecycle tables owned by alert-manager |
-| Grafana | 3000 | provisioned InfluxDB datasource (uid `influxdb`) and dashboards Process, Efficiency and emissions, Alarms, Platform |
+| Grafana | 3000 | provisioned datasources InfluxDB (uid `influxdb`) and Prometheus (uid `prometheus`); dashboards Process, Efficiency and emissions, Alarms, Platform |
+| Prometheus | 9090 | profile `observability` (enabled by `stack`); scrapes `/metrics` of every service, 7 days |
 | physics-engine gRPC | — | `PhysicsService` on :50052 inside the Compose network only: publishing it would open a path to the valves around the PLC |
 | plc-controller gRPC | — | `PLCService` on :50051 inside the Compose network only |
 | alert-manager gRPC | — | `AlarmService` on :50053 inside the Compose network only |
 | opcua-server | 4840 | `opc.tcp://localhost:4840/cogniboiler`; anonymous read, methods need a gateway user (username and password) |
-| api-gateway | 8000 | REST under `/api/v1`, `/auth`, `/health`, `/ready`, OpenAPI at `/docs`, WebSocket `/ws` (token in the first frame) |
+| api-gateway | 8000 | REST under `/api/v1`, `/auth`, `/health`, `/ready`, `/metrics`, OpenAPI at `/docs`, WebSocket `/ws` (token in the first frame) |
 | web console | 5173 (dev) | Vite dev server on 127.0.0.1 proxies `/api`, `/auth`, `/health` and `/ws` to the gateway |
 
 ## Running a service from the host
@@ -44,8 +45,16 @@ uv run --package plc-controller python -m plc_controller --physics-target localh
 uv run --package historian python -m historian
 uv run --package alert-manager python -m alert_manager               # AlarmService on :50053
 uv run --package opcua-server python -m opcua_server                 # --gateway-url http://localhost:8000
-uv run --package api-gateway uvicorn api_gateway.main:app --reload --port 8000
+uv run --package api-gateway python -m api_gateway --port 8000         # or: uvicorn api_gateway.main:app --reload
 ```
+
+Every service logs one JSON object per line (`timestamp` in UTC, `level`, `service`,
+`logger`, `event`, `correlation_id`); `LOG_FORMAT=console` gives readable lines and
+`LOG_LEVEL` the threshold. Each serves Prometheus metrics: the gateway at `/metrics` on its
+own port, the others on `--metrics-port` (host defaults 9101 physics, 9102 PLC, 9103
+historian, 9104 alert-manager, 9105 OPC UA, bound to 127.0.0.1; 9100 on all interfaces in
+Compose). A caller's `X-Correlation-ID` (or a new id) follows a request through gRPC
+metadata and comes back in the response header.
 
 Host-run services read `.env` from the repository root for secrets. alert-manager refuses to
 start until the migrations have created its tables (`stack up --infra-only` runs `migrate`

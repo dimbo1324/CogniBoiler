@@ -142,6 +142,31 @@ upstreams (`UncertainLastUsableValue`). Methods (29xx): `PLC/SetLoadDemand`,
 `Reason`. Anonymous sessions browse and read; methods need a username session, signed in at
 the gateway, and run with that user's role and audit trail.
 
+### Logs and metrics
+
+Every service writes one JSON object per line to standard output: `timestamp` (UTC),
+`level`, `service`, `logger`, `event` and `correlation_id`, plus `exception` when there is
+one. The gateway adopts a caller's `X-Correlation-ID` of a safe shape or starts a new id,
+returns it in the response header, and passes it in gRPC metadata (`x-correlation-id`) to
+the PLC, physics and alarm services, which log under it for the duration of the call; OPC
+UA method calls start their own id and hand it to the gateway. The shared package
+`shared/observability` (`cogniboiler_observability`) holds the log setup, the correlation
+scope, the gRPC interceptors and the MQTT counters.
+
+| Service | Metrics endpoint | Its own metrics |
+|---|---|---|
+| api-gateway | `:8000/metrics` | `http_requests_total` and `http_request_seconds` by method and route template, `gateway_websocket_clients`, `gateway_telemetry_age_seconds` |
+| physics-engine | `:9100/metrics` | `physics_steps_total`, `physics_step_seconds`, simulation time, speed, running, run id, active faults |
+| plc-controller | `:9100/metrics` | `plc_scan_seconds`, scans, commands received, refused and forwarded, warnings, trips, `plc_mode`, standing alarm conditions |
+| historian | `:9100/metrics` | points written and failed, `historian_write_seconds`, skipped messages |
+| alert-manager | `:9100/metrics` | `alarm_transitions_total` by severity and target state, failed messages |
+| opcua-server | `:9100/metrics` | `opcua_method_calls_total` by method and outcome |
+
+Every gRPC server counts and times its calls (`grpc_server_handled_total`,
+`grpc_server_handling_seconds`); every MQTT client counts messages by topic
+(`mqtt_messages_published_total`, `mqtt_messages_received_total`). Prometheus scrapes them
+all every 10 s in the Compose profile `observability`, which `stack` enables.
+
 ### Storage
 
 - **PostgreSQL**, one Alembic chain in `apps/api-gateway/migrations`:
@@ -166,9 +191,12 @@ the gateway, and run with that user's role and audit trail.
   Every secret is interpolated from `.env`; host ports bind to `127.0.0.1`. A one-shot
   `migrate` service applies Alembic before the gateway and alert-manager start; the gateway
   only seeds roles and demo users. Every long-running service has a healthcheck.
-- Grafana is provisioned with an InfluxDB datasource of fixed uid and four dashboards:
-  Process, Efficiency and emissions, Alarms, Platform, with scenario, fault, PLC and
-  critical-alarm annotations.
+- Grafana is provisioned with InfluxDB and Prometheus datasources of fixed uids and four
+  dashboards: Process, Efficiency and emissions, Alarms, and Platform — service health,
+  request rates and latency, physics step and PLC scan times, gRPC, MQTT, historian writes
+  and alarm transitions from Prometheus, then availability and data flow from InfluxDB —
+  with scenario, fault, PLC and critical-alarm annotations.
+- Prometheus (profile `observability`, port 9090 on loopback) scrapes every service.
 - The gateway seeds demo users `admin`, `engineer`, `operator`, `viewer` from
   `DEMO_*_PASSWORD` when `AUTO_INIT_DB` is set; no credential is hardcoded.
 - `smoke` checks a running stack through the gateway: health and readiness, logins, role
@@ -202,5 +230,4 @@ Recorded with their planned fix in the internal roadmap:
 - the application connects to PostgreSQL as the table owner, which could disable the audit
   triggers; sign-in throttling state lives in the single gateway process;
 - MQTT is anonymous and OPC UA uses no security policy (credentials travel in clear on the
-  local network); logs are plain text and there are no service metrics; the console's
-  Playwright checks run locally, not yet in CI.
+  local network); the console's Playwright checks run locally, not yet in CI.

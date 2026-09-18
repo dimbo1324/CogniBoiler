@@ -15,15 +15,14 @@ uv workspace on Python 3.14; every service is a package with `src/` and `tests/`
 
 - `apps/physics-engine` — thermodynamic boiler/turbine model, the live runtime, the
   `PhysicsService` gRPC API, MQTT telemetry. The single owner of process state.
-- `apps/plc-controller` — virtual PLC: command validation, load demand and setpoints,
-  coordinated control in AUTO, AUTO/MANUAL/ESTOP, safety interlocks and the E-Stop latch,
-  alarm conditions and PLC events on MQTT, `PLCService` gRPC API.
-- `apps/api-gateway` — FastAPI edge and user authority: JWT RS256 sessions with rotated
-  refresh tokens, RBAC, users, append-only audit, Problem Details, REST and WebSocket
-  channels, simulation control, history and KPIs; gRPC clients to the PLC, physics and
-  alarm services; the Alembic chain in `apps/api-gateway/migrations`.
-- `apps/historian` — records telemetry, KPIs, scenario and fault labels, alarm changes and
-  PLC events into InfluxDB; owns retention and one-minute downsampling.
+- `apps/plc-controller` — virtual PLC: command validation, setpoints, coordinated control,
+  AUTO/MANUAL/ESTOP, interlocks and the E-Stop latch, alarm conditions and events on MQTT,
+  `PLCService` gRPC API.
+- `apps/api-gateway` — FastAPI edge and user authority: JWT sessions with rotated refresh
+  tokens, RBAC, users, append-only audit, REST and WebSocket, simulation control, history
+  and KPIs; the Alembic chain in `apps/api-gateway/migrations`.
+- `apps/historian` — records telemetry, KPIs, labels, alarm changes and PLC events in
+  InfluxDB; owns retention and downsampling.
 - `apps/alert-manager` — alarm lifecycle from PLC conditions, alarm tables in PostgreSQL,
   `AlarmService` gRPC API, alarm changes on MQTT.
 - `apps/opcua-server` — OPC UA (IEC 62541) projection of plant, PLC and alarm state; its
@@ -33,10 +32,12 @@ uv workspace on Python 3.14; every service is a package with `src/` and `tests/`
 
 Shared and supporting areas:
 
-- `shared/proto/cogniboiler.proto` — the gRPC and telemetry contract; `shared/generated/`
-  holds the committed stubs; `shared/models/` holds cross-service Pydantic models.
+- `shared/proto/cogniboiler.proto` — the gRPC and telemetry contract, stubs in
+  `shared/generated/`; `shared/openapi/` — the gateway's REST contract;
+  `shared/observability` — logging, correlation ids and metrics for every service;
+  `shared/models/` — cross-service Pydantic models.
 - `docker-compose.yml`, `Dockerfile`, `.env.example` — the local stack.
-- `infrastructure/` — Mosquitto and Grafana provisioning; Kubernetes/Helm later.
+- `infrastructure/` — Mosquitto, Grafana and Prometheus provisioning.
 - `ml/` — deferred AI material.
 - `dev_tools_scripts_runner.py` + `scripts/` — the developer-tools orchestrator.
   `scripts/runner` is the orchestrator itself, `scripts/_toolkit` the only shared code,
@@ -47,13 +48,13 @@ Shared and supporting areas:
 
 A document serves exactly one audience.
 
-**Internal — everything in `docs/__arch__/`, written in Russian.** For whoever builds
-the project: `VISION.txt` (the product vision without AI), `ROADMAP.md` (stages and what
-is done), `open-questions.md` (owner decisions), `archive/` (superseded plans). Nothing
-a user reads links to them.
+**Internal — everything in `docs/__arch__/`, written in Russian.** For the builders:
+`VISION.txt` (the product vision without AI), `ROADMAP.md` (stages and what is done),
+`open-questions.md` (owner decisions), `archive/` (superseded plans). Nothing a user reads
+links to them.
 
-**External — written in English.** For whoever picks the project up: `README.md` (the
-hub; every external document is reachable from it), `docs/architecture/overview.md`,
+**External — written in English.** For newcomers: `README.md` (the hub; every external
+document is reachable from it), `docs/architecture/overview.md`,
 `docs/architecture/invariants.md`, `docs/architecture/service-boundaries.md`.
 
 ## Language policy

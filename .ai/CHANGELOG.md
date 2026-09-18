@@ -6,6 +6,24 @@ History of changes to the AI assistant rule system (`.ai/`, `CLAUDE.md`, `AGENTS
 
 Format: date, what changed, why, who decided. Newest first.
 
+## 2026-09-18 — Observability in the project rules (S9)
+
+**What changed.** `project/12-domain-rules.md` gains the rule that entry points call
+`configure_logging` and serve `/metrics`, and that gRPC channels and servers carry the
+shared interceptors. `project/10-project-map.md` lists `shared/openapi` and the new workspace
+package `shared/observability`, and Prometheus under `infrastructure/`.
+`project/14-command-reference.md` lists Prometheus, the gateway's `/metrics`, the metrics
+ports, `LOG_FORMAT` and `LOG_LEVEL`, the correlation header and `python -m api_gateway`.
+To keep `AGENTS.md` within its 30 KiB budget, service descriptions in the project map and
+the MQTT contract rule were shortened: the topic list lives in the architecture overview,
+which the rule still names; no rule changed what it permits.
+
+**Why.** S9 changed how every service starts and logs; a new service written without these
+lines would log plain text and stay invisible to Prometheus. Additions and clarifications,
+which `universal/08-rules-evolution.md` allows without approval.
+
+**Decided by.** Agent, as part of the owner-requested S9 work of 2026-09-18.
+
 ## 2026-09-18 — Commands follow S6: the OpenAPI contract and the console checks
 
 **What changed.** `project/11-commands.md` lists the new scripts `console-e2e` and

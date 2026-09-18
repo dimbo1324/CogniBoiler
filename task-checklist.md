@@ -49,12 +49,16 @@ Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 
 ## S9 — observability (`feat/observability`)
 
-[ ] JSON logs with `service`, `level`, `event`, `timestamp`, `correlation_id` in every service
-[ ] Correlation id from the HTTP request through gRPC metadata to the PLC, physics and alarm
-    services
-[ ] `/metrics` in every service: physics step, PLC scan, MQTT messages, InfluxDB writes,
-    HTTP requests and errors
-[ ] Prometheus in the `observability` profile; Grafana "Platform" dashboard on service metrics
++ JSON logs with `service`, `level`, `event`, `timestamp`, `logger`, `correlation_id` in
+  every service, through the shared workspace package `shared/observability`
++ Correlation id from the HTTP request through gRPC metadata to the PLC, physics and alarm
+  services; checked on the stack (gateway and PLC log one command under the same id)
++ `/metrics` in every service: physics step, PLC scan, MQTT messages, InfluxDB writes,
+  HTTP requests and errors, gRPC calls, alarm transitions, OPC UA methods
++ Prometheus in the `observability` profile, enabled by `stack`; Grafana "Platform"
+  dashboard on service metrics, every query checked against the running Prometheus
+- The audit log does not store the correlation id (a column would need a migration; the
+  id is in the gateway's log line of the same request)
 
 ## S11 — hardening (`security/hardening`)
 
