@@ -45,7 +45,7 @@ performs their writes through the gateway, as the signed-in user.
 | historian | `apps/historian` | Records `sensors/*`, `alarms/changes`, `plc/events` and `status/+` into InfluxDB, labels values with the scenario, writes simulation events, its own counters, and applies the storage policy (7-day raw bucket, 90-day one-minute aggregates, downsampling task) |
 | alert-manager | `apps/alert-manager` | Alarm lifecycle (ACTIVE_UNACK → ACTIVE_ACK → CLEARED, CLEARED_UNACK), one open alarm per condition, chatter hold on clears, reconciliation from source snapshots, transition history, `AlarmService` gRPC, changes on `alarms/changes` |
 | opcua-server | `apps/opcua-server` | OPC UA (asyncua 2) address space of 84 read-only variables in ten folders with engineering units and instrument quality as status codes; PLC and alarm folders from `PLCService` and `AlarmService`; methods for load, mode, E-Stop reset, valves and acknowledgement, performed through the gateway as the signed-in user |
-| web | `apps/web` | Operator console (React, TypeScript, Vite): sign-in, live SVG mimic, trends with history and KPIs, alarms with acknowledgement and an audible annunciator, light and dark themes. Talks only to the gateway — REST and `/ws` on the same origin |
+| web | `apps/web` | Operator console (React, TypeScript, Vite): sign-in, live SVG mimic, trends with history and KPIs, alarms with acknowledgement and an audible annunciator; control (load, mode, trip, manual valves, setpoints, E-Stop reset) behind confirmations; the engineer panel (simulation, scenarios, faults, run log); audit log, user administration and platform health; light and dark themes. Screens follow the role; the gateway enforces it. Talks only to the gateway — REST and `/ws` on the same origin |
 | ai-predictor | `apps/ai-predictor` | Deferred placeholder; **not** a workspace member |
 
 ## Contracts
@@ -180,7 +180,8 @@ the gateway, and run with that user's role and audit trail.
   renews in-band; one module converts SI units for display. The Vite dev server proxies
   `/api`, `/auth`, `/health` and `/ws` to the gateway, so the browser sees one origin.
   Vitest covers the modules and screens; Playwright (`apps/web/e2e`, script `console-e2e`)
-  checks the console against a running stack with the demo users from `.env`.
+  checks the console against a running stack with the demo users from `.env`, including the
+  five-minute demo played by an operator, an engineer and an admin at once.
 - `python dev_tools_scripts_runner.py` is the developer-tools orchestrator: `quality-gate`,
   `format-code`, `sync-agents`, `stack`, `dev-secrets`, `smoke`, `console-e2e`,
   `generate-proto`, `generate-openapi`, `doctor`, `install-hooks`, `clean-caches`,
@@ -201,5 +202,5 @@ Recorded with their planned fix in the internal roadmap:
 - the application connects to PostgreSQL as the table owner, which could disable the audit
   triggers; sign-in throttling state lives in the single gateway process;
 - MQTT is anonymous and OPC UA uses no security policy (credentials travel in clear on the
-  local network); the web console has no control, engineer, audit, user or platform
-  screens yet; logs are plain text and there are no service metrics.
+  local network); logs are plain text and there are no service metrics; the console's
+  Playwright checks run locally, not yet in CI.

@@ -89,7 +89,8 @@ python dev_tools_scripts_runner.py console-e2e   # Playwright against the runnin
 ```
 
 `console-e2e` installs Playwright's Chromium on first use (`--no-install` skips it) and starts
-the Vite dev server when no `--url` is given. The checks sign in with the demo passwords from
+the Vite dev server when no `--url` is given. Its demo check reloads the nominal scenario, runs
+the simulation at 10×, trips and resets the unit, then restores real time. The checks sign in with the demo passwords from
 `.env`; they never print them. The access token stays in memory and the refresh token in the
 gateway's httpOnly cookie, so the console needs the gateway on the same origin (the Vite proxy,
 or nginx in the stack).

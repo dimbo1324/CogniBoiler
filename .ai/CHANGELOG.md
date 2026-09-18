@@ -12,7 +12,7 @@ Format: date, what changed, why, who decided. Newest first.
 `generate-openapi` and names `generate-openapi --check` among the gate sections that fail
 when an artifact is not regenerated. `project/14-command-reference.md` says how to regenerate
 the gateway contract and the console types, how the Playwright checks run and read the demo
-passwords, that the Vite dev server binds 127.0.0.1, and that a session of the Claude desktop
+passwords, that their demo check trips and resets the running unit, that the Vite dev server binds 127.0.0.1, and that a session of the Claude desktop
 app reaches only IPv4 loopback and keeps Playwright's browsers outside AppData. The frontend
 agent on both sides (`.claude/agents`, `.codex/agents`) points at the client modules, the
 generated types, the token storage decision and `console-e2e`, and says that only Playwright

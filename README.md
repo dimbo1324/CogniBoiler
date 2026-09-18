@@ -444,9 +444,9 @@ What runs today, end to end, with one command:
 - **historian** — telemetry, KPIs, scenario and fault labels, alarm changes and PLC events in InfluxDB, with retention and one-minute aggregates;
 - **opcua-server** — OPC UA address space of the plant, PLC and alarms, with methods run as the signed-in gateway user;
 - **Grafana** with provisioned Process, Efficiency and emissions, Alarms and Platform dashboards;
-- **web** — the operator console (React + TypeScript + Vite): sign-in, a live SVG mimic of the unit, trends with history and KPIs, alarms with acknowledgement and an audible annunciator, light and dark themes.
+- **web** — the operator console (React + TypeScript + Vite): sign-in, a live SVG mimic of the unit, trends with history and KPIs, alarms with acknowledgement and an audible annunciator, load and mode control with confirmations, the engineer's simulation and fault panel, the audit log, user administration, platform health, light and dark themes.
 
-Known gaps are listed in [docs/architecture/overview.md](docs/architecture/overview.md#known-gaps). The most visible one: the console's control, engineer and administration screens are still to come.
+Known gaps are listed in [docs/architecture/overview.md](docs/architecture/overview.md#known-gaps).
 
 ---
 
@@ -472,7 +472,7 @@ Demo users `admin`, `engineer`, `operator` and `viewer` are created on start; th
 
 Stop with `python dev_tools_scripts_runner.py stack down` (add `--volumes` to wipe the databases).
 
-`python dev_tools_scripts_runner.py console-e2e` runs the console's Playwright checks against the running stack; it installs Playwright's Chromium on first use and reads the demo passwords from `.env`.
+`python dev_tools_scripts_runner.py console-e2e` runs the console's Playwright checks against the running stack, including the five-minute demo; it installs Playwright's Chromium on first use and reads the demo passwords from `.env`. The demo check trips and resets the running unit, so do not run it while presenting.
 
 ---
 

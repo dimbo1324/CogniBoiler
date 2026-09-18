@@ -34,13 +34,18 @@ Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 
 ## S7 — console: control and administration (`feat/console-control-admin`)
 
-[ ] Control panel: load, mode, manual valves, setpoints, E-Stop reset — confirmation for
-    each, hidden from roles that may not use it (the gateway still refuses)
-[ ] Engineer panel: scenarios, faults, speed, pause, resume, step; scenario run log
-[ ] Audit (admin): filters and pages
-[ ] Users (admin): create, role, block, password reset, sign out everywhere
-[ ] Platform: service health, telemetry age
-[ ] Playwright e2e against the running stack, green locally, including the demo scenario
++ Control panel: load, mode, trip, manual valves, setpoints, E-Stop reset — confirmation for
+  each, limits enforced before sending, hidden from roles that may not use it (the gateway
+  still refuses)
++ Engineer panel: scenarios, faults with target and severity per kind, speed, pause,
+  resume, step; scenario and fault log
++ Audit (admin): filters by user, method, path, refusals and time; pages
++ Users (admin): create, role, block, password reset, sign out everywhere; own account
+  protected
++ Platform: service health with round trips, telemetry age, WebSocket clients
++ Playwright: 16 checks green locally against the running stack, including the full demo
+  of VISION §7 with three users at once (45 s at 10×); 81 Vitest cases
+- The annunciator's sound is not checked automatically (headless browser); the flashing is
 
 ## S9 — observability (`feat/observability`)
 
