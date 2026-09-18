@@ -8,6 +8,9 @@ const gateway = "http://localhost:8000";
 export default defineConfig({
   plugins: [react()],
   server: {
+    // IPv4 loopback, like every published port of the stack: Node would otherwise bind
+    // only ::1 for "localhost", which some browsers and sandboxes do not try.
+    host: "127.0.0.1",
     port: 5173,
     strictPort: true,
     proxy: {
@@ -19,6 +22,7 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    setupFiles: ["src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
   },
 });

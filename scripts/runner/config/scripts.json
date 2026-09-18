@@ -125,6 +125,27 @@
     ]
   },
   {
+    "title": "console-e2e",
+    "module": "scripts.console_e2e",
+    "category": "platform",
+    "aliases": [
+      "playwright"
+    ],
+    "cadence_ref": "on_demand",
+    "summary": {
+      "en": "Run the console's Playwright checks against a running stack.",
+      "ru": "Прогнать Playwright-проверки консоли против поднятого стека."
+    },
+    "description": {
+      "en": "Installs Playwright's Chromium on first use, then runs apps/web/e2e against a running stack: sign-in and its refusals, the session surviving a reload, the live mimic, trends with history and KPIs, and alarms. Without --url, Playwright starts the Vite dev server itself; with --url the checks go to that console, for example the stack's nginx entry. The demo passwords are read from .env by the checks, never printed. Arguments after -- go to playwright test.",
+      "ru": "При первом запуске ставит Chromium для Playwright, затем прогоняет apps/web/e2e против поднятого стека: вход и отказы, сохранение сессии после перезагрузки, живая мнемосхема, тренды с историей и KPI, тревоги. Без --url Playwright сам поднимает dev-сервер Vite; с --url проверки идут в указанную консоль, например в nginx стека. Демо-пароли проверки читают из .env и нигде не печатают. Аргументы после -- уходят в playwright test."
+    },
+    "examples": [
+      "--url http://localhost:8080",
+      "-- --grep trends"
+    ]
+  },
+  {
     "title": "generate-proto",
     "module": "scripts.generate_proto",
     "category": "platform",
@@ -139,6 +160,26 @@
     "description": {
       "en": "Runs grpc_tools.protoc from the uv environment over shared/proto/*.proto and writes shared/generated/. The generated files are committed, so a contract change and its regenerated stubs land in the same commit. --check regenerates into a temporary directory and fails if the committed stubs differ.",
       "ru": "Запускает grpc_tools.protoc из окружения uv по shared/proto/*.proto и пишет shared/generated/. Сгенерированные файлы коммитятся, поэтому изменение контракта и перегенерированные стабы попадают в один коммит. --check генерирует во временный каталог и падает, если закоммиченные стабы отличаются."
+    },
+    "examples": [
+      "--check"
+    ]
+  },
+  {
+    "title": "generate-openapi",
+    "module": "scripts.generate_openapi",
+    "category": "platform",
+    "aliases": [
+      "openapi"
+    ],
+    "cadence_ref": "after_contract_change",
+    "summary": {
+      "en": "Export the gateway's OpenAPI schema and regenerate the console's types.",
+      "ru": "Выгрузить OpenAPI-схему шлюза и перегенерировать типы консоли."
+    },
+    "description": {
+      "en": "Builds the gateway application without starting it, writes its OpenAPI schema to shared/openapi/api-gateway.json, and generates apps/web/src/api/schema.gen.ts from it with openapi-typescript. Both files are committed: the schema is the REST contract between the gateway and the console, and the console never declares a gateway shape by hand. --check rebuilds both in memory and fails when either differs from what is committed; the quality gate runs it, so a route changed without its contract, or a contract changed without the console types, breaks the build. The types part needs apps/web/node_modules: without it the check is skipped with a notice, and fails when the CI variable is set.",
+      "ru": "Собирает приложение шлюза без запуска, пишет его OpenAPI-схему в shared/openapi/api-gateway.json и генерирует из неё apps/web/src/api/schema.gen.ts через openapi-typescript. Оба файла коммитятся: схема — REST-контракт между шлюзом и консолью, и консоль никогда не объявляет формы шлюза вручную. --check пересобирает оба в памяти и падает, если хоть один отличается от закоммиченного; это запускает quality gate, поэтому маршрут без обновлённого контракта или контракт без типов консоли ломают сборку. Для части с типами нужен apps/web/node_modules: без него проверка пропускается с уведомлением и падает, если задана переменная CI."
     },
     "examples": [
       "--check"

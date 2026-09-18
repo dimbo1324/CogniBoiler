@@ -12,8 +12,8 @@
     "ru": "После правки любого модуля в .ai/ — гейт падает, пока AGENTS.md не перегенерирован."
   },
   "after_contract_change": {
-    "en": "After editing shared/proto/*.proto, in the same commit as the contract change.",
-    "ru": "После правки shared/proto/*.proto, в том же коммите, что и изменение контракта."
+    "en": "After editing shared/proto/*.proto or a gateway route or schema, in the same commit as the contract change.",
+    "ru": "После правки shared/proto/*.proto или маршрута и схемы шлюза, в том же коммите, что и изменение контракта."
   },
   "on_demand": {
     "en": "On demand.",

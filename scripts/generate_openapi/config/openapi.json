@@ -1,0 +1,7 @@
+{
+  "_comment": "The gateway's REST contract and the console types generated from it; both are committed and checked by the gate.",
+  "schema": "shared/openapi/api-gateway.json",
+  "types": "apps/web/src/api/schema.gen.ts",
+  "web_dir": "apps/web",
+  "grpc_stubs_dir": "shared/generated"
+}

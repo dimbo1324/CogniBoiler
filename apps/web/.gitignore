@@ -2,3 +2,5 @@ node_modules
 dist
 coverage
 *.tsbuildinfo
+e2e-results
+e2e-report

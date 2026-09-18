@@ -1,0 +1,4 @@
+{
+  "_comment": "The console package; Playwright's own settings live in apps/web/playwright.config.ts.",
+  "web_dir": "apps/web"
+}

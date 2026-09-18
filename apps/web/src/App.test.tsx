@@ -1,12 +1,22 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
-import { fetchHealth } from "./api/client";
+import { ApiError } from "./api/http";
+import { refreshSession } from "./api/endpoints";
 
-vi.mock("./api/client", () => ({ fetchHealth: vi.fn() }));
+vi.mock("./api/endpoints", () => ({ refreshSession: vi.fn() }));
 
-const mockedFetchHealth = vi.mocked(fetchHealth);
+const mockedRefresh = vi.mocked(refreshSession);
+
+function renderApp() {
+  return render(
+    <QueryClientProvider client={new QueryClient()}>
+      <App />
+    </QueryClientProvider>,
+  );
+}
 
 describe("App", () => {
   afterEach(() => {
@@ -14,23 +24,39 @@ describe("App", () => {
     vi.resetAllMocks();
   });
 
-  it("reports the gateway status and version once the health check answers", async () => {
-    mockedFetchHealth.mockResolvedValue({
-      service: "CogniBoiler API Gateway",
-      version: "0.1.0",
-      status: "running",
-    });
+  it("says it is restoring the session, then asks to sign in when there is none", async () => {
+    mockedRefresh.mockRejectedValue(
+      new ApiError({
+        status: 401,
+        code: "auth.refresh_missing",
+        title: "Unauthorized",
+        detail: "No refresh token was presented.",
+        errors: [],
+        retryAfterS: null,
+      }),
+    );
 
-    render(<App />);
+    renderApp();
 
-    expect(await screen.findByText("API gateway running (version 0.1.0)")).toBeDefined();
+    expect(screen.getByRole("status").textContent).toBe("Restoring your session…");
+    expect(await screen.findByRole("button", { name: "Sign in" })).toBeDefined();
+    expect(mockedRefresh).toHaveBeenCalledTimes(1);
   });
 
-  it("says why the gateway is unreachable", async () => {
-    mockedFetchHealth.mockRejectedValue(new Error("connection refused"));
+  it("tells the operator when the gateway cannot be reached", async () => {
+    mockedRefresh.mockRejectedValue(
+      new ApiError({
+        status: 0,
+        code: "network.unreachable",
+        title: "Network error",
+        detail: "The gateway cannot be reached.",
+        errors: [],
+        retryAfterS: null,
+      }),
+    );
 
-    render(<App />);
+    renderApp();
 
-    expect(await screen.findByText("API gateway unreachable: connection refused")).toBeDefined();
+    expect(await screen.findByText(/The gateway cannot be reached/u)).toBeDefined();
   });
 });

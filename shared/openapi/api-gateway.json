@@ -1,0 +1,4959 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "CogniBoiler API Gateway",
+    "description": "REST and WebSocket gateway of the CogniBoiler digital twin: sign-in and sessions, plant state, PLC commands, simulation control, alarms, history, audit and user administration. Errors are Problem Details (RFC 9457).",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health Check",
+        "description": "Liveness probe: the process runs and its event loop answers.",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Check Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Readiness",
+        "description": "Readiness probe with the state of the database and every upstream service.",
+        "operationId": "readiness_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/platform": {
+      "get": {
+        "tags": [
+          "health",
+          "platform"
+        ],
+        "summary": "Platform",
+        "operationId": "platform_api_v1_platform_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Login",
+        "description": "Sign in with a username and password.\n\nAn unknown user, a wrong password and a blocked account get the same 401. After too\nmany failures for one account name or one client the answer is 429 with Retry-After,\nagain whether or not the account exists.",
+        "operationId": "login_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Refresh",
+        "description": "Exchange a refresh token for a new pair; the presented token becomes unusable.\n\nPresenting an exchanged token again closes the whole session.",
+        "operationId": "refresh_auth_refresh_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RefreshRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Logout",
+        "description": "Close the session of the presented refresh token (body or cookie) or bearer token.\n\nAlways answers 200, so it reveals nothing about the token.",
+        "operationId": "logout_auth_logout_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/LogoutRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Me",
+        "description": "The signed-in user with their current role.",
+        "operationId": "me_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/auth/password": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Change Password",
+        "description": "Change the signed-in user's password.\n\nEvery session of the user is closed, including this one; the response carries a\nfresh session. Wrong current passwords count toward the sign-in throttle.",
+        "operationId": "change_password_auth_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/status": {
+      "get": {
+        "tags": [
+          "status"
+        ],
+        "summary": "Get System Status",
+        "description": "Return the current boiler and turbine state from live gRPC.",
+        "operationId": "get_system_status_api_v1_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemStatusResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/plant": {
+      "get": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Get Plant State",
+        "description": "The latest plant step: measurements, valves, emissions, health, faults.",
+        "operationId": "get_plant_state_api_v1_plant_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantStateResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/simulation": {
+      "get": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Get Simulation Status",
+        "operationId": "get_simulation_status_api_v1_simulation_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationStatusResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/simulation/scenarios": {
+      "get": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "List Scenarios",
+        "operationId": "list_scenarios_api_v1_simulation_scenarios_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScenarioListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/simulation/pause": {
+      "post": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Pause",
+        "operationId": "pause_api_v1_simulation_pause_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationAckResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/simulation/resume": {
+      "post": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Resume",
+        "operationId": "resume_api_v1_simulation_resume_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationAckResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/simulation/speed": {
+      "post": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Set Speed",
+        "operationId": "set_speed_api_v1_simulation_speed_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpeedRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationAckResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/simulation/step": {
+      "post": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Step",
+        "description": "Advance a paused simulation by whole steps.",
+        "operationId": "step_api_v1_simulation_step_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationAckResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/simulation/scenario": {
+      "post": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Load Scenario",
+        "description": "Restart the plant from a scenario; the PLC follows the new run.",
+        "operationId": "load_scenario_api_v1_simulation_scenario_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScenarioRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationAckResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/simulation/faults": {
+      "post": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Inject Fault",
+        "description": "Inject a labelled fault; the physics engine validates target and severity.",
+        "operationId": "inject_fault_api_v1_simulation_faults_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FaultRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FaultAckResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Clear All Faults",
+        "operationId": "clear_all_faults_api_v1_simulation_faults_delete",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FaultAckResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/simulation/faults/{fault_id}": {
+      "delete": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Clear Fault",
+        "operationId": "clear_fault_api_v1_simulation_faults__fault_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "fault_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Fault Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FaultAckResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/simulation/runs": {
+      "get": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "List Scenario Runs",
+        "description": "Scenario loads and fault changes, newest first, with who made them.",
+        "operationId": "list_scenario_runs_api_v1_simulation_runs_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScenarioRunPageResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/commands/valve": {
+      "post": {
+        "tags": [
+          "commands"
+        ],
+        "summary": "Send Valve Command",
+        "description": "Send a manual valve command to the PLC; the PLC switches to MANUAL.",
+        "operationId": "send_valve_command_api_v1_commands_valve_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValveCommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandAckResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/commands/load": {
+      "post": {
+        "tags": [
+          "commands"
+        ],
+        "summary": "Set Load Demand",
+        "description": "Set the electrical load the PLC drives the unit to in AUTO.",
+        "operationId": "set_load_demand_api_v1_commands_load_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoadDemandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandAckResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/commands/mode": {
+      "post": {
+        "tags": [
+          "commands"
+        ],
+        "summary": "Set Control Mode",
+        "description": "Switch the PLC between AUTO and MANUAL, or trip the unit.",
+        "operationId": "set_control_mode_api_v1_commands_mode_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ControlModeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandAckResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/commands/setpoint": {
+      "post": {
+        "tags": [
+          "commands"
+        ],
+        "summary": "Update Setpoints",
+        "description": "Update live PLC setpoints and return the acceptance status.",
+        "operationId": "update_setpoints_api_v1_commands_setpoint_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetpointRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandAckResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/commands/reset": {
+      "post": {
+        "tags": [
+          "commands"
+        ],
+        "summary": "Reset Emergency Stop",
+        "description": "Reset the PLC emergency stop latch once its cause is gone; back to AUTO.\n\nThe reset is recorded under the authenticated user. An operator_id in the body no\nlonger overrides that; it is kept in the audit detail as a note.",
+        "operationId": "reset_emergency_stop_api_v1_commands_reset_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ResetRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandAckResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/plc/status": {
+      "get": {
+        "tags": [
+          "plc"
+        ],
+        "summary": "Get Plc Status",
+        "description": "Current PLC mode, targets, loops, alarm conditions and reset permission.",
+        "operationId": "get_plc_status_api_v1_plc_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PLCStatusResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/history": {
+      "get": {
+        "tags": [
+          "history"
+        ],
+        "summary": "Get History",
+        "description": "Telemetry over a bounded range at a resolution chosen from its length.\n\nThe range is split into standard windows (1 s … 1 day) so that it fits in `limit`\npoints; each point is the mean of its window.",
+        "operationId": "get_history_api_v1_history_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "measurement",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(boiler_sensors|turbine_sensors|plant_status)$",
+              "default": "boiler_sensors",
+              "title": "Measurement"
+            }
+          },
+          {
+            "name": "start_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "[UTC epoch ms]",
+              "title": "Start Ms"
+            },
+            "description": "[UTC epoch ms]"
+          },
+          {
+            "name": "end_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "[UTC epoch ms]",
+              "title": "End Ms"
+            },
+            "description": "[UTC epoch ms]"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 2000,
+              "minimum": 1,
+              "description": "Maximum number of points.",
+              "default": 200,
+              "title": "Limit"
+            },
+            "description": "Maximum number of points."
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Comma-separated field names; all when omitted.",
+              "title": "Fields"
+            },
+            "description": "Comma-separated field names; all when omitted."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/kpi": {
+      "get": {
+        "tags": [
+          "kpi"
+        ],
+        "summary": "Get Kpis",
+        "description": "KPIs of the unit over a range: the last 15 minutes by default, at most 90 days.",
+        "operationId": "get_kpis_api_v1_kpi_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "start_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "[UTC epoch ms]",
+              "title": "Start Ms"
+            },
+            "description": "[UTC epoch ms]"
+          },
+          {
+            "name": "end_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "[UTC epoch ms]",
+              "title": "End Ms"
+            },
+            "description": "[UTC epoch ms]"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KpiResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alarms": {
+      "get": {
+        "tags": [
+          "alarms"
+        ],
+        "summary": "List Alarms",
+        "description": "Recent alarms; with active_only, open alarms with critical and unacknowledged first.",
+        "operationId": "list_alarms_api_v1_alarms_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "active_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Only open alarms: not both cleared and acknowledged.",
+              "default": false,
+              "title": "Active Only"
+            },
+            "description": "Only open alarms: not both cleared and acknowledged."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AlarmResponse"
+                  },
+                  "title": "Response List Alarms Api V1 Alarms Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alarms/history": {
+      "get": {
+        "tags": [
+          "alarms"
+        ],
+        "summary": "Alarm History",
+        "description": "Alarm history with filters, newest first, paged.",
+        "operationId": "alarm_history_api_v1_alarms_history_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "severity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "warning",
+                    "critical"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Severity"
+            }
+          },
+          {
+            "name": "parameter",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Parameter"
+            }
+          },
+          {
+            "name": "from_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Raised at or after [UTC ms].",
+              "default": 0,
+              "title": "From Ms"
+            },
+            "description": "Raised at or after [UTC ms]."
+          },
+          {
+            "name": "to_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Raised at or before [UTC ms].",
+              "default": 0,
+              "title": "To Ms"
+            },
+            "description": "Raised at or before [UTC ms]."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlarmPageResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alarms/ack-all": {
+      "post": {
+        "tags": [
+          "alarms"
+        ],
+        "summary": "Acknowledge All",
+        "description": "Acknowledge every unacknowledged alarm, optionally of one severity.",
+        "operationId": "acknowledge_all_api_v1_alarms_ack_all_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcknowledgeAllRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcknowledgeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/alarms/{alarm_id}": {
+      "get": {
+        "tags": [
+          "alarms"
+        ],
+        "summary": "Get Alarm",
+        "description": "One alarm with every state change it went through.",
+        "operationId": "get_alarm_api_v1_alarms__alarm_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "alarm_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Alarm Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlarmDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alarms/{alarm_id}/ack": {
+      "post": {
+        "tags": [
+          "alarms"
+        ],
+        "summary": "Acknowledge Alarm",
+        "description": "Acknowledge one alarm; refused if it is already acknowledged.",
+        "operationId": "acknowledge_alarm_api_v1_alarms__alarm_id__ack_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "alarm_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Alarm Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcknowledgeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcknowledgeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/audit": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "summary": "List Audit Entries",
+        "description": "Audit entries matching every given filter.",
+        "operationId": "list_audit_entries_api_v1_audit_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "username",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Username"
+            }
+          },
+          {
+            "name": "method",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(GET|POST|PUT|PATCH|DELETE|WS)$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Method"
+            }
+          },
+          {
+            "name": "endpoint",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Path prefix, e.g. /api/v1/commands.",
+              "title": "Endpoint"
+            },
+            "description": "Path prefix, e.g. /api/v1/commands."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 599,
+                  "minimum": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "min_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 599,
+                  "minimum": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "e.g. 400 for every refusal.",
+              "title": "Min Status"
+            },
+            "description": "e.g. 400 for every refusal."
+          },
+          {
+            "name": "from_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "[UTC epoch ms]",
+              "title": "From Ms"
+            },
+            "description": "[UTC epoch ms]"
+          },
+          {
+            "name": "to_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "[UTC epoch ms]",
+              "title": "To Ms"
+            },
+            "description": "[UTC epoch ms]"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPageResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "List Users",
+        "description": "Accounts ordered by username, with role and open sessions.",
+        "operationId": "list_users_api_v1_users_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "active",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only active or blocked.",
+              "title": "Active"
+            },
+            "description": "Only active or blocked."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserPageResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Create User",
+        "description": "Create an active account with one role.",
+        "operationId": "create_user_api_v1_users_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{user_id}": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Get User",
+        "operationId": "get_user_api_v1_users__user_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Update User",
+        "description": "Change the role or block/unblock; the user's sessions are closed.",
+        "operationId": "update_user_api_v1_users__user_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{user_id}/password": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Reset Password",
+        "description": "Set a new password for a user; the user's sessions are closed.",
+        "operationId": "reset_password_api_v1_users__user_id__password_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordResetRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{user_id}/revoke-sessions": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Revoke Sessions",
+        "description": "Sign a user out everywhere.",
+        "operationId": "revoke_sessions_api_v1_users__user_id__revoke_sessions_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionsRevokedResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AcknowledgeAllRequest": {
+        "properties": {
+          "comment": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Comment",
+            "default": ""
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "warning",
+                  "critical"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity",
+            "description": "Only alarms of this severity; all when omitted."
+          }
+        },
+        "type": "object",
+        "title": "AcknowledgeAllRequest",
+        "description": "Request body for POST /api/v1/alarms/ack-all."
+      },
+      "AcknowledgeRequest": {
+        "properties": {
+          "comment": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Comment",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "AcknowledgeRequest",
+        "description": "Request body for POST /api/v1/alarms/{alarm_id}/ack."
+      },
+      "AcknowledgeResponse": {
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "title": "Accepted"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "timestamp_ms": {
+            "type": "integer",
+            "title": "Timestamp Ms"
+          },
+          "alarms": {
+            "items": {
+              "$ref": "#/components/schemas/AlarmResponse"
+            },
+            "type": "array",
+            "title": "Alarms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accepted",
+          "reason",
+          "timestamp_ms",
+          "alarms"
+        ],
+        "title": "AcknowledgeResponse",
+        "description": "Result of an acknowledgement."
+      },
+      "ActuatorStateResponse": {
+        "properties": {
+          "fuel_valve_command": {
+            "type": "number",
+            "title": "Fuel Valve Command"
+          },
+          "fuel_valve_position": {
+            "type": "number",
+            "title": "Fuel Valve Position"
+          },
+          "feedwater_valve_command": {
+            "type": "number",
+            "title": "Feedwater Valve Command"
+          },
+          "feedwater_valve_position": {
+            "type": "number",
+            "title": "Feedwater Valve Position"
+          },
+          "steam_valve_command": {
+            "type": "number",
+            "title": "Steam Valve Command"
+          },
+          "steam_valve_position": {
+            "type": "number",
+            "title": "Steam Valve Position"
+          },
+          "spray_valve_command": {
+            "type": "number",
+            "title": "Spray Valve Command"
+          },
+          "spray_valve_position": {
+            "type": "number",
+            "title": "Spray Valve Position"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fuel_valve_command",
+          "fuel_valve_position",
+          "feedwater_valve_command",
+          "feedwater_valve_position",
+          "steam_valve_command",
+          "steam_valve_position",
+          "spray_valve_command",
+          "spray_valve_position"
+        ],
+        "title": "ActuatorStateResponse"
+      },
+      "AlarmConditionResponse": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "parameter": {
+            "type": "string",
+            "title": "Parameter"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity"
+          },
+          "direction": {
+            "type": "string",
+            "title": "Direction"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          },
+          "threshold": {
+            "type": "number",
+            "title": "Threshold"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "since_ms": {
+            "type": "integer",
+            "title": "Since Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "parameter",
+          "severity",
+          "direction",
+          "value",
+          "threshold",
+          "message",
+          "since_ms"
+        ],
+        "title": "AlarmConditionResponse"
+      },
+      "AlarmDetailResponse": {
+        "properties": {
+          "alarm": {
+            "$ref": "#/components/schemas/AlarmResponse"
+          },
+          "transitions": {
+            "items": {
+              "$ref": "#/components/schemas/AlarmTransitionResponse"
+            },
+            "type": "array",
+            "title": "Transitions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "alarm",
+          "transitions"
+        ],
+        "title": "AlarmDetailResponse",
+        "description": "An alarm with its transitions, oldest first."
+      },
+      "AlarmPageResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AlarmResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "AlarmPageResponse",
+        "description": "A page of alarm history."
+      },
+      "AlarmResponse": {
+        "properties": {
+          "alarm_id": {
+            "type": "string",
+            "title": "Alarm Id",
+            "description": "The alarm id as a string."
+          },
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "key": {
+            "type": "string",
+            "title": "Key",
+            "description": "Condition identity; one open alarm per key."
+          },
+          "source_service": {
+            "type": "string",
+            "title": "Source Service"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity"
+          },
+          "parameter": {
+            "type": "string",
+            "title": "Parameter"
+          },
+          "direction": {
+            "type": "string",
+            "title": "Direction"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ACTIVE_UNACK",
+              "ACTIVE_ACK",
+              "CLEARED_UNACK",
+              "CLEARED"
+            ],
+            "title": "State"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value",
+            "description": "Latest value, in `unit`."
+          },
+          "threshold": {
+            "type": "number",
+            "title": "Threshold"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "topic": {
+            "type": "string",
+            "title": "Topic"
+          },
+          "occurred_at_ms": {
+            "type": "integer",
+            "title": "Occurred At Ms",
+            "description": "Same as raised_at_ms."
+          },
+          "raised_at_ms": {
+            "type": "integer",
+            "title": "Raised At Ms"
+          },
+          "cleared_at_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cleared At Ms"
+          },
+          "acknowledged": {
+            "type": "boolean",
+            "title": "Acknowledged"
+          },
+          "acknowledged_at_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledged At Ms"
+          },
+          "acknowledged_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledged By"
+          },
+          "ack_comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ack Comment"
+          },
+          "cleared": {
+            "type": "boolean",
+            "title": "Cleared",
+            "description": "The condition has ended."
+          },
+          "occurrence_count": {
+            "type": "integer",
+            "title": "Occurrence Count"
+          },
+          "updated_at_ms": {
+            "type": "integer",
+            "title": "Updated At Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "alarm_id",
+          "id",
+          "key",
+          "source_service",
+          "severity",
+          "parameter",
+          "direction",
+          "unit",
+          "state",
+          "value",
+          "threshold",
+          "action",
+          "message",
+          "topic",
+          "occurred_at_ms",
+          "raised_at_ms",
+          "cleared_at_ms",
+          "acknowledged",
+          "acknowledged_at_ms",
+          "acknowledged_by",
+          "ack_comment",
+          "cleared",
+          "occurrence_count",
+          "updated_at_ms"
+        ],
+        "title": "AlarmResponse",
+        "description": "An alarm with its lifecycle.\n\n`alarm_id`, `occurred_at_ms`, `acknowledged` and `cleared` keep their earlier\nmeaning; `state` is the full lifecycle state."
+      },
+      "AlarmTransitionResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "alarm_id": {
+            "type": "integer",
+            "title": "Alarm Id"
+          },
+          "from_state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ACTIVE_UNACK",
+                  "ACTIVE_ACK",
+                  "CLEARED_UNACK",
+                  "CLEARED"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From State"
+          },
+          "to_state": {
+            "type": "string",
+            "enum": [
+              "ACTIVE_UNACK",
+              "ACTIVE_ACK",
+              "CLEARED_UNACK",
+              "CLEARED"
+            ],
+            "title": "To State"
+          },
+          "at_ms": {
+            "type": "integer",
+            "title": "At Ms"
+          },
+          "actor": {
+            "type": "string",
+            "title": "Actor",
+            "description": "Source service or the user who acknowledged."
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "alarm_id",
+          "from_state",
+          "to_state",
+          "at_ms",
+          "actor",
+          "comment",
+          "value"
+        ],
+        "title": "AlarmTransitionResponse",
+        "description": "One state change of an alarm."
+      },
+      "AuditPageResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AuditResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "AuditPageResponse",
+        "description": "A page of audit entries, newest first."
+      },
+      "AuditResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username",
+            "description": "Acting user."
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role",
+            "description": "Role the user held when acting."
+          },
+          "ip_address": {
+            "type": "string",
+            "title": "Ip Address"
+          },
+          "method": {
+            "type": "string",
+            "title": "Method"
+          },
+          "endpoint": {
+            "type": "string",
+            "title": "Endpoint"
+          },
+          "request_body_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Body Hash"
+          },
+          "response_status": {
+            "type": "integer",
+            "title": "Response Status"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "title": "Duration Ms"
+          },
+          "timestamp_ms": {
+            "type": "integer",
+            "title": "Timestamp Ms"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome",
+            "description": "How the action ended, e.g. accepted, refused: <reason>."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "user_id",
+          "username",
+          "role",
+          "ip_address",
+          "method",
+          "endpoint",
+          "request_body_hash",
+          "response_status",
+          "duration_ms",
+          "timestamp_ms",
+          "detail",
+          "outcome"
+        ],
+        "title": "AuditResponse",
+        "description": "Audit log entry returned by the API gateway."
+      },
+      "BoilerStateResponse": {
+        "properties": {
+          "pressure_pa": {
+            "type": "number",
+            "title": "Pressure Pa"
+          },
+          "water_level_m": {
+            "type": "number",
+            "title": "Water Level M"
+          },
+          "water_temp_k": {
+            "type": "number",
+            "title": "Water Temp K"
+          },
+          "flue_gas_temp_k": {
+            "type": "number",
+            "title": "Flue Gas Temp K"
+          },
+          "internal_energy_j": {
+            "type": "number",
+            "title": "Internal Energy J"
+          },
+          "timestamp_ms": {
+            "type": "integer",
+            "title": "Timestamp Ms"
+          },
+          "quality": {
+            "type": "string",
+            "enum": [
+              "good",
+              "uncertain",
+              "bad"
+            ],
+            "title": "Quality",
+            "description": "Worst boiler instrument quality."
+          },
+          "fuel_flow_kg_s": {
+            "type": "number",
+            "title": "Fuel Flow Kg S"
+          },
+          "feedwater_flow_kg_s": {
+            "type": "number",
+            "title": "Feedwater Flow Kg S"
+          },
+          "drum_steam_flow_kg_s": {
+            "type": "number",
+            "title": "Drum Steam Flow Kg S"
+          },
+          "spray_flow_kg_s": {
+            "type": "number",
+            "title": "Spray Flow Kg S"
+          },
+          "superheater_outlet_temp_k": {
+            "type": "number",
+            "title": "Superheater Outlet Temp K"
+          },
+          "economizer_outlet_temp_k": {
+            "type": "number",
+            "title": "Economizer Outlet Temp K"
+          },
+          "stack_temp_k": {
+            "type": "number",
+            "title": "Stack Temp K"
+          },
+          "heat_release_w": {
+            "type": "number",
+            "title": "Heat Release W"
+          },
+          "boiler_efficiency": {
+            "type": "number",
+            "title": "Boiler Efficiency"
+          },
+          "feedwater_temp_k": {
+            "type": "number",
+            "title": "Feedwater Temp K"
+          },
+          "relief_flow_kg_s": {
+            "type": "number",
+            "title": "Relief Flow Kg S"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pressure_pa",
+          "water_level_m",
+          "water_temp_k",
+          "flue_gas_temp_k",
+          "internal_energy_j",
+          "timestamp_ms",
+          "quality",
+          "fuel_flow_kg_s",
+          "feedwater_flow_kg_s",
+          "drum_steam_flow_kg_s",
+          "spray_flow_kg_s",
+          "superheater_outlet_temp_k",
+          "economizer_outlet_temp_k",
+          "stack_temp_k",
+          "heat_release_w",
+          "boiler_efficiency",
+          "feedwater_temp_k",
+          "relief_flow_kg_s"
+        ],
+        "title": "BoilerStateResponse"
+      },
+      "BoilerStatusResponse": {
+        "properties": {
+          "pressure_pa": {
+            "type": "number",
+            "title": "Pressure Pa",
+            "description": "Drum pressure [Pa]."
+          },
+          "water_level_m": {
+            "type": "number",
+            "title": "Water Level M",
+            "description": "Water level in drum [m]."
+          },
+          "water_temp_k": {
+            "type": "number",
+            "title": "Water Temp K",
+            "description": "Bulk water temperature [K]."
+          },
+          "flue_gas_temp_k": {
+            "type": "number",
+            "title": "Flue Gas Temp K",
+            "description": "Flue gas temperature [K]."
+          },
+          "internal_energy_j": {
+            "type": "number",
+            "title": "Internal Energy J",
+            "description": "Total internal energy [J]."
+          },
+          "timestamp_ms": {
+            "type": "integer",
+            "title": "Timestamp Ms",
+            "description": "UTC epoch milliseconds."
+          },
+          "quality": {
+            "type": "string",
+            "title": "Quality",
+            "description": "Sensor quality: good | uncertain | bad."
+          }
+        },
+        "type": "object",
+        "required": [
+          "pressure_pa",
+          "water_level_m",
+          "water_temp_k",
+          "flue_gas_temp_k",
+          "internal_energy_j",
+          "timestamp_ms",
+          "quality"
+        ],
+        "title": "BoilerStatusResponse",
+        "description": "Current boiler state as returned by GET /api/v1/status.\nAll values in SI units, matching BoilerStateMsg fields exactly\nso the gateway can populate this schema directly from protobuf."
+      },
+      "CommandAckResponse": {
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "title": "Accepted",
+            "description": "True if the command was accepted."
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "description": "Rejection reason. Empty string when accepted=True.",
+            "default": ""
+          },
+          "timestamp_ms": {
+            "type": "integer",
+            "title": "Timestamp Ms",
+            "description": "UTC epoch milliseconds."
+          }
+        },
+        "type": "object",
+        "required": [
+          "accepted",
+          "timestamp_ms"
+        ],
+        "title": "CommandAckResponse",
+        "description": "Response body for all command endpoints.\nMirrors CommandAck from the protobuf schema.\nIf accepted=False, reason explains why the command was rejected\n(e.g. value out of safe range, safety interlock active)."
+      },
+      "ComponentHealth": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down"
+            ],
+            "title": "State"
+          },
+          "required": {
+            "type": "boolean",
+            "title": "Required"
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms",
+            "description": "Round trip of the check."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "state",
+          "required",
+          "latency_ms"
+        ],
+        "title": "ComponentHealth"
+      },
+      "CondenserResponse": {
+        "properties": {
+          "backpressure_pa": {
+            "type": "number",
+            "title": "Backpressure Pa"
+          },
+          "condensate_temp_k": {
+            "type": "number",
+            "title": "Condensate Temp K"
+          },
+          "cooling_water_temp_in_k": {
+            "type": "number",
+            "title": "Cooling Water Temp In K"
+          },
+          "cooling_water_temp_out_k": {
+            "type": "number",
+            "title": "Cooling Water Temp Out K"
+          },
+          "heat_rejected_w": {
+            "type": "number",
+            "title": "Heat Rejected W"
+          },
+          "loading": {
+            "type": "number",
+            "title": "Loading"
+          }
+        },
+        "type": "object",
+        "required": [
+          "backpressure_pa",
+          "condensate_temp_k",
+          "cooling_water_temp_in_k",
+          "cooling_water_temp_out_k",
+          "heat_rejected_w",
+          "loading"
+        ],
+        "title": "CondenserResponse"
+      },
+      "ControlLoopResponse": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "setpoint": {
+            "type": "number",
+            "title": "Setpoint"
+          },
+          "measurement": {
+            "type": "number",
+            "title": "Measurement"
+          },
+          "output": {
+            "type": "number",
+            "title": "Output"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "setpoint",
+          "measurement",
+          "output",
+          "unit"
+        ],
+        "title": "ControlLoopResponse"
+      },
+      "ControlModeRequest": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "manual",
+              "estop"
+            ],
+            "title": "Mode",
+            "description": "PLC operating mode to switch to."
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "title": "ControlModeRequest",
+        "description": "Request body for POST /api/v1/commands/mode.\nRequires minimum role: operator. \"estop\" is a manual trip; only a reset clears it."
+      },
+      "EmissionsResponse": {
+        "properties": {
+          "co2_kg_s": {
+            "type": "number",
+            "title": "Co2 Kg S"
+          },
+          "nox_kg_s": {
+            "type": "number",
+            "title": "Nox Kg S"
+          },
+          "co_kg_s": {
+            "type": "number",
+            "title": "Co Kg S"
+          },
+          "nox_ppmv": {
+            "type": "number",
+            "title": "Nox Ppmv"
+          },
+          "co2_intensity_kg_per_mwh": {
+            "type": "number",
+            "title": "Co2 Intensity Kg Per Mwh"
+          }
+        },
+        "type": "object",
+        "required": [
+          "co2_kg_s",
+          "nox_kg_s",
+          "co_kg_s",
+          "nox_ppmv",
+          "co2_intensity_kg_per_mwh"
+        ],
+        "title": "EmissionsResponse"
+      },
+      "EquipmentHealthResponse": {
+        "properties": {
+          "turbine_hours": {
+            "type": "number",
+            "title": "Turbine Hours"
+          },
+          "turbine_starts": {
+            "type": "number",
+            "title": "Turbine Starts"
+          },
+          "turbine_damage": {
+            "type": "number",
+            "title": "Turbine Damage"
+          },
+          "boiler_tube_hours": {
+            "type": "number",
+            "title": "Boiler Tube Hours"
+          },
+          "boiler_tube_damage": {
+            "type": "number",
+            "title": "Boiler Tube Damage"
+          },
+          "pump_hours": {
+            "type": "number",
+            "title": "Pump Hours"
+          },
+          "overall_health_pct": {
+            "type": "number",
+            "title": "Overall Health Pct"
+          },
+          "maintenance_alarm": {
+            "type": "boolean",
+            "title": "Maintenance Alarm"
+          },
+          "maintenance_critical": {
+            "type": "boolean",
+            "title": "Maintenance Critical"
+          }
+        },
+        "type": "object",
+        "required": [
+          "turbine_hours",
+          "turbine_starts",
+          "turbine_damage",
+          "boiler_tube_hours",
+          "boiler_tube_damage",
+          "pump_hours",
+          "overall_health_pct",
+          "maintenance_alarm",
+          "maintenance_critical"
+        ],
+        "title": "EquipmentHealthResponse"
+      },
+      "FaultAckResponse": {
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "title": "Accepted"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "timestamp_ms": {
+            "type": "integer",
+            "title": "Timestamp Ms"
+          },
+          "faults": {
+            "items": {
+              "$ref": "#/components/schemas/FaultResponse"
+            },
+            "type": "array",
+            "title": "Faults"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accepted",
+          "reason",
+          "timestamp_ms",
+          "faults"
+        ],
+        "title": "FaultAckResponse"
+      },
+      "FaultRequest": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "burner_fouling",
+              "steam_leak",
+              "feedwater_pump_failure",
+              "valve_stuck",
+              "sensor_drift",
+              "sensor_failure"
+            ],
+            "title": "Kind"
+          },
+          "target": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Target",
+            "description": "Valve (fuel, feedwater, steam, spray) or sensor id, if the kind needs one.",
+            "default": ""
+          },
+          "severity": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": -1.0,
+            "title": "Severity",
+            "default": 1.0
+          },
+          "ramp_s": {
+            "type": "number",
+            "maximum": 3600.0,
+            "minimum": 0.0,
+            "title": "Ramp S",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "title": "FaultRequest"
+      },
+      "FaultResponse": {
+        "properties": {
+          "fault_id": {
+            "type": "string",
+            "title": "Fault Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "severity": {
+            "type": "number",
+            "title": "Severity"
+          },
+          "ramp_s": {
+            "type": "number",
+            "title": "Ramp S"
+          },
+          "started_at_s": {
+            "type": "number",
+            "title": "Started At S"
+          },
+          "intensity": {
+            "type": "number",
+            "title": "Intensity",
+            "description": "0 at onset, 1 once fully developed."
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fault_id",
+          "kind",
+          "target",
+          "severity",
+          "ramp_s",
+          "started_at_s",
+          "intensity",
+          "label"
+        ],
+        "title": "FaultResponse"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HistoryPointResponse": {
+        "properties": {
+          "measurement": {
+            "type": "string",
+            "title": "Measurement",
+            "description": "Influx measurement name."
+          },
+          "timestamp_ms": {
+            "type": "integer",
+            "title": "Timestamp Ms",
+            "description": "UTC epoch milliseconds."
+          },
+          "values": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Values",
+            "description": "Field/value map for the historical row."
+          }
+        },
+        "type": "object",
+        "required": [
+          "measurement",
+          "timestamp_ms"
+        ],
+        "title": "HistoryPointResponse",
+        "description": "One historical telemetry row returned from InfluxDB."
+      },
+      "HistoryResponse": {
+        "properties": {
+          "measurement": {
+            "type": "string",
+            "title": "Measurement"
+          },
+          "start_ms": {
+            "type": "integer",
+            "title": "Start Ms",
+            "description": "Range start [UTC epoch ms]."
+          },
+          "end_ms": {
+            "type": "integer",
+            "title": "End Ms",
+            "description": "Range end [UTC epoch ms]."
+          },
+          "window_s": {
+            "type": "integer",
+            "title": "Window S",
+            "description": "Each point is the mean over a window this long [s]."
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryPointResponse"
+            },
+            "type": "array",
+            "title": "Points"
+          }
+        },
+        "type": "object",
+        "required": [
+          "measurement",
+          "start_ms",
+          "end_ms",
+          "window_s",
+          "points"
+        ],
+        "title": "HistoryResponse",
+        "description": "Historical telemetry over a bounded range at an automatic resolution."
+      },
+      "KpiResponse": {
+        "properties": {
+          "start_ms": {
+            "type": "integer",
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "type": "integer",
+            "title": "End Ms"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "description": "raw | aggregate (one-minute means)."
+          },
+          "samples": {
+            "type": "integer",
+            "title": "Samples",
+            "description": "Plant status samples in the range."
+          },
+          "mean_electrical_power_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Electrical Power W"
+          },
+          "mean_fuel_heat_input_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Fuel Heat Input W"
+          },
+          "net_efficiency": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Efficiency",
+            "description": "0..1"
+          },
+          "boiler_efficiency": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Boiler Efficiency",
+            "description": "0..1"
+          },
+          "turbine_heat_rate_j_per_j": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turbine Heat Rate J Per J",
+            "description": "Heat to the cycle per unit of electricity [J/J]."
+          },
+          "plant_heat_rate_j_per_j": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plant Heat Rate J Per J",
+            "description": "Fuel heat per unit of electricity [J/J]."
+          },
+          "co2_intensity_kg_per_j": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Co2 Intensity Kg Per J",
+            "description": "CO2 per unit of electricity [kg/J]."
+          },
+          "mean_nox_ppmv": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Nox Ppmv"
+          },
+          "peak_nox_ppmv": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peak Nox Ppmv"
+          },
+          "mean_health_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Health Pct"
+          },
+          "lowest_health_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lowest Health Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "start_ms",
+          "end_ms",
+          "source",
+          "samples",
+          "mean_electrical_power_w",
+          "mean_fuel_heat_input_w",
+          "net_efficiency",
+          "boiler_efficiency",
+          "turbine_heat_rate_j_per_j",
+          "plant_heat_rate_j_per_j",
+          "co2_intensity_kg_per_j",
+          "mean_nox_ppmv",
+          "peak_nox_ppmv",
+          "mean_health_pct",
+          "lowest_health_pct"
+        ],
+        "title": "KpiResponse"
+      },
+      "LoadDemandRequest": {
+        "properties": {
+          "load_w": {
+            "type": "number",
+            "maximum": 300000000.0,
+            "minimum": 0.0,
+            "title": "Load W",
+            "description": "Electrical load target [W], 0 – 300 MW.",
+            "examples": [
+              300000000.0
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "load_w"
+        ],
+        "title": "LoadDemandRequest",
+        "description": "Request body for POST /api/v1/commands/load.\nRequires minimum role: operator. The unit ramps to the new load at 30 MW/min."
+      },
+      "LoginRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 3,
+            "title": "Username",
+            "description": "Username registered in the system.",
+            "examples": [
+              "operator1"
+            ]
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Password",
+            "description": "Plain-text password (transmitted over TLS only).",
+            "examples": [
+              "s3cur3P@ssword"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "description": "Request body for POST /auth/login.\nBoth fields are required. Passwords are never logged or stored\nin plain text — only the Argon2id hash is persisted."
+      },
+      "LogoutRequest": {
+        "properties": {
+          "refresh_token": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Token",
+            "description": "Refresh token of the session."
+          }
+        },
+        "type": "object",
+        "title": "LogoutRequest",
+        "description": "Request body for POST /auth/logout; omit it to use the refresh cookie or the bearer\ntoken. The whole session of the token is closed."
+      },
+      "MessageResponse": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Human-readable status message."
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "MessageResponse",
+        "description": "Generic single-message response used across multiple endpoints."
+      },
+      "PLCStatusResponse": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "manual",
+              "estop"
+            ],
+            "title": "Mode"
+          },
+          "emergency_stop_active": {
+            "type": "boolean",
+            "title": "Emergency Stop Active"
+          },
+          "trip_cause": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TripCause"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reset_permitted": {
+            "type": "boolean",
+            "title": "Reset Permitted"
+          },
+          "reset_blockers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reset Blockers"
+          },
+          "load_demand_w": {
+            "type": "number",
+            "title": "Load Demand W"
+          },
+          "load_setpoint_w": {
+            "type": "number",
+            "title": "Load Setpoint W"
+          },
+          "setpoints": {
+            "$ref": "#/components/schemas/SetpointValues",
+            "description": "Targets set by an engineer."
+          },
+          "active_setpoints": {
+            "$ref": "#/components/schemas/SetpointValues",
+            "description": "Working setpoints ramping toward the targets."
+          },
+          "latest_command": {
+            "$ref": "#/components/schemas/ValveCommandValues"
+          },
+          "active_conditions": {
+            "items": {
+              "$ref": "#/components/schemas/AlarmConditionResponse"
+            },
+            "type": "array",
+            "title": "Active Conditions"
+          },
+          "loops": {
+            "items": {
+              "$ref": "#/components/schemas/ControlLoopResponse"
+            },
+            "type": "array",
+            "title": "Loops"
+          },
+          "warning_count": {
+            "type": "integer",
+            "title": "Warning Count"
+          },
+          "trip_count": {
+            "type": "integer",
+            "title": "Trip Count"
+          },
+          "run_id": {
+            "type": "integer",
+            "title": "Run Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode",
+          "emergency_stop_active",
+          "trip_cause",
+          "reset_permitted",
+          "reset_blockers",
+          "load_demand_w",
+          "load_setpoint_w",
+          "setpoints",
+          "active_setpoints",
+          "latest_command",
+          "active_conditions",
+          "loops",
+          "warning_count",
+          "trip_count",
+          "run_id"
+        ],
+        "title": "PLCStatusResponse",
+        "description": "Mode, targets, working setpoints, loops and alarm conditions of the PLC."
+      },
+      "PasswordChangeRequest": {
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Current Password"
+          },
+          "new_password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "New Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "title": "PasswordChangeRequest",
+        "description": "Request body for POST /auth/password."
+      },
+      "PasswordResetRequest": {
+        "properties": {
+          "new_password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "New Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "new_password"
+        ],
+        "title": "PasswordResetRequest"
+      },
+      "PerformanceResponse": {
+        "properties": {
+          "fuel_heat_input_w": {
+            "type": "number",
+            "title": "Fuel Heat Input W"
+          },
+          "heat_to_cycle_w": {
+            "type": "number",
+            "title": "Heat To Cycle W"
+          },
+          "net_efficiency": {
+            "type": "number",
+            "title": "Net Efficiency",
+            "description": "0..1; 0 when not generating."
+          },
+          "turbine_heat_rate_j_per_j": {
+            "type": "number",
+            "title": "Turbine Heat Rate J Per J"
+          },
+          "plant_heat_rate_j_per_j": {
+            "type": "number",
+            "title": "Plant Heat Rate J Per J"
+          },
+          "co2_intensity_kg_per_j": {
+            "type": "number",
+            "title": "Co2 Intensity Kg Per J"
+          },
+          "boiler_efficiency": {
+            "type": "number",
+            "title": "Boiler Efficiency"
+          },
+          "electrical_power_w": {
+            "type": "number",
+            "title": "Electrical Power W",
+            "description": "True output, not the reading."
+          }
+        },
+        "type": "object",
+        "required": [
+          "fuel_heat_input_w",
+          "heat_to_cycle_w",
+          "net_efficiency",
+          "turbine_heat_rate_j_per_j",
+          "plant_heat_rate_j_per_j",
+          "co2_intensity_kg_per_j",
+          "boiler_efficiency",
+          "electrical_power_w"
+        ],
+        "title": "PerformanceResponse"
+      },
+      "PlantStateResponse": {
+        "properties": {
+          "timestamp_ms": {
+            "type": "integer",
+            "title": "Timestamp Ms"
+          },
+          "simulation": {
+            "$ref": "#/components/schemas/SimulationStatusResponse"
+          },
+          "boiler": {
+            "$ref": "#/components/schemas/BoilerStateResponse"
+          },
+          "turbine": {
+            "$ref": "#/components/schemas/TurbineStateResponse"
+          },
+          "actuators": {
+            "$ref": "#/components/schemas/ActuatorStateResponse"
+          },
+          "emissions": {
+            "$ref": "#/components/schemas/EmissionsResponse"
+          },
+          "condenser": {
+            "$ref": "#/components/schemas/CondenserResponse"
+          },
+          "health": {
+            "$ref": "#/components/schemas/EquipmentHealthResponse"
+          },
+          "performance": {
+            "$ref": "#/components/schemas/PerformanceResponse"
+          },
+          "faults": {
+            "items": {
+              "$ref": "#/components/schemas/FaultResponse"
+            },
+            "type": "array",
+            "title": "Faults"
+          },
+          "sensors": {
+            "items": {
+              "$ref": "#/components/schemas/SensorStatusResponse"
+            },
+            "type": "array",
+            "title": "Sensors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "timestamp_ms",
+          "simulation",
+          "boiler",
+          "turbine",
+          "actuators",
+          "emissions",
+          "condenser",
+          "health",
+          "performance",
+          "faults",
+          "sensors"
+        ],
+        "title": "PlantStateResponse",
+        "description": "Everything the physics engine publishes about the plant at one step."
+      },
+      "PlatformResponse": {
+        "properties": {
+          "readiness": {
+            "$ref": "#/components/schemas/ReadinessResponse"
+          },
+          "telemetry_age_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Telemetry Age S",
+            "description": "Seconds since the gateway last received a plant state."
+          },
+          "websocket_clients": {
+            "type": "integer",
+            "title": "Websocket Clients"
+          }
+        },
+        "type": "object",
+        "required": [
+          "readiness",
+          "telemetry_age_s",
+          "websocket_clients"
+        ],
+        "title": "PlatformResponse"
+      },
+      "ProfileResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "access_expires_at_ms": {
+            "type": "integer",
+            "title": "Access Expires At Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "role",
+          "session_id",
+          "access_expires_at_ms"
+        ],
+        "title": "ProfileResponse",
+        "description": "The signed-in user, as the gateway sees them now."
+      },
+      "ReadinessResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "degraded",
+              "not_ready"
+            ],
+            "title": "Status"
+          },
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentHealth"
+            },
+            "type": "array",
+            "title": "Components"
+          },
+          "checked_at_ms": {
+            "type": "integer",
+            "title": "Checked At Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "components",
+          "checked_at_ms"
+        ],
+        "title": "ReadinessResponse"
+      },
+      "RefreshRequest": {
+        "properties": {
+          "refresh_token": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Token",
+            "description": "Refresh token to exchange."
+          }
+        },
+        "type": "object",
+        "title": "RefreshRequest",
+        "description": "Request body for POST /auth/refresh; omit it to use the refresh cookie."
+      },
+      "ResetRequest": {
+        "properties": {
+          "operator_id": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "Operator Id",
+            "description": "Operator identifier recorded in the reset audit trail.",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "ResetRequest",
+        "description": "Request body for POST /api/v1/commands/reset."
+      },
+      "ScenarioListResponse": {
+        "properties": {
+          "scenarios": {
+            "items": {
+              "$ref": "#/components/schemas/ScenarioResponse"
+            },
+            "type": "array",
+            "title": "Scenarios"
+          },
+          "current": {
+            "type": "string",
+            "title": "Current"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scenarios",
+          "current"
+        ],
+        "title": "ScenarioListResponse"
+      },
+      "ScenarioRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z0-9_]+$",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "ScenarioRequest"
+      },
+      "ScenarioResponse": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "title",
+          "description"
+        ],
+        "title": "ScenarioResponse"
+      },
+      "ScenarioRunPageResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ScenarioRunResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "ScenarioRunPageResponse"
+      },
+      "ScenarioRunResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "scenario",
+              "fault_injected",
+              "fault_cleared"
+            ],
+            "title": "Kind"
+          },
+          "scenario": {
+            "type": "string",
+            "title": "Scenario"
+          },
+          "run_id": {
+            "type": "integer",
+            "title": "Run Id"
+          },
+          "fault_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fault Id"
+          },
+          "fault_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fault Label"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity"
+          },
+          "simulation_time_s": {
+            "type": "number",
+            "title": "Simulation Time S"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "at_ms": {
+            "type": "integer",
+            "title": "At Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "scenario",
+          "run_id",
+          "fault_id",
+          "fault_label",
+          "severity",
+          "simulation_time_s",
+          "user_id",
+          "username",
+          "at_ms"
+        ],
+        "title": "ScenarioRunResponse"
+      },
+      "SensorStatusResponse": {
+        "properties": {
+          "sensor_id": {
+            "type": "string",
+            "title": "Sensor Id"
+          },
+          "quality": {
+            "type": "string",
+            "enum": [
+              "good",
+              "uncertain",
+              "bad"
+            ],
+            "title": "Quality"
+          },
+          "measured_value": {
+            "type": "number",
+            "title": "Measured Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sensor_id",
+          "quality",
+          "measured_value"
+        ],
+        "title": "SensorStatusResponse"
+      },
+      "SessionsRevokedResponse": {
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "title": "User Id"
+          },
+          "revoked_tokens": {
+            "type": "integer",
+            "title": "Revoked Tokens"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "revoked_tokens"
+        ],
+        "title": "SessionsRevokedResponse"
+      },
+      "SetpointRequest": {
+        "properties": {
+          "pressure_pa": {
+            "type": "number",
+            "maximum": 18500000.0,
+            "minimum": 5000000.0,
+            "title": "Pressure Pa",
+            "description": "Target drum pressure [Pa]. Safe range: 50–185 bar.",
+            "examples": [
+              14000000.0
+            ]
+          },
+          "water_level_m": {
+            "type": "number",
+            "maximum": 9.0,
+            "minimum": 0.5,
+            "title": "Water Level M",
+            "description": "Target water level in drum [m].",
+            "examples": [
+              4.8
+            ]
+          },
+          "steam_temp_k": {
+            "type": "number",
+            "maximum": 848.0,
+            "minimum": 400.0,
+            "title": "Steam Temp K",
+            "description": "Target steam temperature [K]. Safe range: 400–848 K.",
+            "examples": [
+              811.0
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "pressure_pa",
+          "water_level_m",
+          "steam_temp_k"
+        ],
+        "title": "SetpointRequest",
+        "description": "Request body for POST /api/v1/commands/setpoint.\nRequires minimum role: engineer.\nAll three setpoints must be provided together — the cascade PID\ncontroller uses them as a consistent set."
+      },
+      "SetpointValues": {
+        "properties": {
+          "pressure_pa": {
+            "type": "number",
+            "title": "Pressure Pa"
+          },
+          "water_level_m": {
+            "type": "number",
+            "title": "Water Level M"
+          },
+          "steam_temp_k": {
+            "type": "number",
+            "title": "Steam Temp K"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pressure_pa",
+          "water_level_m",
+          "steam_temp_k"
+        ],
+        "title": "SetpointValues"
+      },
+      "SimulationAckResponse": {
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "title": "Accepted"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "timestamp_ms": {
+            "type": "integer",
+            "title": "Timestamp Ms"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SimulationStatusResponse"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accepted",
+          "reason",
+          "timestamp_ms",
+          "status"
+        ],
+        "title": "SimulationAckResponse"
+      },
+      "SimulationStatusResponse": {
+        "properties": {
+          "run_state": {
+            "type": "string",
+            "enum": [
+              "running",
+              "paused"
+            ],
+            "title": "Run State"
+          },
+          "speed_factor": {
+            "type": "number",
+            "title": "Speed Factor"
+          },
+          "simulation_time_s": {
+            "type": "number",
+            "title": "Simulation Time S"
+          },
+          "step_count": {
+            "type": "integer",
+            "title": "Step Count"
+          },
+          "scenario": {
+            "type": "string",
+            "title": "Scenario"
+          },
+          "run_id": {
+            "type": "integer",
+            "title": "Run Id",
+            "description": "Changes whenever a scenario is loaded."
+          },
+          "step_s": {
+            "type": "number",
+            "title": "Step S"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_state",
+          "speed_factor",
+          "simulation_time_s",
+          "step_count",
+          "scenario",
+          "run_id",
+          "step_s"
+        ],
+        "title": "SimulationStatusResponse"
+      },
+      "SpeedRequest": {
+        "properties": {
+          "speed_factor": {
+            "type": "number",
+            "maximum": 50.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Speed Factor",
+            "description": "Simulated seconds per wall-clock second."
+          }
+        },
+        "type": "object",
+        "required": [
+          "speed_factor"
+        ],
+        "title": "SpeedRequest"
+      },
+      "StepRequest": {
+        "properties": {
+          "steps": {
+            "type": "integer",
+            "maximum": 3600.0,
+            "minimum": 1.0,
+            "title": "Steps",
+            "description": "Only while paused."
+          }
+        },
+        "type": "object",
+        "required": [
+          "steps"
+        ],
+        "title": "StepRequest"
+      },
+      "SystemStatusResponse": {
+        "properties": {
+          "boiler": {
+            "$ref": "#/components/schemas/BoilerStatusResponse"
+          },
+          "turbine": {
+            "$ref": "#/components/schemas/TurbineStatusResponse"
+          }
+        },
+        "type": "object",
+        "required": [
+          "boiler",
+          "turbine"
+        ],
+        "title": "SystemStatusResponse",
+        "description": "Full system state: boiler + turbine combined.\nReturned by GET /api/v1/status."
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token",
+            "description": "RS256-signed JWT access token."
+          },
+          "refresh_token": {
+            "type": "string",
+            "title": "Refresh Token",
+            "description": "RS256-signed JWT refresh token."
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "description": "Token scheme.",
+            "default": "bearer"
+          },
+          "expires_in": {
+            "type": "integer",
+            "title": "Expires In",
+            "description": "Seconds until the access token expires."
+          },
+          "access_expires_at_ms": {
+            "type": "integer",
+            "title": "Access Expires At Ms",
+            "description": "Access token expiry [UTC ms]."
+          },
+          "session_expires_at_ms": {
+            "type": "integer",
+            "title": "Session Expires At Ms",
+            "description": "When the session ends and a new sign-in is needed [UTC ms]."
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "refresh_token",
+          "expires_in",
+          "access_expires_at_ms",
+          "session_expires_at_ms",
+          "username",
+          "role"
+        ],
+        "title": "TokenResponse",
+        "description": "Response body for POST /auth/login, POST /auth/refresh and POST /auth/password.\naccess_token  — short-lived (15 min), used in the Authorization header; keep it in\n                memory.\nrefresh_token — valid until the session expires (7 days after sign-in), exchanged\n                once at /auth/refresh. Browsers should rely on the httpOnly cookie\n                set with the same value and never store this field."
+      },
+      "TripCause": {
+        "properties": {
+          "parameter": {
+            "type": "string",
+            "title": "Parameter"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          },
+          "threshold": {
+            "type": "number",
+            "title": "Threshold"
+          },
+          "timestamp_ms": {
+            "type": "integer",
+            "title": "Timestamp Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "parameter",
+          "value",
+          "threshold",
+          "timestamp_ms"
+        ],
+        "title": "TripCause"
+      },
+      "TurbineStateResponse": {
+        "properties": {
+          "electrical_power_w": {
+            "type": "number",
+            "title": "Electrical Power W"
+          },
+          "shaft_power_w": {
+            "type": "number",
+            "title": "Shaft Power W"
+          },
+          "enthalpy_in_j_kg": {
+            "type": "number",
+            "title": "Enthalpy In J Kg"
+          },
+          "enthalpy_out_j_kg": {
+            "type": "number",
+            "title": "Enthalpy Out J Kg"
+          },
+          "exhaust_pressure_pa": {
+            "type": "number",
+            "title": "Exhaust Pressure Pa"
+          },
+          "steam_flow_kg_s": {
+            "type": "number",
+            "title": "Steam Flow Kg S"
+          },
+          "timestamp_ms": {
+            "type": "integer",
+            "title": "Timestamp Ms"
+          },
+          "steam_temp_in_k": {
+            "type": "number",
+            "title": "Steam Temp In K"
+          },
+          "exhaust_temp_k": {
+            "type": "number",
+            "title": "Exhaust Temp K"
+          }
+        },
+        "type": "object",
+        "required": [
+          "electrical_power_w",
+          "shaft_power_w",
+          "enthalpy_in_j_kg",
+          "enthalpy_out_j_kg",
+          "exhaust_pressure_pa",
+          "steam_flow_kg_s",
+          "timestamp_ms",
+          "steam_temp_in_k",
+          "exhaust_temp_k"
+        ],
+        "title": "TurbineStateResponse"
+      },
+      "TurbineStatusResponse": {
+        "properties": {
+          "electrical_power_w": {
+            "type": "number",
+            "title": "Electrical Power W",
+            "description": "Net electrical output [W]."
+          },
+          "shaft_power_w": {
+            "type": "number",
+            "title": "Shaft Power W",
+            "description": "Mechanical shaft power [W]."
+          },
+          "enthalpy_in_j_kg": {
+            "type": "number",
+            "title": "Enthalpy In J Kg",
+            "description": "Inlet specific enthalpy [J/kg]."
+          },
+          "enthalpy_out_j_kg": {
+            "type": "number",
+            "title": "Enthalpy Out J Kg",
+            "description": "Outlet specific enthalpy [J/kg]."
+          },
+          "exhaust_pressure_pa": {
+            "type": "number",
+            "title": "Exhaust Pressure Pa",
+            "description": "Condenser back-pressure [Pa]."
+          },
+          "steam_flow_kg_s": {
+            "type": "number",
+            "title": "Steam Flow Kg S",
+            "description": "Steam mass flow [kg/s]."
+          },
+          "timestamp_ms": {
+            "type": "integer",
+            "title": "Timestamp Ms",
+            "description": "UTC epoch milliseconds."
+          },
+          "steam_temp_in_k": {
+            "type": "number",
+            "title": "Steam Temp In K",
+            "description": "Turbine inlet superheated steam temperature [K].",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "required": [
+          "electrical_power_w",
+          "shaft_power_w",
+          "enthalpy_in_j_kg",
+          "enthalpy_out_j_kg",
+          "exhaust_pressure_pa",
+          "steam_flow_kg_s",
+          "timestamp_ms"
+        ],
+        "title": "TurbineStatusResponse",
+        "description": "Current turbine state as returned by GET /api/v1/status.\nAll values in SI units, matching TurbineStateMsg fields exactly."
+      },
+      "UserCreateRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{3,64}$",
+            "title": "Username",
+            "examples": [
+              "shift.operator"
+            ]
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "Password"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "viewer",
+              "operator",
+              "engineer",
+              "admin"
+            ],
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password",
+          "role"
+        ],
+        "title": "UserCreateRequest"
+      },
+      "UserPageResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UserResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "UserPageResponse"
+      },
+      "UserResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "viewer",
+                  "operator",
+                  "engineer",
+                  "admin"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role",
+            "description": "None if the account has no role."
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "created_at_ms": {
+            "type": "integer",
+            "title": "Created At Ms"
+          },
+          "last_login_at_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Login At Ms"
+          },
+          "open_sessions": {
+            "type": "integer",
+            "title": "Open Sessions",
+            "description": "Sessions that can still be refreshed."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "role",
+          "is_active",
+          "created_at_ms",
+          "last_login_at_ms",
+          "open_sessions"
+        ],
+        "title": "UserResponse"
+      },
+      "UserUpdateRequest": {
+        "properties": {
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "viewer",
+                  "operator",
+                  "engineer",
+                  "admin"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "title": "UserUpdateRequest",
+        "description": "Change the role, block or unblock. Either change closes the user's sessions."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "ValveCommandRequest": {
+        "properties": {
+          "fuel_valve": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Fuel Valve",
+            "description": "Fuel valve position [0.0 = closed, 1.0 = fully open].",
+            "examples": [
+              0.75
+            ]
+          },
+          "feedwater_valve": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Feedwater Valve",
+            "description": "Feedwater valve position [0.0 – 1.0].",
+            "examples": [
+              0.6
+            ]
+          },
+          "steam_valve": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Steam Valve",
+            "description": "Turbine admission valve position [0.0 – 1.0].",
+            "examples": [
+              0.5
+            ]
+          },
+          "spray_valve": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spray Valve",
+            "description": "Attemperator spray valve position [0.0 – 1.0]; omitted keeps it.",
+            "examples": [
+              0.25
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "fuel_valve",
+          "feedwater_valve",
+          "steam_valve"
+        ],
+        "title": "ValveCommandRequest",
+        "description": "Request body for POST /api/v1/commands/valve.\nRequires minimum role: operator.\nAll three valve positions must be provided together to avoid\npartial state updates that could destabilise the control loop."
+      },
+      "ValveCommandValues": {
+        "properties": {
+          "fuel_valve": {
+            "type": "number",
+            "title": "Fuel Valve"
+          },
+          "feedwater_valve": {
+            "type": "number",
+            "title": "Feedwater Valve"
+          },
+          "steam_valve": {
+            "type": "number",
+            "title": "Steam Valve"
+          },
+          "spray_valve": {
+            "type": "number",
+            "title": "Spray Valve"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "description": "operator | pid | safety | scheduler"
+          },
+          "operator_id": {
+            "type": "string",
+            "title": "Operator Id"
+          },
+          "timestamp_ms": {
+            "type": "integer",
+            "title": "Timestamp Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fuel_valve",
+          "feedwater_valve",
+          "steam_valve",
+          "spray_valve",
+          "source",
+          "operator_id",
+          "timestamp_ms"
+        ],
+        "title": "ValveCommandValues"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}
