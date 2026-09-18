@@ -106,6 +106,36 @@ SQLite in memory, and in-process gRPC servers on port 0.
 machine speed is not trusted.
 
 **Enforced by.** The quality gate runs the suites without starting any service. The plant
-is a deterministic simulator that tests can step directly; the existing PLC integration
-tests still run it in-process against the wall clock at high speed, which is the remaining
-gap to close.
+is a deterministic simulator that tests can step directly; the AUTO hold test steps it in
+lockstep with the PLC scan, and the remaining PLC integration tests still run it in-process
+against the wall clock at high speed, which is the remaining gap to close (debt Д2).
+
+## I10. The audit log is append-only
+
+Rows of `audit_log` are inserted and never changed or removed: no service, script or
+migration updates, deletes or truncates them, and the database refuses such statements.
+
+**Why.** An audit trail that can be edited answers nothing: the one record of who moved a
+valve, who reset a trip and who was refused must be the record that was written.
+
+**Enforced by.** Triggers created in migration `0003_sessions_and_append_only_audit` raise
+on `UPDATE`, `DELETE` and, on PostgreSQL, `TRUNCATE`; the gateway only inserts, and a failed
+insert is logged with the whole record instead of being dropped. The application still
+connects as the table owner, which could disable the triggers — a separate database role is
+debt Д13.
+
+## I11. Every write from a protocol edge goes through the gateway
+
+A client of an edge protocol — today OPC UA, tomorrow anything else — never commands
+`PLCService`, `AlarmService` or `PhysicsService` on its own behalf. The edge signs its user
+in at the API gateway and calls the same REST routes a person's console would, so the role
+check, the audit row and the command path are identical.
+
+**Why.** A second write path is a second authorization model, and the first one to be
+forgotten. Reads may be projected freely; actions must be attributable to a person the
+gateway knows.
+
+**Enforced by.** `opcua-server` holds no command client: its gRPC clients only read status
+and alarms, and its methods call the gateway with the session user's token (decision
+2026-09-16). Any new edge service is reviewed against this entry before it gains a write
+path.
