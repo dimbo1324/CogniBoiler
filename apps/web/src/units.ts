@@ -121,6 +121,15 @@ export function formatDateTime(timestampMs: number | null | undefined): string {
   return `${day} ${time} ${utcOffsetLabel(date)}`;
 }
 
+/** The value of a datetime-local input, in this browser's zone, as epoch milliseconds. */
+export function localInputToMs(value: string): number | null {
+  if (!value) {
+    return null;
+  }
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
 /** A duration in seconds as h:mm:ss, for simulated time. */
 export function formatDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) {

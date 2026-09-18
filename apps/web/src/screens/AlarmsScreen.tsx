@@ -13,7 +13,7 @@ import { describeError } from "../api/http";
 import type { Alarm, AlarmState } from "../api/types";
 import { Pager } from "../components/Pager";
 import { useCan } from "../session/SessionProvider";
-import { formatDateTime, formatQuantity, parameterLabel } from "../units";
+import { formatDateTime, formatQuantity, localInputToMs, parameterLabel } from "../units";
 
 const STATE_LABEL: Record<AlarmState, string> = {
   ACTIVE_UNACK: "active, unacknowledged",
@@ -225,14 +225,6 @@ function ActiveAlarms({
   );
 }
 
-function toMs(value: string): number | null {
-  if (!value) {
-    return null;
-  }
-  const ms = new Date(value).getTime();
-  return Number.isFinite(ms) ? ms : null;
-}
-
 function AlarmHistory({
   onSelect,
   selectedId,
@@ -252,8 +244,8 @@ function AlarmHistory({
     setFilter({
       severity: draft.severity as AlarmHistoryFilter["severity"],
       parameter: draft.parameter.trim(),
-      fromMs: toMs(draft.from),
-      toMs: toMs(draft.to),
+      fromMs: localInputToMs(draft.from),
+      toMs: localInputToMs(draft.to),
       limit: HISTORY_PAGE,
       offset: 0,
     });

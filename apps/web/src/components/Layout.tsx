@@ -19,6 +19,11 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/", label: "Overview" },
   { to: "/trends", label: "Trends" },
   { to: "/alarms", label: "Alarms" },
+  { to: "/control", label: "Control", permission: "set_load" },
+  { to: "/engineer", label: "Engineer", permission: "control_simulation" },
+  { to: "/audit", label: "Audit", permission: "read_audit" },
+  { to: "/users", label: "Users", permission: "manage_users" },
+  { to: "/platform", label: "Platform" },
 ];
 
 const CONNECTION_LABEL: Record<ConnectionState, string> = {

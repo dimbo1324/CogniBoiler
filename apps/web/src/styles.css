@@ -582,6 +582,31 @@ dialog::backdrop {
   overflow-x: auto;
 }
 
+.ok-text {
+  color: var(--ok);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgb(0 0 0 / 45%);
+}
+
+.modal {
+  max-width: 480px;
+  width: 100%;
+}
+
+.modal-actions {
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;

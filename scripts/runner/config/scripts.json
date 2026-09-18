@@ -137,12 +137,12 @@
       "ru": "Прогнать Playwright-проверки консоли против поднятого стека."
     },
     "description": {
-      "en": "Installs Playwright's Chromium on first use, then runs apps/web/e2e against a running stack: sign-in and its refusals, the session surviving a reload, the live mimic, trends with history and KPIs, and alarms. Without --url, Playwright starts the Vite dev server itself; with --url the checks go to that console, for example the stack's nginx entry. The demo passwords are read from .env by the checks, never printed. Arguments after -- go to playwright test.",
-      "ru": "При первом запуске ставит Chromium для Playwright, затем прогоняет apps/web/e2e против поднятого стека: вход и отказы, сохранение сессии после перезагрузки, живая мнемосхема, тренды с историей и KPI, тревоги. Без --url Playwright сам поднимает dev-сервер Vite; с --url проверки идут в указанную консоль, например в nginx стека. Демо-пароли проверки читают из .env и нигде не печатают. Аргументы после -- уходят в playwright test."
+      "en": "Installs Playwright's Chromium on first use, then runs apps/web/e2e against a running stack: sign-in and its refusals, the session surviving a reload, the live mimic, trends with history and KPIs, alarms, what each role sees, the control panel with its confirmations and limits, user administration, the audit log, the platform screen, and the five-minute demo of the product vision played by an operator, an engineer and an admin at once. Without --url, Playwright starts the Vite dev server itself; with --url the checks go to that console, for example the stack's nginx entry. The demo passwords are read from .env by the checks, never printed. Arguments after -- go to playwright test. The checks change the running plant: the demo reloads the nominal-load scenario, runs the simulation ten times faster, trips the unit and resets it, then puts the simulation back to real time; do not run them during a live demo.",
+      "ru": "При первом запуске ставит Chromium для Playwright, затем прогоняет apps/web/e2e против поднятого стека: вход и отказы, сохранение сессии после перезагрузки, живая мнемосхема, тренды с историей и KPI, тревоги, что видит каждая роль, панель управления с подтверждениями и пределами, администрирование пользователей, журнал аудита, экран платформы и пятиминутное демо из замысла продукта, которое играют одновременно оператор, инженер и администратор. Без --url Playwright сам поднимает dev-сервер Vite; с --url проверки идут в указанную консоль, например в nginx стека. Демо-пароли проверки читают из .env и нигде не печатают. Аргументы после -- уходят в playwright test. Проверки меняют работающую установку: демо загружает сценарий номинальной нагрузки, ускоряет симуляцию в десять раз, отключает блок и сбрасывает защиту, затем возвращает реальное время; не запускайте их во время живого демо."
     },
     "examples": [
       "--url http://localhost:8080",
-      "-- --grep trends"
+      "-- --grep demo"
     ]
   },
   {
