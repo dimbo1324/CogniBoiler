@@ -187,7 +187,8 @@ scope, the gRPC interceptors and the MQTT counters.
 Every gRPC server counts and times its calls (`grpc_server_handled_total`,
 `grpc_server_handling_seconds`); every MQTT client counts messages by topic
 (`mqtt_messages_published_total`, `mqtt_messages_received_total`). Prometheus scrapes them
-all every 10 s in the Compose profile `observability`, which `stack` enables.
+all every 10 s in the Compose profiles `observability` and `full` (the default of
+`stack up`).
 
 ### Storage
 
@@ -212,10 +213,18 @@ all every 10 s in the Compose profile `observability`, which `stack` enables.
 
 ## Runtime and tooling
 
-- `docker-compose.yml` + `Dockerfile` run infrastructure and all services from one
-  Python 3.14 image (`uv sync --frozen --no-dev`, non-root, `python -m` entry points);
-  `apps/web/Dockerfile` builds the console and serves it from an unprivileged nginx.
-  Every secret is interpolated from `.env`; host ports bind to `127.0.0.1`: the console
+- `Dockerfile` has one target per Python service: uv builds each environment from
+  `uv.lock` alone with the workspace packages as wheels, and the runtime is Python 3.14
+  with that environment, the protobuf stubs and (for the gateway) the migrations — no uv,
+  no sources, no pip, Debian security updates applied, user 10001. `apps/web/Dockerfile`
+  builds the console and serves it from an unprivileged nginx 1.30. Images are named
+  `${COGNIBOILER_REGISTRY:-cogniboiler}/<service>:${COGNIBOILER_TAG:-dev}`: built locally
+  by default, or pulled from GitHub Container Registry with `stack up --no-build` when the
+  two variables name a release.
+- `docker-compose.yml` has four profiles: `infra` (broker, PostgreSQL, InfluxDB — for
+  running the services from the host), `core` (infra, every service and the console),
+  `observability` (Prometheus, Grafana, InfluxDB) and `full` (everything; the default of
+  `stack up`). Every secret is interpolated from `.env`; host ports bind to `127.0.0.1`: the console
   and API (8080, 8443), MQTT (1883), OPC UA (4840), and for developers PostgreSQL,
   InfluxDB, Grafana and Prometheus. A one-shot
   `migrate` service applies Alembic before the gateway and alert-manager start; the gateway
@@ -225,14 +234,22 @@ all every 10 s in the Compose profile `observability`, which `stack` enables.
   request rates and latency, physics step and PLC scan times, gRPC, MQTT, historian writes
   and alarm transitions from Prometheus, then availability and data flow from InfluxDB —
   with scenario, fault, PLC and critical-alarm annotations.
-- Prometheus (profile `observability`, port 9090 on loopback) scrapes every service.
+- Prometheus (profiles `observability` and `full`, port 9090 on loopback) scrapes every
+  service.
 - The gateway seeds demo users `admin`, `engineer`, `operator`, `viewer` from
   `DEMO_*_PASSWORD` when `AUTO_INIT_DB` is set; no credential is hardcoded.
 - `smoke` checks a running stack through the gateway: health and readiness, logins, role
   refusals, live state, a setpoint accepted by the PLC, alarms, history, KPIs and the audit
-  log of sign-ins. CI runs it against a freshly built stack, scans both images with
-  Trivy and audits the locked dependencies (`audit-deps`: pip-audit and pnpm audit),
-  keeping the reports.
+  log of sign-ins.
+- CI (`.github/workflows/ci.yml`): `gate` runs the quality gate; `audit` audits the locked
+  dependencies (`audit-deps`: pip-audit and pnpm audit); `stack` builds every image, starts
+  the whole stack with throwaway secrets, runs `smoke` and the Playwright console checks
+  through nginx and scans all seven images with Trivy, failing on a HIGH or CRITICAL
+  finding that has a fix. Reports are kept as artifacts. On `main` and on tags `v*`, after
+  all three, `publish` pushes every image to `ghcr.io/<owner>/cogniboiler/<service>`
+  (tags `main`, `sha-…`, and for a release `vX.Y.Z`, `vX.Y` and `latest`); a tag `v*`
+  then gets a GitHub release with generated notes, `docker-compose.yml` and
+  `.env.example`.
 - `apps/web` is the operator console: React 19 + TypeScript (6.0) + Vite 8, React Router,
   TanStack Query and uPlot. One HTTP module keeps the access token in memory and refreshes
   it through the httpOnly cookie; one WebSocket client authenticates in the first frame and
@@ -259,5 +276,4 @@ Recorded with their planned fix in the internal roadmap:
   work); of the PLC integration tests, only the AUTO hold test runs in lockstep with the
   plant, the others still pace it by wall clock;
 - sign-in throttling state lives in the single gateway process;
-- the console's Playwright checks run locally, not yet in CI; OPC UA accepts any client
-  certificate (no trust list).
+- OPC UA accepts any client certificate (no trust list).

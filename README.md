@@ -444,7 +444,8 @@ What runs today, end to end, with one command:
 - **historian** — telemetry, KPIs, scenario and fault labels, alarm changes and PLC events in InfluxDB, with retention and one-minute aggregates;
 - **opcua-server** — OPC UA address space of the plant, PLC and alarms, with methods run as the signed-in gateway user;
 - **Grafana** with provisioned Process, Efficiency and emissions, Alarms and Platform dashboards;
-- **web** — the operator console (React + TypeScript + Vite): sign-in, a live SVG mimic of the unit, trends with history and KPIs, alarms with acknowledgement and an audible annunciator, load and mode control with confirmations, the engineer's simulation and fault panel, the audit log, user administration, platform health, light and dark themes.
+- **web** — the operator console (React + TypeScript + Vite): sign-in, a live SVG mimic of the unit, trends with history and KPIs, alarms with acknowledgement and an audible annunciator, load and mode control with confirmations, the engineer's simulation and fault panel, the audit log, user administration, platform health, light and dark themes;
+- **delivery** — one image per service, Compose profiles, CI that starts the whole stack and runs the smoke and Playwright checks and an image scan, images published to GitHub Container Registry, and a GitHub release for every version tag.
 
 Known gaps are listed in [docs/architecture/overview.md](docs/architecture/overview.md#known-gaps).
 
@@ -473,6 +474,15 @@ python dev_tools_scripts_runner.py smoke            # end-to-end check through t
 Demo users `admin`, `engineer`, `operator` and `viewer` are created on start; their passwords are the `DEMO_*_PASSWORD` values in `.env`. `dev-secrets` also writes the broker's per-service accounts, the database roles' passwords and the self-signed certificates for HTTPS and OPC UA. Nothing in `.env` is ever committed.
 
 Stop with `python dev_tools_scripts_runner.py stack down` (add `--volumes` to wipe the databases).
+
+`stack up` starts the Compose profile `full`. `--profile infra` starts only the broker and the databases (for running the services from the host), `core` adds every service and the console, and `observability` is Prometheus, Grafana and InfluxDB.
+
+**A published release, without building.** Every push to `main` and every tag `vX.Y.Z` publishes the images as `ghcr.io/dimbo1324/cogniboiler/<service>`, and a tag also gets a GitHub release (while a package is private, pulling it needs `docker login ghcr.io`). Check out the release's tag (Compose mounts the broker, Grafana, Prometheus and nginx configuration from the repository), then:
+
+```bash
+python dev_tools_scripts_runner.py dev-secrets
+COGNIBOILER_REGISTRY=ghcr.io/dimbo1324/cogniboiler COGNIBOILER_TAG=v1.0.0 python dev_tools_scripts_runner.py stack up --no-build
+```
 
 `python dev_tools_scripts_runner.py console-e2e` runs the console's Playwright checks against the running stack, including the five-minute demo; it installs Playwright's Chromium on first use and reads the demo passwords from `.env`. The demo check trips and resets the running unit, so do not run it while presenting.
 

@@ -8,8 +8,8 @@
 
 ```powershell
 python dev_tools_scripts_runner.py dev-secrets        # once: .env with generated secrets
-python dev_tools_scripts_runner.py stack up           # build and start everything (and Prometheus), wait for health
-python dev_tools_scripts_runner.py stack up --infra-only
+python dev_tools_scripts_runner.py stack up           # build and start profile `full`, wait for health
+python dev_tools_scripts_runner.py stack up --profile core   # or infra (= --infra-only), observability
 python dev_tools_scripts_runner.py stack status
 python dev_tools_scripts_runner.py stack logs api-gateway
 python dev_tools_scripts_runner.py smoke              # end-to-end check through the gateway
@@ -21,13 +21,22 @@ The gateway seeds demo users `admin`, `engineer`, `operator` and `viewer` with t
 the gateway starts. InfluxDB and PostgreSQL read credentials only on first start: after
 regenerating secrets, run `stack down --volumes`.
 
+Profiles: `infra` is Mosquitto, PostgreSQL and InfluxDB; `core` adds every service, `migrate`
+and the console; `observability` is Prometheus, Grafana and InfluxDB; `full` is everything.
+`status`, `logs` and `down` always use `full`. Images are
+`${COGNIBOILER_REGISTRY:-cogniboiler}/<service>:${COGNIBOILER_TAG:-dev}` — one `Dockerfile`
+target per Python service, `apps/web/Dockerfile` for the console. With
+`COGNIBOILER_REGISTRY=ghcr.io/dimbo1324/cogniboiler` and `COGNIBOILER_TAG=vX.Y.Z`,
+`stack up --no-build` pulls a published release instead of building. CI publishes the
+images on `main` and on tags `v*`, and a tag `v*` also gets a GitHub release.
+
 | Component | Host port | Notes |
 |---|---|---|
 | Mosquitto (MQTT) | 1883 | one account per service (`MQTT_<SERVICE>_PASSWORD` in `.env`) and a topic ACL; no anonymous clients, no WebSocket listener |
 | InfluxDB 2 | 8086 | org and raw bucket (7 days) from `.env`; `sensors_1m` one-minute aggregates (90 days), set up by the historian |
 | PostgreSQL 16 | 5432 | users, roles, sessions, append-only audit log, scenario runs; alarm lifecycle tables owned by alert-manager; the services connect as `cogniboiler_gateway` and `cogniboiler_alarms`, only `migrate` as the owner |
 | Grafana | 3000 | provisioned datasources InfluxDB (uid `influxdb`) and Prometheus (uid `prometheus`); dashboards Process, Efficiency and emissions, Alarms, Platform |
-| Prometheus | 9090 | profile `observability` (enabled by `stack`); scrapes `/metrics` of every service, 7 days |
+| Prometheus | 9090 | profiles `observability` and `full`; scrapes `/metrics` of every service, 7 days |
 | physics-engine gRPC | — | `PhysicsService` on :50052 inside the Compose network only: publishing it would open a path to the valves around the PLC |
 | plc-controller gRPC | — | `PLCService` on :50051 inside the Compose network only |
 | alert-manager gRPC | — | `AlarmService` on :50053 inside the Compose network only |

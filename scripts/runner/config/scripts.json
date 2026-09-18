@@ -94,11 +94,12 @@
       "ru": "Запустить, проверить или остановить стек Docker Compose."
     },
     "description": {
-      "en": "A thin, cross-platform door to docker compose for this repository. `up` builds the service images and starts everything detached; `up --infra-only` starts just Mosquitto, InfluxDB, PostgreSQL and Grafana, for running the Python services from the host. `status` lists containers with their health, `logs <service>` follows one service, `down` stops the stack. `down --volumes` also deletes the databases and asks for confirmation unless --yes is given. Refuses to start without a .env file: run dev-secrets first.",
-      "ru": "Тонкая кроссплатформенная дверь к docker compose для этого репозитория. `up` собирает образы сервисов и поднимает всё в фоне; `up --infra-only` поднимает только Mosquitto, InfluxDB, PostgreSQL и Grafana — чтобы запускать Python-сервисы с хоста. `status` показывает контейнеры и их health, `logs <service>` — логи одного сервиса, `down` останавливает стек. `down --volumes` также удаляет базы данных и спрашивает подтверждение, если не передан --yes. Без файла .env отказывается стартовать: сначала запустите dev-secrets."
+      "en": "A thin, cross-platform door to docker compose for this repository. `up` builds the service images and starts the Compose profile `full` detached, waiting until it is healthy; `up --profile` picks `infra` (Mosquitto, PostgreSQL, InfluxDB — for running the Python services from the host; also `--infra-only`), `core` (infra, every service and the console) or `observability` (Prometheus, Grafana, InfluxDB). `--no-build` reuses existing images, or pulls a published release when COGNIBOILER_REGISTRY and COGNIBOILER_TAG name one. `status` lists containers with their health, `logs <service>` follows one service, `down` stops the stack. `down --volumes` also deletes the databases and asks for confirmation unless --yes is given. Refuses to start without a .env file: run dev-secrets first.",
+      "ru": "Тонкая кроссплатформенная дверь к docker compose для этого репозитория. `up` собирает образы сервисов и поднимает профиль Compose `full` в фоне, дожидаясь health; `up --profile` выбирает `infra` (Mosquitto, PostgreSQL, InfluxDB — чтобы запускать Python-сервисы с хоста; то же `--infra-only`), `core` (infra, все сервисы и консоль) или `observability` (Prometheus, Grafana, InfluxDB). `--no-build` берёт готовые образы или скачивает опубликованный релиз, если его называют COGNIBOILER_REGISTRY и COGNIBOILER_TAG. `status` показывает контейнеры и их health, `logs <service>` — логи одного сервиса, `down` останавливает стек. `down --volumes` также удаляет базы данных и спрашивает подтверждение, если не передан --yes. Без файла .env отказывается стартовать: сначала запустите dev-secrets."
     },
     "examples": [
       "up",
+      "up --profile core",
       "up --infra-only",
       "status",
       "logs api-gateway",

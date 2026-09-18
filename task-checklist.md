@@ -81,20 +81,35 @@ Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 
 ## S12 — delivery (`feat/delivery`)
 
-[ ] Multi-stage Dockerfile with a target per service, runtime without uv
-[ ] Compose profiles infra, core, observability, full; `stack up` uses them
-[ ] CI: e2e on the running stack (smoke and Playwright)
-[ ] Images published to GHCR from `main` and tags; release by tag `v*`
++ Multi-stage Dockerfile with a target per service: environments built by uv from
+  `uv.lock` alone, runtime without uv, sources or pip, Debian security updates, user 10001;
+  console on nginx-unprivileged 1.30 with Alpine updates
++ Compose profiles infra, core, observability, full; `stack up --profile`, `full` by
+  default; images `${COGNIBOILER_REGISTRY:-cogniboiler}/<service>:${COGNIBOILER_TAG:-dev}`
++ CI: the whole stack with throwaway secrets, smoke and Playwright through nginx, Trivy on
+  all seven images failing on a fixable HIGH or CRITICAL finding (the first scan found
+  libpcre2 and pip's vendored msgpack and setuptools; all seven images are clean now)
++ Publishing to GHCR from `main` and tags `v*` after gate, audit and stack; a GitHub release
+  for a tag `v*`; the workflow passes actionlint 1.7.12
+- Publishing and the release have not run: they need a push to `main` or a tag, which the
+  owner did not ask for in this task; GHCR package visibility is open question Q7
 
 ## Verification
 
-[ ] Full gate green before every merge
-[ ] Stack rebuilt from scratch, all containers healthy, smoke green, Playwright green
-[ ] CI run on a pushed task branch
++ Full gate green before every merge
++ Stack rebuilt from the per-service images, all containers healthy, smoke 13/13,
+  Playwright 16/16 through nginx, HTTPS on 8443 with HSTS and CSP
++ CI on the pushed task branch green: run 35384248972 (commit `6cae119`,
+  2026-09-18T19:08:30Z–19:15:33Z UTC) — gate, audit and stack (smoke, Playwright, Trivy)
+  passed; publish and release skipped for a branch, as designed. The first run warned that
+  five actions target Node 20 (moved to their Node 24 majors); the second failed because
+  setup-uv has no `v10` tag (pinned to `v10.1.0`)
+- CI job logs and the Playwright report artifact need a GitHub sign-in, which the agent does
+  not do: the CI result is taken from the step statuses, not from the report
 
 ## Completion
 
-[ ] ROADMAP statuses for S6, S7, S9, S11, S12 and the debt table; architecture overview;
-    README; rule modules and command reference; decision log
-[ ] Checklist filled honestly
-[ ] Final report in Russian
++ ROADMAP statuses for S6, S7, S9, S11, S12 and the debt table; architecture overview;
+  README; rule modules and command reference; decision log
++ Checklist filled honestly
++ Final report in Russian

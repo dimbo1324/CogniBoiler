@@ -6,6 +6,21 @@ History of changes to the AI assistant rule system (`.ai/`, `CLAUDE.md`, `AGENTS
 
 Format: date, what changed, why, who decided. Newest first.
 
+## 2026-09-18 — Delivery in the command reference (S12)
+
+**What changed.** `project/14-command-reference.md` describes the Compose profiles
+(`infra`, `core`, `observability`, `full`), `stack up --profile`, the per-service image
+names `${COGNIBOILER_REGISTRY:-cogniboiler}/<service>:${COGNIBOILER_TAG:-dev}`, running a
+published release with `stack up --no-build`, and that CI publishes images on `main` and
+`v*` tags. Prometheus is listed under the profiles `observability` and `full`. The module's
+essence is unchanged, so `AGENTS.md` is not affected.
+
+**Why.** S12 changed how the stack is started and where its images come from; the old line
+"(and Prometheus)" and the single-image assumption were no longer true. Factual
+corrections, which `universal/08-rules-evolution.md` allows without approval.
+
+**Decided by.** Agent, as part of the owner-requested S12 work of 2026-09-18.
+
 ## 2026-09-18 — Hardening in the project rules (S11)
 
 **What changed.** `project/12-domain-rules.md` gains the rule that each service has its own
