@@ -41,8 +41,10 @@ Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 + Closed loop with the real PLC: hold 250 MW, 250→300, 180→300, feedwater pump drill (trip
   at 0.463 m, refused reset, reset, recovery), hot start, burner fouling, steam leak
 + 172 physics and PLC tests; full quality gate green (13/13)
-+ Stack rebuilt with the new physics: containers healthy, smoke green, KPI and CO2 intensity
-  as expected on the dashboards
++ Stack rebuilt with the new physics: containers healthy, smoke 13/13, and through the
+  gateway 297 MW gives 37.2 % net, 9680 kJ/kWh, 540 kg CO2/MWh, 39.6 ppmv NOx and stack
+  442.6 K, while 180 MW gives 36.35 % and 9905 kJ/kWh — the part-load penalty is visible
+  on the running unit
 + One existing test adapted, none deleted or weakened: the inlet-pressure case compared two
   states a throttle-governed machine cannot reach; a new case pins the throttling
 
