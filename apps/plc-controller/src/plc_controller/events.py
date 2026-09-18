@@ -26,6 +26,7 @@ from enum import StrEnum
 from typing import Any
 
 from aiomqtt import Client, MqttError, Will
+from cogniboiler_observability import MQTT_PUBLISHED
 
 from plc_controller.alarms import (
     SOURCE_SERVICE,
@@ -247,6 +248,7 @@ class PlcPublisher:
                     qos=message.qos,
                     retain=message.retain,
                 )
+                MQTT_PUBLISHED.labels(message.topic).inc()
                 self._queue.popleft()
             if time.monotonic() >= next_snapshot:
                 await client.publish(
@@ -254,6 +256,7 @@ class PlcPublisher:
                     snapshot_payload(self._active_conditions(), now_ms()),
                     qos=1,
                 )
+                MQTT_PUBLISHED.labels(TOPIC_ALERT_SNAPSHOT).inc()
                 next_snapshot = time.monotonic() + SNAPSHOT_INTERVAL_S
             self._wakeup.clear()
             if self._queue:

@@ -1,0 +1,17 @@
+[project]
+name = "cogniboiler-observability"
+version = "0.1.0"
+description = "Shared logging, correlation ids and metrics for the CogniBoiler services"
+requires-python = ">=3.14"
+dependencies = [
+    "structlog>=24.0.0",
+    "prometheus-client>=0.22.0",
+    "grpcio>=1.75.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cogniboiler_observability"]

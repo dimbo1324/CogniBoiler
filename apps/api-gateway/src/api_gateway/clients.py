@@ -12,6 +12,7 @@ from typing import Any, Protocol, cast
 import cogniboiler_pb2 as pb2
 import cogniboiler_pb2_grpc as pb2_grpc
 import grpc.aio
+from cogniboiler_observability import client_interceptors
 from influxdb_client.client.influxdb_client import InfluxDBClient as _InfluxDBClient
 
 
@@ -91,7 +92,9 @@ class PhysicsGatewayClient:
 
     def __init__(self, config: PhysicsGatewayConfig) -> None:
         self.config = config
-        self._channel = grpc.aio.insecure_channel(config.target)
+        self._channel = grpc.aio.insecure_channel(
+            config.target, interceptors=client_interceptors()
+        )
         self._stub = pb2_grpc.PhysicsServiceStub(self._channel)
 
     async def close(self) -> None:
@@ -176,7 +179,9 @@ class PLCGatewayClient:
 
     def __init__(self, config: PLCGatewayConfig) -> None:
         self.config = config
-        self._channel = grpc.aio.insecure_channel(config.target)
+        self._channel = grpc.aio.insecure_channel(
+            config.target, interceptors=client_interceptors()
+        )
         self._stub = pb2_grpc.PLCServiceStub(self._channel)
 
     async def close(self) -> None:
@@ -226,7 +231,9 @@ class AlarmGatewayClient:
 
     def __init__(self, config: AlarmGatewayConfig) -> None:
         self.config = config
-        self._channel = grpc.aio.insecure_channel(config.target)
+        self._channel = grpc.aio.insecure_channel(
+            config.target, interceptors=client_interceptors()
+        )
         self._stub = pb2_grpc.AlarmServiceStub(self._channel)
 
     async def close(self) -> None:

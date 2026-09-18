@@ -13,6 +13,7 @@ import logging
 from collections import deque
 
 from aiomqtt import Client, MqttError
+from cogniboiler_observability import MQTT_PUBLISHED
 
 from alert_manager.payloads import TOPIC_CHANGES, change_payload
 from alert_manager.views import AlarmView, TransitionView
@@ -80,6 +81,7 @@ class AlarmChangePublisher:
                     while True:
                         while self._queue:
                             await client.publish(TOPIC_CHANGES, self._queue[0], qos=1)
+                            MQTT_PUBLISHED.labels(TOPIC_CHANGES).inc()
                             self._queue.popleft()
                         self._wakeup.clear()
                         if not self._queue:

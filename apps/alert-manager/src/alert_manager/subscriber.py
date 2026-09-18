@@ -14,8 +14,10 @@ from collections.abc import Awaitable, Callable
 from typing import Protocol
 
 from aiomqtt import Client
+from cogniboiler_observability import MQTT_RECEIVED
 from sqlalchemy.exc import SQLAlchemyError
 
+from alert_manager.metrics import MESSAGES_FAILED
 from alert_manager.payloads import (
     SUBSCRIBE_TOPIC,
     TOPIC_SNAPSHOT,
@@ -77,6 +79,7 @@ class AlertSubscriber:
 
     async def _handle_message(self, topic: str, raw_payload: bytes) -> None:
         self._received += 1
+        MQTT_RECEIVED.labels(topic).inc()
         handler = self._handler
         if handler is None:
             self._skipped += 1
@@ -98,6 +101,7 @@ class AlertSubscriber:
             return
         except Exception:
             self._failed += 1
+            MESSAGES_FAILED.inc()
             logger.exception("Alarm message on %s could not be processed", topic)
             return
         self._processed += 1

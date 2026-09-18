@@ -29,6 +29,8 @@ from api_gateway.clients import (
 )
 from api_gateway.config import settings
 from api_gateway.db_init import seed_roles_and_demo_users
+from api_gateway.observability import ObservabilityMiddleware, observe_app
+from api_gateway.observability import router as metrics_router
 from api_gateway.problems import install_problem_handlers
 from api_gateway.realtime.hub import RealtimeHub
 from api_gateway.realtime.sources import run_mqtt_events, run_plc_status, run_telemetry
@@ -137,6 +139,7 @@ def create_app() -> FastAPI:
         ),
     )
     install_problem_handlers(app)
+    observe_app(app)
 
     app.add_middleware(AuditMiddleware)
     app.add_middleware(
@@ -145,8 +148,11 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "DELETE"],
         allow_headers=["Authorization", "Content-Type"],
-        expose_headers=["Retry-After", "X-Process-Time"],
+        expose_headers=["Retry-After", "X-Process-Time", "X-Correlation-ID"],
     )
+    # Added last, so it runs first: the audit entry and every log line of a request
+    # already carry its correlation id.
+    app.add_middleware(ObservabilityMiddleware)
 
     for router in (
         health.router,
@@ -161,6 +167,7 @@ def create_app() -> FastAPI:
         audit.router,
         users.router,
         websocket.router,
+        metrics_router,
     ):
         app.include_router(router)
     return app

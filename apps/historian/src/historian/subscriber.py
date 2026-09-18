@@ -34,8 +34,10 @@ from typing import Any
 
 import cogniboiler_pb2 as pb
 from aiomqtt import Client
+from cogniboiler_observability import MQTT_RECEIVED
 from google.protobuf.message import DecodeError
 
+from historian.metrics import MESSAGES_SKIPPED
 from historian.points import (
     RunLabels,
     build_alarm_change_point,
@@ -170,6 +172,7 @@ class HistorianSubscriber:
         Skips the heartbeat, unknown topics and malformed payloads.
         """
         self._received += 1
+        MQTT_RECEIVED.labels(topic).inc()
 
         if topic.startswith(TOPIC_STATUS_PREFIX):
             point = build_availability_point(
@@ -189,6 +192,7 @@ class HistorianSubscriber:
 
         if not points:
             self._skipped += 1
+            MESSAGES_SKIPPED.inc()
             return
         for point in points:
             await self._store_point(point)

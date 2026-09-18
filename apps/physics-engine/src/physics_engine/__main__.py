@@ -19,18 +19,17 @@ from pathlib import Path
 # Add shared/generated to path for protobuf imports
 sys.path.insert(0, str(Path(__file__).parents[4] / "shared" / "generated"))
 
+from cogniboiler_observability import configure_logging, start_metrics_server
+
 from physics_engine import properties
+from physics_engine.metrics import observe_runtime
 from physics_engine.mqtt_publisher import MQTTConfig, MQTTPublisher
 from physics_engine.runtime import PhysicsRuntime, PhysicsRuntimeConfig
 from physics_engine.scenarios import ScenarioName
 from physics_engine.server import DEFAULT_PORT, serve
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
-    datefmt="%H:%M:%S",
-)
 logger = logging.getLogger("physics_engine")
+DEFAULT_METRICS_PORT = 9101
 
 
 async def main(args: argparse.Namespace) -> None:
@@ -44,6 +43,8 @@ async def main(args: argparse.Namespace) -> None:
             start_paused=args.paused,
         )
     )
+    observe_runtime(runtime)
+    start_metrics_server(args.metrics_port, args.metrics_host)
     logger.info(
         "Starting Physics Engine: scenario=%s speed=%g× step=%gs paused=%s grpc=%d mqtt=%s",
         args.scenario,
@@ -89,10 +90,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mqtt-port", type=int, default=1883, help="MQTT broker port")
     parser.add_argument("--grpc-port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--disable-mqtt", action="store_true", help="gRPC only")
+    parser.add_argument(
+        "--metrics-port",
+        type=int,
+        default=DEFAULT_METRICS_PORT,
+        help="Prometheus /metrics port, 0 to disable",
+    )
+    parser.add_argument(
+        "--metrics-host", default="127.0.0.1", help="interface for /metrics"
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
+    configure_logging("physics-engine")
     asyncio.run(
         main(parse_args()),
         # aiomqtt needs add_reader(), which the Windows proactor loop does not have.

@@ -21,6 +21,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+from cogniboiler_observability import CORRELATION_HEADER, current_correlation_id
+
 logger = logging.getLogger(__name__)
 
 USER_AGENT = "cogniboiler-opcua-server"
@@ -68,6 +70,9 @@ class GatewayClient:
             request.add_header("Content-Type", "application/json")
         if token:
             request.add_header("Authorization", f"Bearer {token}")
+        correlation_id = current_correlation_id()
+        if correlation_id:
+            request.add_header(CORRELATION_HEADER, correlation_id)
         try:
             with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_S) as response:
                 return GatewayReply(response.status, _json(response.read()))

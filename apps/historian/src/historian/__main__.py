@@ -22,18 +22,16 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parents[4] / "shared" / "generated"))
 
+from cogniboiler_observability import configure_logging, start_metrics_server
+
 from historian.liveness import LivenessFile
 from historian.points import build_stats_point
 from historian.storage import StoragePolicy, ensure_storage
 from historian.subscriber import HistorianSubscriber
 from historian.writer import InfluxWriter
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
-    datefmt="%H:%M:%S",
-)
 logger = logging.getLogger("historian")
+DEFAULT_METRICS_PORT = 9103
 
 TOKEN_ENV = "INFLUXDB_TOKEN"
 STATS_INTERVAL_S = 30.0
@@ -65,6 +63,7 @@ async def main(args: argparse.Namespace, influx_token: str) -> None:
     )
     if not influx_token:
         logger.warning("%s is empty: InfluxDB will reject every write", TOKEN_ENV)
+    start_metrics_server(args.metrics_port, args.metrics_host)
 
     async def record_stats() -> None:
         while True:
@@ -123,10 +122,20 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="refresh this file while connected to the broker (container healthcheck)",
     )
+    parser.add_argument(
+        "--metrics-port",
+        type=int,
+        default=DEFAULT_METRICS_PORT,
+        help="Prometheus /metrics port, 0 to disable",
+    )
+    parser.add_argument(
+        "--metrics-host", default="127.0.0.1", help="interface for /metrics"
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
+    configure_logging("historian")
     asyncio.run(
         main(parse_args(), os.environ.get(TOKEN_ENV, "")),
         # aiomqtt needs add_reader(), which the Windows proactor loop does not have.

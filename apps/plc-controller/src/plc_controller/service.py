@@ -37,6 +37,7 @@ from plc_controller.measurements import (
     SENSOR_STEAM_TEMP,
     ProcessMeasurements,
 )
+from plc_controller.metrics import SCAN_SECONDS
 from plc_controller.safety import (
     WATER_LEVEL_LIMITS,
     ArmingState,
@@ -249,6 +250,10 @@ class PLCService:
             "trips": self._interlock.trip_count,
             "scans": self._scans_completed,
         }
+
+    @property
+    def active_condition_count(self) -> int:
+        return len(self._alarms.active())
 
     @property
     def last_scanned_step(self) -> int:
@@ -607,7 +612,9 @@ class PLCService:
         while True:
             try:
                 async for state in self._physics.stream_system_state():
+                    started = time.perf_counter()
                     await self.process_state(state)
+                    SCAN_SECONDS.observe(time.perf_counter() - started)
                     self._scans_completed += 1
                     self._last_scanned_step = state.simulation.step_count
                     if self._stream_failing:

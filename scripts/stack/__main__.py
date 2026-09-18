@@ -21,6 +21,9 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 
 
 def compose(config: dict[str, Any], *args: str) -> list[str]:
+    profiles: list[str] = []
+    for profile in config.get("profiles", []):
+        profiles += ["--profile", str(profile)]
     return [
         "docker",
         "compose",
@@ -28,6 +31,7 @@ def compose(config: dict[str, Any], *args: str) -> list[str]:
         str(config["project_name"]),
         "--file",
         str(config["compose_file"]),
+        *profiles,
         *args,
     ]
 

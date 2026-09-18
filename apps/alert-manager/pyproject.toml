@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Industrial alarm management and audit logging"
 requires-python = ">=3.14"
 dependencies = [
+    "cogniboiler-observability",
     "sqlalchemy[asyncio]>=2.0.44",
     "asyncpg>=0.31.0",
     "alembic>=1.13.0",
@@ -20,3 +21,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/alert_manager"]
+
+[tool.uv.sources]
+cogniboiler-observability = { workspace = true }

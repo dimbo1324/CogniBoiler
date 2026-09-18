@@ -17,9 +17,11 @@ import logging
 from typing import Any
 
 from asyncua import ua
+from cogniboiler_observability import correlation_scope
 
 from opcua_server.gateway import GatewayClient, GatewayReply, GatewayUnavailableError
 from opcua_server.identity import CURRENT_USER, GatewayUser
+from opcua_server.metrics import METHOD_CALLS
 from opcua_server.ua_types import StatusCodes, node_id, status
 
 logger = logging.getLogger(__name__)
@@ -65,6 +67,19 @@ class MethodHandlers:
         self._gateway = gateway
 
     async def _forward(
+        self, action: str, path: str, payload: dict[str, Any]
+    ) -> MethodResult:
+        """One method call under its own correlation id, counted by outcome."""
+        with correlation_scope(None):
+            result = await self._forward_as_user(action, path, payload)
+        if isinstance(result, list):
+            outcome = "accepted" if result and result[0].Value else "refused"
+        else:
+            outcome = "failed"
+        METHOD_CALLS.labels(action, outcome).inc()
+        return result
+
+    async def _forward_as_user(
         self, action: str, path: str, payload: dict[str, Any]
     ) -> MethodResult:
         user = CURRENT_USER.get()

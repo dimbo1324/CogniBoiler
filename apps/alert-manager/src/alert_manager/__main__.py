@@ -12,6 +12,8 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parents[4] / "shared" / "generated"))
 
+from cogniboiler_observability import configure_logging, start_metrics_server
+
 from alert_manager.db import create_engine, missing_tables, session_factory
 from alert_manager.grpc_server import DEFAULT_PORT, AlarmServicer, start_server
 from alert_manager.liveness import LivenessFile
@@ -19,12 +21,8 @@ from alert_manager.processor import AlarmProcessor
 from alert_manager.publisher import AlarmChangePublisher
 from alert_manager.subscriber import AlertSubscriber
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
-    datefmt="%H:%M:%S",
-)
 logger = logging.getLogger("alert_manager")
+DEFAULT_METRICS_PORT = 9104
 
 
 def parse_args() -> argparse.Namespace:
@@ -37,6 +35,15 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="refresh this file while connected to the broker (container healthcheck)",
+    )
+    parser.add_argument(
+        "--metrics-port",
+        type=int,
+        default=DEFAULT_METRICS_PORT,
+        help="Prometheus /metrics port, 0 to disable",
+    )
+    parser.add_argument(
+        "--metrics-host", default="127.0.0.1", help="interface for /metrics"
     )
     return parser.parse_args()
 
@@ -52,6 +59,7 @@ async def main(args: argparse.Namespace) -> int:
         await engine.dispose()
         return 1
 
+    start_metrics_server(args.metrics_port, args.metrics_host)
     publisher = AlarmChangePublisher(args.mqtt_host, args.mqtt_port)
     processor = AlarmProcessor(session_factory(engine), publisher)
     subscriber = AlertSubscriber(args.mqtt_host, args.mqtt_port, processor)
@@ -80,6 +88,7 @@ async def main(args: argparse.Namespace) -> int:
 
 
 if __name__ == "__main__":
+    configure_logging("alert-manager")
     sys.exit(
         asyncio.run(
             main(parse_args()),

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import cogniboiler_pb2 as pb2
 import cogniboiler_pb2_grpc as pb2_grpc
 import grpc.aio
+from cogniboiler_observability import client_interceptors
 
 DEFAULT_PHYSICS_TARGET: str = "localhost:50052"
 
@@ -33,7 +34,9 @@ class PhysicsClient:
     def _connected_stub(self) -> pb2_grpc.PhysicsServiceStub:
         """The stub, creating the gRPC channel lazily."""
         if self._channel is None or self._stub is None:
-            self._channel = grpc.aio.insecure_channel(self.config.target)
+            self._channel = grpc.aio.insecure_channel(
+                self.config.target, interceptors=client_interceptors()
+            )
             self._stub = pb2_grpc.PhysicsServiceStub(self._channel)
         return self._stub
 

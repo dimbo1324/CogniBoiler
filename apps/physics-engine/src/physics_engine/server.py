@@ -13,6 +13,7 @@ import cogniboiler_pb2 as pb2
 import cogniboiler_pb2_grpc as pb2_grpc
 import grpc
 import grpc.aio
+from cogniboiler_observability import ServerObservability
 
 from physics_engine import __version__
 from physics_engine.faults import FaultError, FaultSpec
@@ -256,7 +257,7 @@ async def serve(
 ) -> None:
     """Start the PhysicsService gRPC server and block until termination."""
     await runtime.start()
-    server = grpc.aio.server()
+    server = grpc.aio.server(interceptors=[ServerObservability()])
     pb2_grpc.add_PhysicsServiceServicer_to_server(PhysicsServicer(runtime), server)
     listen_addr = f"[::]:{port}"
     server.add_insecure_port(listen_addr)

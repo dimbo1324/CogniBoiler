@@ -16,18 +16,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[4] / "shared" / "generated"))
 
+from cogniboiler_observability import configure_logging, start_metrics_server
+
 from opcua_server.client import AlarmReadClient, PLCStatusClient
 from opcua_server.server import CogniBoilerOPCServer
 from opcua_server.subscriber import MQTTOPCBridge
 from opcua_server.upstreams import run_alarm_projection, run_plc_projection
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
-    datefmt="%H:%M:%S",
-)
-logging.getLogger("asyncua").setLevel(logging.WARNING)
 logger = logging.getLogger("opcua_server")
+DEFAULT_METRICS_PORT = 9105
 
 
 async def main(args: argparse.Namespace) -> None:
@@ -47,6 +44,7 @@ async def main(args: argparse.Namespace) -> None:
     alarms = AlarmReadClient(args.alarm_target)
 
     await opc_server.start()
+    start_metrics_server(args.metrics_port, args.metrics_host)
     logger.info(
         "OPC UA server running at opc.tcp://localhost:%d/cogniboiler; mqtt=%s:%d "
         "plc=%s alarms=%s gateway=%s",
@@ -96,10 +94,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-update-hz", type=float, default=5.0)
     parser.add_argument("--plc-interval-s", type=float, default=1.0)
     parser.add_argument("--alarm-interval-s", type=float, default=5.0)
+    parser.add_argument(
+        "--metrics-port",
+        type=int,
+        default=DEFAULT_METRICS_PORT,
+        help="Prometheus /metrics port, 0 to disable",
+    )
+    parser.add_argument(
+        "--metrics-host", default="127.0.0.1", help="interface for /metrics"
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
+    configure_logging("opcua-server")
     asyncio.run(
         main(parse_args()),
         # aiomqtt needs add_reader(), which the Windows proactor loop does not have.

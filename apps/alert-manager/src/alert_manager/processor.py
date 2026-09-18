@@ -28,6 +28,7 @@ from alert_manager.lifecycle import (
     after_condition_active,
     after_condition_cleared,
 )
+from alert_manager.metrics import TRANSITIONS
 from alert_manager.models import AlarmEvent, AlarmTransition
 from alert_manager.payloads import ConditionReport, SnapshotReport
 from alert_manager.views import AlarmView, TransitionView
@@ -400,6 +401,7 @@ class AlarmProcessor:
             transition_view.to_state.value,
             transition_view.actor,
         )
+        TRANSITIONS.labels(view.severity, transition_view.to_state.value).inc()
         if self._listener is not None:
             self._listener.alarm_changed(view, transition_view)
         return view

@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Thermodynamic simulation of steam boiler and turbine"
 requires-python = ">=3.14"
 dependencies = [
+    "cogniboiler-observability",
     "numpy>=2.3.2",
     "scipy>=1.16.1",
     "pydantic>=2.12.0",
@@ -20,3 +21,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/physics_engine"]
+
+[tool.uv.sources]
+cogniboiler-observability = { workspace = true }

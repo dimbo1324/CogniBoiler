@@ -25,6 +25,7 @@ gives atomic writes and faster range queries.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Protocol, cast
 
 import cogniboiler_pb2 as pb
@@ -33,6 +34,8 @@ from influxdb_client.client.influxdb_client import InfluxDBClient as _InfluxDBCl
 from influxdb_client.client.write.point import Point as _Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 from influxdb_client.domain.write_precision import WritePrecision
+
+from historian.metrics import POINTS_FAILED, POINTS_WRITTEN, WRITE_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -185,23 +188,33 @@ class InfluxWriter:
 
     def write_point(self, point: PointLike) -> None:
         """Write a single Point to InfluxDB. Errors are counted, not raised."""
+        started = time.perf_counter()
         try:
             self._write_api.write(bucket=self._bucket, record=point)
             self._written += 1
+            POINTS_WRITTEN.inc()
         except Exception as exc:
             self._errors += 1
+            POINTS_FAILED.inc()
             logger.warning("InfluxDB write error: %s", exc)
+        finally:
+            WRITE_SECONDS.observe(time.perf_counter() - started)
 
     def write_points(self, points: list[PointLike]) -> None:
         """Write a batch of points to InfluxDB in one call."""
         if not points:
             return
+        started = time.perf_counter()
         try:
             self._write_api.write(bucket=self._bucket, record=points)
             self._written += len(points)
+            POINTS_WRITTEN.inc(len(points))
         except Exception as exc:
             self._errors += len(points)
+            POINTS_FAILED.inc(len(points))
             logger.warning("InfluxDB batch write error: %s", exc)
+        finally:
+            WRITE_SECONDS.observe(time.perf_counter() - started)
 
     def close(self) -> None:
         """Flush and close the InfluxDB client."""

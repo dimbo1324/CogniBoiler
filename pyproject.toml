@@ -25,6 +25,7 @@ members = [
   "apps/historian",
   "apps/alert-manager",
   "apps/opcua-server",
+  "shared/observability",
 ]
 
 [dependency-groups]
@@ -79,4 +80,4 @@ module = ["cogniboiler_pb2", "cogniboiler_pb2_grpc"]
 [tool.pytest.ini_options]
 addopts = "--cov --cov-report=term-missing"
 asyncio_mode = "auto"
-testpaths = ["apps"]
+testpaths = ["apps", "shared/observability/tests"]

@@ -17,6 +17,7 @@ from enum import StrEnum
 
 from physics_engine.condenser import COOLING_WATER_TEMP_DESIGN
 from physics_engine.faults import ActiveFault, FaultSpec
+from physics_engine.metrics import STEP_SECONDS, STEPS
 from physics_engine.models import BoilerParameters, BoilerState, ControlInputs
 from physics_engine.plant import PlantConfig, PlantSimulator, PlantSnapshot
 from physics_engine.scenarios import ScenarioName
@@ -241,7 +242,7 @@ class PhysicsRuntime:
             raise RuntimeCommandError("pause the simulation before stepping it")
         for _ in range(steps):
             async with self._lock:
-                snapshot = await asyncio.to_thread(self._plant.step, 1)
+                snapshot = await asyncio.to_thread(self._timed_step)
                 self._publish(snapshot)
         return self.simulation_status()
 
@@ -275,6 +276,13 @@ class PhysicsRuntime:
 
     # ─── Loop ────────────────────────────────────────────────────────────────
 
+    def _timed_step(self) -> PlantSnapshot:
+        started = time.perf_counter()
+        snapshot = self._plant.step(1)
+        STEP_SECONDS.observe(time.perf_counter() - started)
+        STEPS.inc()
+        return snapshot
+
     def _publish(self, snapshot: PlantSnapshot) -> None:
         self._snapshot = snapshot
         self._sequence += 1
@@ -290,7 +298,7 @@ class PhysicsRuntime:
                 async with self._lock:
                     if self._run_state is not RunState.RUNNING:
                         continue
-                    snapshot = await asyncio.to_thread(self._plant.step, 1)
+                    snapshot = await asyncio.to_thread(self._timed_step)
                     self._publish(snapshot)
                 self._status = "running"
                 self._last_error = ""

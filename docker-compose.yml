@@ -105,7 +105,7 @@ services:
 
   physics-engine:
     <<: *python-service
-    command: ["python", "-m", "physics_engine", "--mqtt-host", "mosquitto", "--grpc-port", "50052"]
+    command: ["python", "-m", "physics_engine", "--mqtt-host", "mosquitto", "--grpc-port", "50052", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -118,7 +118,7 @@ services:
 
   plc-controller:
     <<: *python-service
-    command: ["python", "-m", "plc_controller", "--port", "50051", "--physics-target", "physics-engine:50052", "--mqtt-host", "mosquitto", "--mqtt-port", "1883"]
+    command: ["python", "-m", "plc_controller", "--port", "50051", "--physics-target", "physics-engine:50052", "--mqtt-host", "mosquitto", "--mqtt-port", "1883", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -133,7 +133,7 @@ services:
 
   historian:
     <<: *python-service
-    command: ["python", "-m", "historian", "--mqtt-host", "mosquitto", "--influx-url", "http://influxdb:8086", "--influx-org", "${INFLUXDB_ORG:?run dev-secrets}", "--influx-bucket", "${INFLUXDB_BUCKET:?run dev-secrets}", "--batch-size", "50", "--flush-interval-s", "2.0", "--liveness-file", "/tmp/cogniboiler-liveness"]
+    command: ["python", "-m", "historian", "--mqtt-host", "mosquitto", "--influx-url", "http://influxdb:8086", "--influx-org", "${INFLUXDB_ORG:?run dev-secrets}", "--influx-bucket", "${INFLUXDB_BUCKET:?run dev-secrets}", "--batch-size", "50", "--flush-interval-s", "2.0", "--liveness-file", "/tmp/cogniboiler-liveness", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     environment:
       INFLUXDB_TOKEN: ${INFLUXDB_ADMIN_TOKEN:?run dev-secrets}
     depends_on:
@@ -150,7 +150,7 @@ services:
 
   alert-manager:
     <<: *python-service
-    command: ["python", "-m", "alert_manager", "--mqtt-host", "mosquitto", "--mqtt-port", "1883", "--grpc-port", "50053", "--liveness-file", "/tmp/cogniboiler-liveness"]
+    command: ["python", "-m", "alert_manager", "--mqtt-host", "mosquitto", "--mqtt-port", "1883", "--grpc-port", "50053", "--liveness-file", "/tmp/cogniboiler-liveness", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     environment:
       ALERT_MANAGER_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:?run dev-secrets}:${POSTGRES_PASSWORD:?run dev-secrets}@postgresql:5432/${POSTGRES_DB:?run dev-secrets}
     depends_on:
@@ -167,7 +167,7 @@ services:
 
   opcua-server:
     <<: *python-service
-    command: ["python", "-m", "opcua_server", "--mqtt-host", "mosquitto", "--plc-target", "plc-controller:50051", "--alarm-target", "alert-manager:50053", "--gateway-url", "http://api-gateway:8000", "--opc-port", "4840"]
+    command: ["python", "-m", "opcua_server", "--mqtt-host", "mosquitto", "--plc-target", "plc-controller:50051", "--alarm-target", "alert-manager:50053", "--gateway-url", "http://api-gateway:8000", "--opc-port", "4840", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     ports:
       - "127.0.0.1:4840:4840"
     depends_on:
@@ -184,7 +184,7 @@ services:
 
   api-gateway:
     <<: *python-service
-    command: ["python", "-m", "uvicorn", "api_gateway.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    command: ["python", "-m", "api_gateway", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "127.0.0.1:8000:8000"
     environment:
@@ -225,6 +225,23 @@ services:
       retries: 5
       start_period: 20s
 
+  # Service metrics for the Platform dashboard; `stack up` enables this profile.
+  prometheus:
+    image: prom/prometheus:v3.8.0
+    profiles: ["observability"]
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=7d"]
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   mosquitto_data:
   mosquitto_log:
@@ -232,3 +249,4 @@ volumes:
   influxdb_config:
   postgresql_data:
   grafana_data:
+  prometheus_data:

@@ -29,6 +29,7 @@ from dataclasses import dataclass
 
 from aiomqtt import Client, Will
 from aiomqtt import MqttError as AioMqttError
+from cogniboiler_observability import MQTT_PUBLISH_ERRORS, MQTT_PUBLISHED
 
 from physics_engine.models import BoilerState
 from physics_engine.plant import PlantSnapshot
@@ -129,8 +130,10 @@ class MQTTPublisher:
         try:
             await client.publish(topic, payload, qos=qos, retain=retain)
             self._published += 1
+            MQTT_PUBLISHED.labels(topic).inc()
         except MQTT_ERRORS as exc:
             self._errors += 1
+            MQTT_PUBLISH_ERRORS.labels(topic).inc()
             logger.warning("Publish failed [%s]: %s", topic, exc)
 
     async def publish_boiler(

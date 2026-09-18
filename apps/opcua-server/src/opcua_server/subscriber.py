@@ -31,6 +31,7 @@ from typing import Any
 
 import cogniboiler_pb2 as pb
 from aiomqtt import Client
+from cogniboiler_observability import MQTT_RECEIVED
 from google.protobuf.message import DecodeError
 
 from opcua_server.address_space import BOILER_FIELD_TO_NODEID, TURBINE_FIELD_TO_NODEID
@@ -124,6 +125,7 @@ class MQTTOPCBridge:
         Skips the heartbeat, unknown topics and malformed payloads.
         """
         self._messages_received += 1
+        MQTT_RECEIVED.labels(topic).inc()
 
         if topic == TOPIC_ALARM_CHANGES:
             if self._alarms_changed is not None:

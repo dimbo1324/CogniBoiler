@@ -10,6 +10,7 @@ import cogniboiler_pb2 as pb2
 import cogniboiler_pb2_grpc as pb2_grpc
 import grpc
 import grpc.aio
+from cogniboiler_observability import ServerObservability
 
 from alert_manager.lifecycle import AlarmState, LifecycleError
 from alert_manager.processor import (
@@ -176,7 +177,7 @@ class AlarmServicer(pb2_grpc.AlarmServiceServicer):  # type: ignore[misc]
 
 async def start_server(servicer: AlarmServicer, port: int) -> grpc.aio.Server:
     """Start the AlarmService on a port; the caller stops it."""
-    server = grpc.aio.server()
+    server = grpc.aio.server(interceptors=[ServerObservability()])
     pb2_grpc.add_AlarmServiceServicer_to_server(servicer, server)
     server.add_insecure_port(f"[::]:{port}")
     await server.start()
