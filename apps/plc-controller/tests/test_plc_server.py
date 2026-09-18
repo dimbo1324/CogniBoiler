@@ -312,9 +312,9 @@ class TestPLCGrpc:
 
         physics_runtime = PhysicsRuntime(
             PhysicsRuntimeConfig(
-                speed_factor=200.0,
                 dt=1.0,
                 initial_state=low_level_state,
+                start_paused=True,
             )
         )
         await physics_runtime.start()
@@ -347,13 +347,16 @@ class TestPLCGrpc:
         stub = pb2_grpc.PLCServiceStub(channel)
 
         try:
+            # Lockstep: one plant step, then the PLC scan of exactly that step, so the
+            # outcome does not depend on how fast this machine runs the plant (debt Д2).
+            status = await physics_runtime.step(1)
             deadline = time.monotonic() + 5.0
-            control_status = pb2.PLCStatusMsg()
-            while time.monotonic() < deadline:
-                control_status = await stub.GetControlStatus(pb2.Empty())
-                if control_status.emergency_stop_active:
-                    break
-                await asyncio.sleep(0.05)
+            while plc_service.last_scanned_step < status.step_count:
+                assert time.monotonic() < deadline, (
+                    f"PLC did not scan step {status.step_count} within 5 s"
+                )
+                await asyncio.sleep(0.001)
+            control_status = await stub.GetControlStatus(pb2.Empty())
 
             assert control_status.emergency_stop_active
             assert control_status.mode == pb2.ControlMode.ESTOP
