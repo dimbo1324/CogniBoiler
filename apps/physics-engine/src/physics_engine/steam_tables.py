@@ -68,7 +68,8 @@ _iapws97._Region3 = _patched_region3  # noqa: SLF001
 def _to_float(value: object) -> float:
     """Ensure value is a plain Python float before passing to iapws."""
     if isinstance(value, np.generic | np.ndarray):
-        return float(value)
+        # numpy 2 converts only 0-d arrays with float(); item() takes any size-1 array.
+        return float(value.item())
     return float(cast(Any, value))
 
 
