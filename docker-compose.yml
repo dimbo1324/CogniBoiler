@@ -233,6 +233,8 @@ services:
   opcua-server:
     <<: *python-service
     build: { context: ., target: opcua-server }
+    # The certificate from dev-secrets names this host; OPC UA clients compare the two.
+    hostname: opcua-server
     image: ${COGNIBOILER_REGISTRY:-cogniboiler}/opcua-server:${COGNIBOILER_TAG:-dev}
     command: ["python", "-m", "opcua_server", "--mqtt-host", "mosquitto", "--plc-target", "plc-controller:50051", "--alarm-target", "alert-manager:50053", "--gateway-url", "http://api-gateway:8000", "--opc-port", "4840", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     ports:
