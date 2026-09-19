@@ -24,6 +24,8 @@ Additional unit tests:
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from plc_controller.safety import (
     PRESSURE_LIMITS,
@@ -200,6 +202,15 @@ class TestEmergencyStop:
         estop.trigger("water_level_m", value=0.3, threshold=0.5)
         assert estop.trigger_event is not None
         assert estop.trigger_event.parameter == "water_level_m"
+
+    def test_a_trip_is_logged_as_a_warning_not_an_error(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.DEBUG, logger="plc_controller.safety"):
+            EmergencyStop().trigger("water_level_m", value=0.42, threshold=0.5)
+        [record] = [r for r in caplog.records if "EMERGENCY STOP" in r.getMessage()]
+        assert record.levelno == logging.WARNING
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
     def test_reset_without_trigger_is_noop(self) -> None:
         estop = EmergencyStop()

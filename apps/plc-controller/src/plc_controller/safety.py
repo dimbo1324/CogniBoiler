@@ -436,7 +436,9 @@ class EmergencyStop:
         self._active = True
         self._trigger_event = event
 
-        logger.error(
+        # A trip is the protection doing its job, not a platform failure: `error` stays
+        # reserved for faults of the software itself (owner decision 2026-09-19).
+        logger.warning(
             "EMERGENCY STOP triggered: %s",
             event.to_dict(),
         )

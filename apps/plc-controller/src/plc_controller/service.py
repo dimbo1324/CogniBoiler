@@ -792,7 +792,7 @@ class PLCService:
         self._trip_cause = SafetySnapshot.from_event(event)
         self._manual_command = None
         self._change_mode(RuntimeMode.ESTOP, operator_id)
-        logger.error(
+        logger.warning(
             "E-Stop latched: %s=%.4g (limit %.4g) by %s",
             event.parameter,
             event.value,

@@ -170,6 +170,26 @@ class TestTripsAndResets:
             )
             assert status.active_trip.parameter == ""
 
+    async def test_a_trip_logs_warnings_and_no_error(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.INFO, logger="plc_controller"):
+            async with rig() as plant:
+                tripped = await plant.stub.SetControlMode(
+                    pb2.ControlModeRequest(
+                        mode=pb2.ControlMode.ESTOP, operator_id="eng"
+                    )
+                )
+                assert tripped.accepted
+                await plant.advance(2)
+                reset = await plant.stub.ResetEmergencyStop(
+                    pb2.ResetRequest(operator_id="eng")
+                )
+                assert reset.accepted, reset.reason
+        latched = [r for r in caplog.records if "E-Stop latched" in r.getMessage()]
+        assert [r.levelno for r in latched] == [logging.WARNING]
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
     async def test_resetting_without_a_trip_is_a_no_op(self) -> None:
         async with rig() as plant:
             ack = await plant.stub.ResetEmergencyStop(pb2.ResetRequest())
