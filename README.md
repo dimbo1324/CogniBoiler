@@ -477,7 +477,7 @@ Stop with `python dev_tools_scripts_runner.py stack down` (add `--volumes` to wi
 
 `stack up` starts the Compose profile `full`. `--profile infra` starts only the broker and the databases (for running the services from the host), `core` adds every service and the console, and `observability` is Prometheus, Grafana and InfluxDB.
 
-**A published release, without building.** Every push to `main` and every tag `vX.Y.Z` publishes the images as `ghcr.io/dimbo1324/cogniboiler/<service>`, and a tag also gets a GitHub release (while a package is private, pulling it needs `docker login ghcr.io`). Check out the release's tag (Compose mounts the broker, Grafana, Prometheus and nginx configuration from the repository), then:
+**A published release, without building.** Every push to `main` and every tag `vX.Y.Z` publishes the images as `ghcr.io/dimbo1324/cogniboiler/<service>`, and a tag also gets a GitHub release; the packages are public, so no `docker login` is needed. Check out the release's tag (Compose mounts the broker, Grafana, Prometheus and nginx configuration from the repository), then:
 
 ```bash
 python dev_tools_scripts_runner.py dev-secrets

@@ -22,10 +22,15 @@ Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 ## Verification
 
 + Full gate green (14 sections); `docker compose --profile full config` valid
-[ ] Fast-forward merge into `main`, push `main` to `origin`
-[ ] CI on `main` checked: gate, audit, stack, publish
++ Fast-forward merge into `main`; `main` pushed to `origin` (`db19e5b..c7ded3a`)
++ CI on `main` green: run 35428859444 (commit `c7ded3a`, 2026-09-19T07:16:14Z–07:24:05Z
+  UTC) — gate, audit, stack and publish for all seven images; release skipped (no tag).
+  The images are on `ghcr.io/dimbo1324/cogniboiler/<service>` with tags `main` and
+  `sha-c7ded3a`, and an anonymous client can pull them (Q7 closed as a fact)
++ This result is recorded in a follow-up commit (ROADMAP, decision log, this checklist),
+  merged and pushed the same way
 
 ## Completion
 
-[ ] Checklist filled honestly
-[ ] Report in Russian: what is done, what remains
++ Checklist filled honestly
++ Report in Russian: what is done, what remains
