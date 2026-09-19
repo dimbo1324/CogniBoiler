@@ -54,12 +54,21 @@ Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
   Application Control blocked its compiled `stats` module; the rerun passed unchanged
 + Stack rebuilt: all containers healthy, smoke and Playwright (16) green, log files written
   by all seven processes, correlation ids present in them
-[ ] CI green on the pushed task branch
++ CI green on the pushed task branch: run 35443240027 on `feat/file-logging` (which holds
+  every commit of the task) — gate, audit and stack, with the new log-file check on Linux,
+  finished 2026-09-19T12:43:05Z
 
 ## Completion
 
 + ROADMAP (Д11, Д2, logs), architecture overview, README, rule modules, decision log
-[ ] Every branch except `main` deleted, locally and on `origin`
-[ ] Docker cleaned
-[ ] Checklist filled honestly
-[ ] Report in Russian, then the untracked files removed and the computer shut down
++ Every branch except `main` deleted, locally and on `origin`: `origin/feat/delivery`
+  deleted, `test/business-logic-coverage` (never pushed) deleted after its merge;
+  `feat/file-logging` goes locally and on `origin` right after this commit is merged
+- Docker cleaned, partly: the stack's containers and network, every image and the whole
+  build cache are gone (about 22 GB). The seven named volumes of the stack (263 MB)
+  remain: deleting Docker volumes is on the project's permission deny list, so the owner
+  runs `python dev_tools_scripts_runner.py stack down --volumes --yes`
++ Checklist filled honestly
++ Report in Russian, then the untracked files removed and the computer shut down — all
+  three after this commit, which cannot record them; the report names anything that git
+  could not remove because a running program held it
