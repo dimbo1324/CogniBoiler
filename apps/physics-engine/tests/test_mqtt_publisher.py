@@ -246,21 +246,26 @@ class TestMQTTPublisher:
 
         error_client = MagicMock()
         error_client.publish = AsyncMock(side_effect=MqttError("broker down"))
-        await publisher.publish_boiler(error_client, boiler_state)
+        with pytest.raises(MqttError):
+            await publisher.publish_boiler(error_client, boiler_state)
         assert publisher.errors == 1
+        assert publisher.published == 0
 
     @pytest.mark.asyncio
-    async def test_error_does_not_raise(
+    async def test_a_failed_publish_raises_so_the_session_can_reconnect(
         self,
         publisher: MQTTPublisher,
         boiler_state: BoilerState,
     ) -> None:
-        """Publish errors must be swallowed — never crash the publisher loop."""
+        """A lost connection must reach mirror_runtime, which reconnects."""
         from aiomqtt import MqttError
 
         error_client = MagicMock()
-        error_client.publish = AsyncMock(side_effect=MqttError("timeout"))
-        await publisher.publish_boiler(error_client, boiler_state)  # must not raise
+        error_client.publish = AsyncMock(
+            side_effect=MqttError("The client is not currently connected.")
+        )
+        with pytest.raises(MqttError, match="not currently connected"):
+            await publisher.publish_boiler(error_client, boiler_state)
 
     def test_config_defaults(self) -> None:
         cfg = MQTTConfig()

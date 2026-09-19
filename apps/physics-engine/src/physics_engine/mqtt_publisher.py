@@ -129,12 +129,14 @@ class MQTTPublisher:
     ) -> None:
         try:
             await client.publish(topic, payload, qos=qos, retain=retain)
-            self._published += 1
-            MQTT_PUBLISHED.labels(topic).inc()
-        except MQTT_ERRORS as exc:
+        except MQTT_ERRORS:
+            # aiomqtt does not reconnect by itself: a failed publish almost always means
+            # the connection is gone, so the session ends and mirror_runtime reconnects.
             self._errors += 1
             MQTT_PUBLISH_ERRORS.labels(topic).inc()
-            logger.warning("Publish failed [%s]: %s", topic, exc)
+            raise
+        self._published += 1
+        MQTT_PUBLISHED.labels(topic).inc()
 
     async def publish_boiler(
         self,
@@ -239,7 +241,6 @@ class MQTTPublisher:
                 logger.error("MQTT mirror stopped: %s", exc)
                 return
             except MQTT_ERRORS as exc:
-                self._errors += 1
                 logger.warning(
                     "MQTT disconnected: %s — retrying in %.0fs",
                     exc,

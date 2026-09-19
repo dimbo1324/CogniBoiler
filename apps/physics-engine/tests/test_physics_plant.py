@@ -149,6 +149,7 @@ class FakeBroker:
     published: list[tuple[str, Any, int, bool]] = []
     connections: list[dict[str, Any]] = []
     fail_connections = 0
+    drop_after_publishes: int | None = None
 
     def __init__(self, **options: Any) -> None:
         FakeBroker.connections.append(options)
@@ -165,6 +166,11 @@ class FakeBroker:
     async def publish(
         self, topic: str, payload: Any = None, qos: int = 0, retain: bool = False
     ) -> None:
+        if FakeBroker.drop_after_publishes is not None:
+            if FakeBroker.drop_after_publishes == 0:
+                FakeBroker.drop_after_publishes = None
+                raise MqttError("The client is not currently connected.")
+            FakeBroker.drop_after_publishes -= 1
         FakeBroker.published.append((topic, payload, qos, retain))
 
 
@@ -180,6 +186,7 @@ class TestMirror:
         FakeBroker.published = []
         FakeBroker.connections = []
         FakeBroker.fail_connections = 0
+        FakeBroker.drop_after_publishes = None
         monkeypatch.setattr(mqtt_publisher, "Client", FakeBroker)
         monkeypatch.setattr(mqtt_publisher, "RECONNECT_DELAY_S", 0.001)
 
@@ -235,6 +242,36 @@ class TestMirror:
                 await runtime.stop()
         assert len(FakeBroker.connections) == 3
         assert caplog.text.count("MQTT disconnected") == 2
+
+    async def test_a_connection_lost_while_publishing_is_reconnected_not_spun_on(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        FakeBroker.drop_after_publishes = 3
+        runtime = PhysicsRuntime(PhysicsRuntimeConfig(start_paused=True))
+        await runtime.start()
+        publisher = MQTTPublisher(MQTTConfig())
+        with caplog.at_level(logging.WARNING, logger="physics_engine.mqtt_publisher"):
+            mirror = asyncio.create_task(publisher.mirror_runtime(runtime))
+            try:
+                await until(lambda: len(FakeBroker.connections) == 2)
+                await until(lambda: len(FakeBroker.published) >= 4)
+                await runtime.step(1)
+                await until(lambda: len(FakeBroker.published) >= 8)
+            finally:
+                mirror.cancel()
+                await runtime.stop()
+        assert len(FakeBroker.connections) == 2
+        assert caplog.text.count("MQTT disconnected") == 1
+        assert "not currently connected" in caplog.text
+        topics = [topic for topic, *_ in FakeBroker.published]
+        assert topics[3] == TOPIC_AVAILABILITY
+        assert topics[4:8] == [
+            TOPIC_PLANT,
+            TOPIC_BOILER,
+            TOPIC_TURBINE,
+            TOPIC_HEARTBEAT,
+        ]
+        assert publisher.errors == 1
 
     async def test_the_mirror_ends_when_the_runtime_stops(
         self, caplog: pytest.LogCaptureFixture
