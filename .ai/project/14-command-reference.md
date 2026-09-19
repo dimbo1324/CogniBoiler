@@ -60,7 +60,10 @@ uv run --package api-gateway python -m api_gateway --port 8000         # or: uvi
 
 Every service logs one JSON object per line (`timestamp` in UTC, `level`, `service`,
 `logger`, `event`, `correlation_id`); `LOG_FORMAT=console` gives readable lines and
-`LOG_LEVEL` the threshold. Each serves Prometheus metrics: the gateway at `/metrics` on its
+`LOG_LEVEL` the threshold. `LOG_DIR` adds a JSON file `<LOG_DIR>/<service>.log`, rotated by
+size (`LOG_FILE_MAX_BYTES`, `LOG_FILE_BACKUPS`): the Compose stack sets it and mounts the
+repository's `logs/`, which `stack up` creates; from the host, run a service with
+`LOG_DIR=logs` to write there too. Each serves Prometheus metrics: the gateway at `/metrics` on its
 own port, the others on `--metrics-port` (host defaults 9101 physics, 9102 PLC, 9103
 historian, 9104 alert-manager, 9105 OPC UA, bound to 127.0.0.1; 9100 on all interfaces in
 Compose). A caller's `X-Correlation-ID` (or a new id) follows a request through gRPC

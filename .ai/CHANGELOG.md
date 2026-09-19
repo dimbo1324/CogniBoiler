@@ -6,6 +6,20 @@ History of changes to the AI assistant rule system (`.ai/`, `CLAUDE.md`, `AGENTS
 
 Format: date, what changed, why, who decided. Newest first.
 
+## 2026-09-19 — Service log files in the command reference
+
+**What changed.** `project/14-command-reference.md` describes `LOG_DIR` (a JSON file per
+service, rotated by `LOG_FILE_MAX_BYTES` and `LOG_FILE_BACKUPS`), the repository's `logs/`
+directory that the Compose stack mounts and `stack up` creates, and `LOG_DIR=logs` for a
+service run from the host. The module's essence is unchanged, so `AGENTS.md` is not
+affected.
+
+**Why.** The owner asked for service logs to be kept in a project folder; the reference
+must say where they are and how a host-run service joins them. A factual addition, which
+`universal/08-rules-evolution.md` allows without approval.
+
+**Decided by.** Agent, as part of the owner-requested logging work of 2026-09-19.
+
 ## 2026-09-18 — Delivery in the command reference (S12)
 
 **What changed.** `project/14-command-reference.md` describes the Compose profiles

@@ -470,6 +470,7 @@ python dev_tools_scripts_runner.py smoke            # end-to-end check through t
 | Prometheus | http://localhost:9090 — every service's `/metrics` |
 | OPC UA | `opc.tcp://localhost:4840/cogniboiler` — anonymous read; sign in as a demo user to call methods (the password is encrypted with the server's certificate, or use the Basic256Sha256 endpoint) |
 | Console dev server | `pnpm --dir apps/web install`, then `pnpm --dir apps/web dev` → http://localhost:5173, proxied to the stack |
+| Service logs | `logs/<service>.log` in the repository — one JSON object per line, rotated at 10 MiB; `python dev_tools_scripts_runner.py stack logs <service>` follows a container's output |
 
 Demo users `admin`, `engineer`, `operator` and `viewer` are created on start; their passwords are the `DEMO_*_PASSWORD` values in `.env`. `dev-secrets` also writes the broker's per-service accounts, the database roles' passwords and the self-signed certificates for HTTPS and OPC UA. Nothing in `.env` is ever committed.
 

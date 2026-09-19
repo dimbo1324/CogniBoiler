@@ -175,6 +175,15 @@ UA method calls start their own id and hand it to the gateway. The shared packag
 `shared/observability` (`cogniboiler_observability`) holds the log setup, the correlation
 scope, the gRPC interceptors and the MQTT counters.
 
+With `LOG_DIR` set, a service also writes the same lines, always as JSON, to
+`<LOG_DIR>/<service>.log`, rotated by size (`LOG_FILE_MAX_BYTES`, 10 MiB by default; the
+`LOG_FILE_BACKUPS` newest older files, 5 by default). In the Compose stack every Python
+service writes into the repository's `logs/` directory through a bind mount
+(`db-roles.log` from the one-shot `migrate`, then one file per service), and `stack up`
+creates that directory; Docker keeps at most 3 × 10 MB of every container's own output. A
+directory that cannot be written leaves the service on standard output with a warning — it
+never stops a service.
+
 | Service | Metrics endpoint | Its own metrics |
 |---|---|---|
 | api-gateway | `:8000/metrics` | `http_requests_total` and `http_request_seconds` by method and route template, `gateway_websocket_clients`, `gateway_telemetry_age_seconds` |
@@ -244,8 +253,9 @@ all every 10 s in the Compose profiles `observability` and `full` (the default o
 - CI (`.github/workflows/ci.yml`): `gate` runs the quality gate; `audit` audits the locked
   dependencies (`audit-deps`: pip-audit and pnpm audit); `stack` builds every image, starts
   the whole stack with throwaway secrets, runs `smoke` and the Playwright console checks
-  through nginx and scans all seven images with Trivy, failing on a HIGH or CRITICAL
-  finding that has a fix. Reports are kept as artifacts. On `main` and on tags `v*`, after
+  through nginx, checks that every service wrote its log file, and scans all seven images
+  with Trivy, failing on a HIGH or CRITICAL finding that has a fix. Reports and the log
+  files are kept as artifacts. On `main` and on tags `v*`, after
   all three, `publish` pushes every image to `ghcr.io/<owner>/cogniboiler/<service>`
   (tags `main`, `sha-…`, and for a release `vX.Y.Z`, `vX.Y` and `latest`); a tag `v*`
   then gets a GitHub release with generated notes, `docker-compose.yml` and
@@ -264,7 +274,10 @@ all every 10 s in the Compose profiles `observability` and `full` (the default o
   `selftest`.
 - The quality gate runs ruff, strict mypy, every service test suite, the protobuf,
   OpenAPI and `AGENTS.md` sync checks, the scripts' own tests, and the frontend checks when
-  `apps/web/node_modules` exists.
+  `apps/web/node_modules` exists. The service suites need no broker, database or network:
+  gRPC servers run in process on port 0, MQTT and HTTP peers are fakes, storage is SQLite
+  or a parsed line protocol, and the PLC tests step the physics runtime in lockstep instead
+  of waiting on the wall clock.
 - `ml/preprocessing/generate_dataset.py` runs labelled closed-loop episodes — the
   deterministic plant scanned by the real PLC logic — for the deferred AI stage.
 
@@ -272,8 +285,5 @@ all every 10 s in the Compose profiles `observability` and `full` (the default o
 
 Recorded with their planned fix in the internal roadmap:
 
-- the logic added in S2–S5, S8 and S10 has no dedicated tests yet (owner decision for that
-  work); of the PLC integration tests, only the AUTO hold test runs in lockstep with the
-  plant, the others still pace it by wall clock;
 - sign-in throttling state lives in the single gateway process;
 - OPC UA accepts any client certificate (no trust list).
