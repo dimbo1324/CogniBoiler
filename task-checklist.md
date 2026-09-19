@@ -8,17 +8,20 @@ Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 
 ## Preparation
 
-[ ] Previous checklist (S6–S12) closed: every item marked
-[ ] List the tracked `.gitkeep` files; find the directories that become empty and anything
-    that relies on them
++ Previous checklist (S6–S12) closed: every item marked
++ 28 tracked `.gitkeep` files; 11 directories become empty and leave the tree (`certs`,
+  `tests`, `shared/crypto`, `infrastructure/ci-cd`, `helm`, `influxdb`, `k8s`,
+  `ml/datasets`, `ml/inference`, `ml/models`, `ml/training`). Nothing relies on them:
+  `pytest` collects from `apps` and `shared/observability/tests`, `dev-secrets` writes keys
+  into `.env`, and the dataset generator creates `ml/datasets/raw` itself
 
 ## Implementation
 
-[ ] Remove every tracked `.gitkeep` on branch `chore/remove-gitkeep`
++ Removed every tracked `.gitkeep` on branch `chore/remove-gitkeep`
 
 ## Verification
 
-[ ] Full gate green
++ Full gate green (14 sections); `docker compose --profile full config` valid
 [ ] Fast-forward merge into `main`, push `main` to `origin`
 [ ] CI on `main` checked: gate, audit, stack, publish
 
