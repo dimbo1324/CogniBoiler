@@ -83,16 +83,29 @@ def call(
         raise GatewayUnreachableError(f"{method} {path}: {error}") from error
 
 
+# Only this recent a point proves telemetry is flowing: a stalled pipeline (physics, MQTT,
+# historian, InfluxDB) still has older points in the history's default 15-minute range.
+FRESH_TELEMETRY_S = 30
+
+
+def history_path(now_ms: int, fresh_s: float = FRESH_TELEMETRY_S) -> str:
+    start_ms = now_ms - int(fresh_s * 1000)
+    return f"/api/v1/history?measurement=boiler_sensors&start_ms={start_ms}&limit=5"
+
+
 def wait_for_history(base_url: str, token: str, wait_s: float) -> tuple[bool, str]:
     deadline = time.monotonic() + wait_s
-    path = "/api/v1/history?measurement=boiler_sensors&limit=5"
     while True:
+        path = history_path(int(time.time() * 1000))
         reply = call(base_url, "GET", path, token=token)
         points = dig(reply.body, "points")
         if reply.status == 200 and isinstance(points, list) and points:
-            return True, f"{len(points)} recent points"
+            return True, f"{len(points)} points from the last {FRESH_TELEMETRY_S} s"
         if time.monotonic() >= deadline:
-            return False, f"HTTP {reply.status}, no points after {wait_s:.0f} s"
+            return False, (
+                f"HTTP {reply.status}, no point from the last {FRESH_TELEMETRY_S} s "
+                f"after waiting {wait_s:.0f} s"
+            )
         time.sleep(3)
 
 

@@ -1,4 +1,4 @@
-"""The smoke report's bookkeeping and the tolerant JSON lookup it relies on.
+"""The smoke report's bookkeeping, the tolerant JSON lookup and the fresh-history query.
 
 Run with:  python -m unittest discover -s scripts -t .
 """
@@ -9,7 +9,7 @@ import contextlib
 import io
 import unittest
 
-from scripts.smoke.__main__ import Report, dig
+from scripts.smoke.__main__ import FRESH_TELEMETRY_S, Report, dig, history_path
 
 
 class DigTest(unittest.TestCase):
@@ -39,6 +39,14 @@ class ReportTest(unittest.TestCase):
             [name for name, _ in report.rows], ["first", "second", "third"]
         )
         self.assertIn("HTTP 500", report.rows[1][1])
+
+
+class HistoryPathTest(unittest.TestCase):
+    def test_only_points_from_the_fresh_window_count(self) -> None:
+        path = history_path(1_789_700_000_000)
+        self.assertIn("measurement=boiler_sensors", path)
+        self.assertIn(f"start_ms={1_789_700_000_000 - FRESH_TELEMETRY_S * 1000}", path)
+        self.assertNotIn("end_ms", path)
 
 
 if __name__ == "__main__":
