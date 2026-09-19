@@ -1,36 +1,52 @@
-# Task: remove the `.gitkeep` placeholders and publish `main`
+# Task: tests for the untested business logic, file logs, clean-up
 
-Owner instruction of 2026-09-19: delete every `.gitkeep` file, commit, and push to the
-remote `main`. The push also publishes the 15 local commits of S6, S7, S9, S11 and S12,
-and CI on `main` runs the `publish` job (images to GHCR).
+Owner instruction of 2026-09-19: write as many tests as reasonable, add logging that keeps
+its files in a project folder, work without asking questions; at the end delete every
+branch except `main`, clean Docker, remove the files and folders git does not track, and
+shut the computer down. The owner did not ask for a push of `main` this time: task
+branches may be pushed to run CI (work-in-progress pushes) and are deleted at the end.
+
+Baseline before the task: 367 Python tests, 78 % line coverage of `apps` and
+`shared/observability` (2026-09-19T04:40-03:00).
 
 Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 
 ## Preparation
 
-+ Previous checklist (S6–S12) closed: every item marked
-+ 28 tracked `.gitkeep` files; 11 directories become empty and leave the tree (`certs`,
-  `tests`, `shared/crypto`, `infrastructure/ci-cd`, `helm`, `influxdb`, `k8s`,
-  `ml/datasets`, `ml/inference`, `ml/models`, `ml/training`). Nothing relies on them:
-  `pytest` collects from `apps` and `shared/observability/tests`, `dev-secrets` writes keys
-  into `.env`, and the dataset generator creates `ml/datasets/raw` itself
+[ ] Previous checklist (`.gitkeep` removal and publishing) closed: every item marked
+[ ] Coverage map of every service; the owner's decision recorded (Д11 is to be closed)
 
-## Implementation
+## Tests (`test/business-logic-coverage`)
 
-+ Removed every tracked `.gitkeep` on branch `chore/remove-gitkeep`
+[ ] api-gateway: user administration, sessions, audit, alarms, simulation, commands, KPI,
+    PLC and status routes, WebSocket channels and the realtime hub, readiness, clients,
+    start-up seeding
+[ ] alert-manager: lifecycle, payloads, the MQTT subscriber, views
+[ ] historian: points, writer, subscriber
+[ ] opcua-server: units, projection, methods through the gateway, identity, subscriber
+[ ] physics-engine: steam tables, faults, scenarios, sensors, runtime, gRPC server
+[ ] plc-controller: events, server, service paths not yet covered
+[ ] shared/observability: remaining paths
+[ ] Д2: the PLC integration tests that still pace the plant by wall clock run in lockstep
+
+## File logs (`feat/file-logging`)
+
+[ ] Every service also writes its JSON log lines to `logs/<service>.log`, rotated by size,
+    when `LOG_DIR` is set; an unwritable folder never stops a service
+[ ] Compose mounts `./logs` into every service; Docker's own container logs are capped
+[ ] `stack up` prepares a writable `logs/`; `logs/` is ignored by git
+[ ] Tests for the file handler, rotation and the fallback
 
 ## Verification
 
-+ Full gate green (14 sections); `docker compose --profile full config` valid
-+ Fast-forward merge into `main`; `main` pushed to `origin` (`db19e5b..c7ded3a`)
-+ CI on `main` green: run 35428859444 (commit `c7ded3a`, 2026-09-19T07:16:14Z–07:24:05Z
-  UTC) — gate, audit, stack and publish for all seven images; release skipped (no tag).
-  The images are on `ghcr.io/dimbo1324/cogniboiler/<service>` with tags `main` and
-  `sha-c7ded3a`, and an anonymous client can pull them (Q7 closed as a fact)
-+ This result is recorded in a follow-up commit (ROADMAP, decision log, this checklist),
-  merged and pushed the same way
+[ ] Full gate green before every merge
+[ ] Stack rebuilt: all containers healthy, smoke and Playwright green, log files written
+[ ] CI green on the pushed task branches
 
 ## Completion
 
-+ Checklist filled honestly
-+ Report in Russian: what is done, what remains
+[ ] ROADMAP (Д11, Д2, logs), architecture overview, README, rule modules, decision log
+[ ] Every branch except `main` deleted, locally and on `origin`
+[ ] Docker cleaned
+[ ] Checklist filled honestly
+[ ] Report in Russian, then the untracked files removed and the computer shut down
