@@ -5,18 +5,20 @@
 from the host), ``core`` (infra, the services and the console) or ``observability``
 (Prometheus, Grafana, InfluxDB). ``--infra-only`` is ``--profile infra``. ``status`` lists
 containers with their health, ``logs`` follows one service, ``down`` stops everything.
-Deleting volumes wipes the databases, so it asks first.
+Deleting volumes wipes the databases, so it asks first. Before ``up`` it creates the log
+directory the services write their files into through a bind mount.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 from scripts._toolkit.config import load_config, repo_root
-from scripts._toolkit.console import confirm, fail, info
+from scripts._toolkit.console import confirm, fail, info, warn
 from scripts._toolkit.processes import NOT_FOUND, run
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -34,6 +36,23 @@ def compose(config: dict[str, Any], profile: str, *args: str) -> list[str]:
         profile,
         *args,
     ]
+
+
+def prepare_log_dir(directory: Path) -> bool:
+    """Create the services' log directory; False when they may be unable to write it."""
+    try:
+        directory.mkdir(exist_ok=True)
+        if os.name == "posix":
+            # The services run as uid 10001, and a Linux bind mount keeps the host's owner
+            # and mode; Docker Desktop on Windows and macOS maps the rights itself.
+            directory.chmod(0o777)
+    except OSError as error:
+        warn(
+            f"{directory} is not writable for the services ({error}); "
+            "they will log to standard output only"
+        )
+        return False
+    return True
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -121,6 +140,9 @@ def main(argv: list[str]) -> int:
             "python dev_tools_scripts_runner.py dev-secrets"
         )
         return 1
+
+    if args.action == "up":
+        prepare_log_dir(root / str(config["log_dir"]))
 
     if args.action == "down" and args.volumes:
         question = (

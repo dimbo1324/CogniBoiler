@@ -3,8 +3,9 @@ name: CI
 # gate     — the quality gate developers run locally, with CI=true.
 # audit    — known vulnerabilities in the locked dependencies (report artifact).
 # stack    — builds every image, starts the whole Compose stack with throwaway secrets,
-#            runs the smoke check and the console's Playwright checks through nginx, and
-#            scans the images with Trivy (report artifacts).
+#            runs the smoke check and the console's Playwright checks through nginx, checks
+#            that every service wrote its log file, and scans the images with Trivy (the
+#            reports and the log files are artifacts).
 # publish  — on `main` and on tags `v*`, after gate, audit and stack: pushes every image to
 #            GitHub Container Registry as ghcr.io/<owner>/cogniboiler/<service>.
 # release  — on tags `v*`, after publish: a GitHub release with generated notes and the
@@ -142,6 +143,20 @@ jobs:
         env:
           CI: "true"
         run: uv run --no-sync python dev_tools_scripts_runner.py console-e2e --no-install --url http://localhost:8080
+
+      - name: Every service writes its log file
+        run: |
+          for service in db-roles physics-engine plc-controller historian alert-manager opcua-server api-gateway; do
+            test -s "logs/$service.log" || { echo "logs/$service.log is missing or empty"; exit 1; }
+          done
+
+      - name: Keep the service log files
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: service-logs
+          path: logs/
+          if-no-files-found: warn
 
       - name: Keep the Playwright report
         if: always()

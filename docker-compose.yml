@@ -8,16 +8,31 @@
 # the release (v1.0.0) and start with `stack up --no-build`: Compose pulls the images.
 # InfluxDB and PostgreSQL read their credentials only on first start: after regenerating
 # secrets, recreate the volumes with `stack down --volumes`.
+# The Python services also write JSON log files into ./logs (LOG_DIR, rotated by size);
+# Docker keeps at most 3 × 10 MB of each container's own output.
 name: cogniboiler
+
+x-docker-logs: &docker-logs
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 x-service: &service
   restart: unless-stopped
   profiles: ["core", "full"]
+  logging: *docker-logs
+
+x-python-service: &python-service
+  <<: *service
+  volumes:
+    - ./logs:/app/logs
 
 services:
   # Every client has its own account and topic rights; the accounts are written from .env
   # on each start by start-broker.sh.
   mosquitto:
+    logging: *docker-logs
     image: eclipse-mosquitto:2.0
     profiles: ["infra", "core", "full"]
     entrypoint: ["/bin/sh", "/cogniboiler/start-broker.sh"]
@@ -45,6 +60,7 @@ services:
       retries: 5
 
   influxdb:
+    logging: *docker-logs
     image: influxdb:2.7
     profiles: ["infra", "core", "observability", "full"]
     ports:
@@ -68,6 +84,7 @@ services:
       retries: 5
 
   postgresql:
+    logging: *docker-logs
     image: postgres:16-alpine
     profiles: ["infra", "core", "full"]
     ports:
@@ -86,6 +103,7 @@ services:
       retries: 5
 
   grafana:
+    logging: *docker-logs
     image: grafana/grafana:10.4.0
     profiles: ["observability", "full"]
     ports:
@@ -112,13 +130,14 @@ services:
       retries: 5
 
   migrate:
-    <<: *service
+    <<: *python-service
     build: { context: ., target: api-gateway }
     image: ${COGNIBOILER_REGISTRY:-cogniboiler}/api-gateway:${COGNIBOILER_TAG:-dev}
     # The only service that connects as the owner of the tables: it migrates the schema and
     # gives the application roles their passwords.
     command: ["sh", "-c", "python -m alembic -c apps/api-gateway/alembic.ini upgrade head && python -m api_gateway.db_roles"]
     environment:
+      LOG_DIR: /app/logs
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:?run dev-secrets}:${POSTGRES_PASSWORD:?run dev-secrets}@postgresql:5432/${POSTGRES_DB:?run dev-secrets}
       GATEWAY_DB_PASSWORD: ${GATEWAY_DB_PASSWORD:?run dev-secrets}
       ALARMS_DB_PASSWORD: ${ALARMS_DB_PASSWORD:?run dev-secrets}
@@ -128,11 +147,12 @@ services:
     restart: "no"
 
   physics-engine:
-    <<: *service
+    <<: *python-service
     build: { context: ., target: physics-engine }
     image: ${COGNIBOILER_REGISTRY:-cogniboiler}/physics-engine:${COGNIBOILER_TAG:-dev}
     command: ["python", "-m", "physics_engine", "--mqtt-host", "mosquitto", "--grpc-port", "50052", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     environment:
+      LOG_DIR: /app/logs
       MQTT_USERNAME: physics-engine
       MQTT_PASSWORD: ${MQTT_PHYSICS_ENGINE_PASSWORD:?run dev-secrets}
     depends_on:
@@ -146,11 +166,12 @@ services:
       start_period: 20s
 
   plc-controller:
-    <<: *service
+    <<: *python-service
     build: { context: ., target: plc-controller }
     image: ${COGNIBOILER_REGISTRY:-cogniboiler}/plc-controller:${COGNIBOILER_TAG:-dev}
     command: ["python", "-m", "plc_controller", "--port", "50051", "--physics-target", "physics-engine:50052", "--mqtt-host", "mosquitto", "--mqtt-port", "1883", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     environment:
+      LOG_DIR: /app/logs
       MQTT_USERNAME: plc-controller
       MQTT_PASSWORD: ${MQTT_PLC_CONTROLLER_PASSWORD:?run dev-secrets}
     depends_on:
@@ -166,11 +187,12 @@ services:
       start_period: 20s
 
   historian:
-    <<: *service
+    <<: *python-service
     build: { context: ., target: historian }
     image: ${COGNIBOILER_REGISTRY:-cogniboiler}/historian:${COGNIBOILER_TAG:-dev}
     command: ["python", "-m", "historian", "--mqtt-host", "mosquitto", "--influx-url", "http://influxdb:8086", "--influx-org", "${INFLUXDB_ORG:?run dev-secrets}", "--influx-bucket", "${INFLUXDB_BUCKET:?run dev-secrets}", "--batch-size", "50", "--flush-interval-s", "2.0", "--liveness-file", "/tmp/cogniboiler-liveness", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     environment:
+      LOG_DIR: /app/logs
       MQTT_USERNAME: historian
       MQTT_PASSWORD: ${MQTT_HISTORIAN_PASSWORD:?run dev-secrets}
       INFLUXDB_TOKEN: ${INFLUXDB_ADMIN_TOKEN:?run dev-secrets}
@@ -187,11 +209,12 @@ services:
       start_period: 20s
 
   alert-manager:
-    <<: *service
+    <<: *python-service
     build: { context: ., target: alert-manager }
     image: ${COGNIBOILER_REGISTRY:-cogniboiler}/alert-manager:${COGNIBOILER_TAG:-dev}
     command: ["python", "-m", "alert_manager", "--mqtt-host", "mosquitto", "--mqtt-port", "1883", "--grpc-port", "50053", "--liveness-file", "/tmp/cogniboiler-liveness", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     environment:
+      LOG_DIR: /app/logs
       MQTT_USERNAME: alert-manager
       MQTT_PASSWORD: ${MQTT_ALERT_MANAGER_PASSWORD:?run dev-secrets}
       ALERT_MANAGER_DATABASE_URL: postgresql+asyncpg://cogniboiler_alarms:${ALARMS_DB_PASSWORD:?run dev-secrets}@postgresql:5432/${POSTGRES_DB:?run dev-secrets}
@@ -208,13 +231,14 @@ services:
       start_period: 20s
 
   opcua-server:
-    <<: *service
+    <<: *python-service
     build: { context: ., target: opcua-server }
     image: ${COGNIBOILER_REGISTRY:-cogniboiler}/opcua-server:${COGNIBOILER_TAG:-dev}
     command: ["python", "-m", "opcua_server", "--mqtt-host", "mosquitto", "--plc-target", "plc-controller:50051", "--alarm-target", "alert-manager:50053", "--gateway-url", "http://api-gateway:8000", "--opc-port", "4840", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     ports:
       - "127.0.0.1:4840:4840"
     environment:
+      LOG_DIR: /app/logs
       MQTT_USERNAME: opcua-server
       MQTT_PASSWORD: ${MQTT_OPCUA_SERVER_PASSWORD:?run dev-secrets}
       OPCUA_SERVER_CERT: ${OPCUA_SERVER_CERT:-}
@@ -232,7 +256,7 @@ services:
       start_period: 20s
 
   api-gateway:
-    <<: *service
+    <<: *python-service
     build: { context: ., target: api-gateway }
     image: ${COGNIBOILER_REGISTRY:-cogniboiler}/api-gateway:${COGNIBOILER_TAG:-dev}
     # Reached only through the web service (nginx) and from inside the network: no host
@@ -240,6 +264,7 @@ services:
     # means nginx or another service of the stack.
     command: ["python", "-m", "api_gateway", "--host", "0.0.0.0", "--port", "8000", "--forwarded-allow-ips", "172.16.0.0/12,10.0.0.0/8,192.168.0.0/16"]
     environment:
+      LOG_DIR: /app/logs
       MQTT_USERNAME: api-gateway
       MQTT_PASSWORD: ${MQTT_API_GATEWAY_PASSWORD:?run dev-secrets}
       DATABASE_URL: postgresql+asyncpg://cogniboiler_gateway:${GATEWAY_DB_PASSWORD:?run dev-secrets}@postgresql:5432/${POSTGRES_DB:?run dev-secrets}
@@ -305,6 +330,7 @@ services:
 
   # Service metrics for the Platform dashboard.
   prometheus:
+    logging: *docker-logs
     image: prom/prometheus:v3.8.0
     profiles: ["observability", "full"]
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=7d"]

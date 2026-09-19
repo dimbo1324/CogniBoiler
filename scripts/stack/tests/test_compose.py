@@ -1,4 +1,4 @@
-"""The docker compose command lines `stack` builds.
+"""The docker compose command lines `stack` builds, and the log directory it prepares.
 
 Run with:  python -m unittest discover -s scripts -t .
 """
@@ -6,9 +6,14 @@ Run with:  python -m unittest discover -s scripts -t .
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
+import os
+import tempfile
 import unittest
+from pathlib import Path
 
-from scripts.stack.__main__ import build_command
+from scripts.stack.__main__ import build_command, prepare_log_dir
 
 CONFIG = {
     "project_name": "cogniboiler",
@@ -59,6 +64,25 @@ class BuildCommandTest(unittest.TestCase):
         command = build_command(args(action="down", volumes=True), CONFIG)
         self.assertEqual(command[6:8], ["--profile", "full"])
         self.assertEqual(command[-2:], ["down", "--volumes"])
+
+
+class PrepareLogDirTest(unittest.TestCase):
+    def test_creates_a_directory_the_services_can_write(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp) / "logs"
+            self.assertTrue(prepare_log_dir(directory))
+            self.assertTrue(prepare_log_dir(directory))
+            self.assertTrue(directory.is_dir())
+            if os.name == "posix":
+                self.assertEqual(directory.stat().st_mode & 0o777, 0o777)
+
+    def test_a_path_taken_by_a_file_is_reported_instead_of_raised(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            taken = Path(temp) / "logs"
+            taken.write_text("not a directory", encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()) as printed:
+                self.assertFalse(prepare_log_dir(taken))
+            self.assertIn("standard output only", printed.getvalue())
 
 
 if __name__ == "__main__":
