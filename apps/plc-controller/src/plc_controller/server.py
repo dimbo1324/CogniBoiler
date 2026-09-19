@@ -199,7 +199,9 @@ async def serve(
     await server.start()
     logger.info("PLC gRPC server listening on %s", listen_addr)
     try:
-        await server.wait_for_termination()
+        # Cancelling wait_for_termination() cancels the server's own completion
+        # future, after which stop() fails; shielded, the shutdown below is graceful.
+        await asyncio.shield(server.wait_for_termination())
     finally:
         await server.stop(grace=5)
         await service.close()
