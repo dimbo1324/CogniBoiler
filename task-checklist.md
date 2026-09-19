@@ -48,11 +48,15 @@ Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 
 + Full gate green (1001 pytest, 193 Vitest)
 + Stack rebuilt from this branch: healthy, smoke and Playwright (22) green
-[ ] CI green on the pushed task branch
++ CI green on the pushed task branch: run 35459680501 — gate, audit and stack (smoke with
+  the fresh-telemetry check, Playwright, log files, Trivy), finished 2026-09-19T18:06:26Z
 
 ## Completion
 
 + ROADMAP (S13 progress, criteria found), overview, decision log; README unchanged — the
   run instructions did not change
-[ ] Branch merged into `main` locally; task branch deleted locally and on `origin`
-[ ] Checklist filled honestly; report in Russian
++ Branch merged into `main` locally; task branch deleted locally and on `origin` — right
+  after this commit, which cannot record it; the report confirms. `main` is not pushed:
+  the owner did not ask for a publish in this task
++ Checklist filled honestly; report in Russian (after this commit; then the stack is
+  stopped, volumes kept, and the computer shut down as the owner asked)
