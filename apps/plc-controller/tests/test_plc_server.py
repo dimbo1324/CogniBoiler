@@ -128,11 +128,10 @@ class TestPLCGrpc:
     @pytest_asyncio.fixture(autouse=True)
     async def setup_server(self) -> AsyncGenerator[None]:
         """Start PhysicsService and PLCService on free OS ports."""
+        # The plant starts paused and advances only when a test steps it, so no test
+        # depends on how fast this machine runs the plant (debt Д2).
         self.physics_runtime = PhysicsRuntime(
-            PhysicsRuntimeConfig(
-                speed_factor=250.0,
-                dt=1.0,
-            )
+            PhysicsRuntimeConfig(dt=1.0, start_paused=True)
         )
         await self.physics_runtime.start()
 
@@ -218,7 +217,7 @@ class TestPLCGrpc:
         )
         assert ack.accepted
 
-        await asyncio.sleep(0.2)
+        await self.physics_runtime.step(60)
         after = await self.physics_stub.GetSystemState(pb2.Empty())
         assert after.turbine.electrical_power_w < before.turbine.electrical_power_w
 
@@ -291,7 +290,6 @@ class TestPLCGrpc:
     ) -> None:
         # Lockstep over gRPC: one plant step, then the PLC scan of exactly that step, so
         # the outcome does not depend on how fast this machine runs the plant (debt Д2).
-        await self.physics_runtime.pause()
         while self.physics_runtime.snapshot.simulation_time_s < 600.0:
             status = await self.physics_runtime.step(1)
             deadline = time.monotonic() + 5.0
