@@ -4,7 +4,7 @@
 > updated whenever the shape of the system changes: a new service, endpoint group, topic,
 > table, screen, or operational job. The plan lives in the internal roadmap.
 
-**Last revised:** 2026-09-18 · **Version:** 0.1.0 · **Python:** 3.14
+**Last revised:** 2026-09-19 · **Version:** 0.1.0 · **Python:** 3.14
 
 ## The shape of the system
 
@@ -237,7 +237,10 @@ all every 10 s in the Compose profiles `observability` and `full` (the default o
   and API (8080, 8443), MQTT (1883), OPC UA (4840), and for developers PostgreSQL,
   InfluxDB, Grafana and Prometheus. A one-shot
   `migrate` service applies Alembic before the gateway and alert-manager start; the gateway
-  only seeds roles and demo users. Every long-running service has a healthcheck.
+  only seeds roles and demo users. Every long-running service has a healthcheck. Every
+  service reconnects by itself when the broker, PostgreSQL or InfluxDB restarts: after
+  `docker compose restart` of the whole stack, or of any one of them, every container is
+  healthy and the gateway ready again within about 15 s.
 - Grafana is provisioned with InfluxDB and Prometheus datasources of fixed uids and four
   dashboards: Process, Efficiency and emissions, Alarms, and Platform — service health,
   request rates and latency, physics step and PLC scan times, gRPC, MQTT, historian writes
@@ -248,8 +251,8 @@ all every 10 s in the Compose profiles `observability` and `full` (the default o
 - The gateway seeds demo users `admin`, `engineer`, `operator`, `viewer` from
   `DEMO_*_PASSWORD` when `AUTO_INIT_DB` is set; no credential is hardcoded.
 - `smoke` checks a running stack through the gateway: health and readiness, logins, role
-  refusals, live state, a setpoint accepted by the PLC, alarms, history, KPIs and the audit
-  log of sign-ins.
+  refusals, live state, a setpoint accepted by the PLC, alarms, telemetry recorded in the
+  last 30 s, KPIs and the audit log of sign-ins.
 - CI (`.github/workflows/ci.yml`): `gate` runs the quality gate; `audit` audits the locked
   dependencies (`audit-deps`: pip-audit and pnpm audit); `stack` builds every image, starts
   the whole stack with throwaway secrets, runs `smoke` and the Playwright console checks
@@ -267,7 +270,9 @@ all every 10 s in the Compose profiles `observability` and `full` (the default o
   `/api`, `/auth`, `/health` and `/ws` to the gateway, so the browser sees one origin.
   Vitest covers the modules and screens; Playwright (`apps/web/e2e`, script `console-e2e`)
   checks the console against a running stack with the demo users from `.env`, including the
-  five-minute demo played by an operator, an engineer and an admin at once.
+  five-minute demo played by an operator, an engineer and an admin at once, every screen on
+  a tablet (768×1024, 1024×768) and a projector (1280×720), and how a session ends when an
+  administrator closes it, when the browser loses it and on sign-out.
 - `python dev_tools_scripts_runner.py` is the developer-tools orchestrator: `quality-gate`,
   `format-code`, `audit-deps`, `sync-agents`, `stack`, `dev-secrets`, `smoke`, `console-e2e`,
   `generate-proto`, `generate-openapi`, `doctor`, `install-hooks`, `clean-caches`,
@@ -285,5 +290,7 @@ all every 10 s in the Compose profiles `observability` and `full` (the default o
 
 Recorded with their planned fix in the internal roadmap:
 
+- an InfluxDB restart leaves a gap in the recorded history: the historian counts and drops
+  the batches it cannot write (`historian_points_failed_total`) instead of buffering them;
 - sign-in throttling state lives in the single gateway process;
 - OPC UA accepts any client certificate (no trust list).

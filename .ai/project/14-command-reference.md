@@ -126,6 +126,10 @@ or nginx in the stack).
 - **A `.venv` held by VS Code.** Python extensions (Black Formatter, Pylance) run the
   project interpreter and restart it the moment it is killed, so `uv sync` cannot
   recreate `.venv` while VS Code is open. Close VS Code for the rebuild (found 2026-09-14).
+  A rebuild that races VS Code can also leave `.venv` without `pyvenv.cfg`: the
+  interpreter then runs as the base Python, and the commit hook fails with
+  `No module named pre_commit` although `uv sync` reports nothing to do. Close VS Code
+  and run `uv sync --all-packages` again (found 2026-09-19).
 - **Claude desktop app on Windows.** Commands an agent runs from the desktop app write to
   `%APPDATA%` and `%LOCALAPPDATA%` inside the app's package container, invisible outside
   it. Per-user tooling therefore goes outside AppData (`UV_PYTHON_INSTALL_DIR`,

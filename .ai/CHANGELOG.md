@@ -6,6 +6,20 @@ History of changes to the AI assistant rule system (`.ai/`, `CLAUDE.md`, `AGENTS
 
 Format: date, what changed, why, who decided. Newest first.
 
+## 2026-09-19 — A `.venv` without `pyvenv.cfg` in the platform notes
+
+**What changed.** The note on a `.venv` held by VS Code in
+`project/14-command-reference.md` now also describes the silent variant: a rebuild that
+races VS Code leaves `.venv` without `pyvenv.cfg`, the interpreter runs as the base Python,
+and the commit hook fails with `No module named pre_commit` while `uv sync` reports nothing
+to do. The module's essence is unchanged, so `AGENTS.md` is not affected.
+
+**Why.** It cost time in the 1.0 readiness check: the existing note named only the loud
+failure. A clarification of an existing rule, which `universal/08-rules-evolution.md`
+allows without approval.
+
+**Decided by.** Agent, during the owner-requested readiness check of 2026-09-19.
+
 ## 2026-09-19 — Service log files in the command reference
 
 **What changed.** `project/14-command-reference.md` describes `LOG_DIR` (a JSON file per
