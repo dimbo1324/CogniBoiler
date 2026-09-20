@@ -22,7 +22,6 @@ can tolerate occasional loss; throughput matters more.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -30,6 +29,7 @@ from dataclasses import dataclass
 from aiomqtt import Client, Will
 from aiomqtt import MqttError as AioMqttError
 from cogniboiler_observability import MQTT_PUBLISH_ERRORS, MQTT_PUBLISHED
+from cogniboiler_runtime import MqttSession
 
 from physics_engine.models import BoilerState
 from physics_engine.plant import PlantSnapshot
@@ -221,29 +221,26 @@ class MQTTPublisher:
     # ─── Mirror of the live runtime ───────────────────────────────────────────
 
     async def mirror_runtime(self, runtime: PhysicsRuntime) -> None:
-        """Publish every runtime snapshot; reconnect after broker failures."""
+        """Publish every runtime snapshot, reconnecting for as long as the runtime lives.
+
+        A runtime that has stopped is not a broker failure: there is nothing left to
+        mirror, so the session ends instead of retrying forever.
+        """
+        session: MqttSession[Client] = MqttSession(
+            self.connected,
+            name="Physics mirror",
+            reconnect_delay_s=RECONNECT_DELAY_S,
+            logger=logger,
+        )
         last_sequence = -1
-        while True:
-            try:
-                async with self.connected() as client:
-                    logger.info(
-                        "MQTT connected to %s:%d", self.config.host, self.config.port
-                    )
-                    await self.publish_availability(client, "online")
-                    while True:
-                        last_sequence, snapshot = await runtime.wait_for_update(
-                            last_sequence
-                        )
-                        await self.publish_snapshot(
-                            client, snapshot, runtime.simulation_status()
-                        )
-            except RuntimeUnavailableError as exc:
-                logger.error("MQTT mirror stopped: %s", exc)
-                return
-            except MQTT_ERRORS as exc:
-                logger.warning(
-                    "MQTT disconnected: %s — retrying in %.0fs",
-                    exc,
-                    RECONNECT_DELAY_S,
+
+        async def mirror(client: Client) -> None:
+            nonlocal last_sequence
+            await self.publish_availability(client, "online")
+            while True:
+                last_sequence, snapshot = await runtime.wait_for_update(last_sequence)
+                await self.publish_snapshot(
+                    client, snapshot, runtime.simulation_status()
                 )
-                await asyncio.sleep(RECONNECT_DELAY_S)
+
+        await session.run(mirror, fatal=(RuntimeUnavailableError,))

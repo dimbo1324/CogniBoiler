@@ -5,6 +5,7 @@ description = "Industrial alarm management and audit logging"
 requires-python = ">=3.14"
 dependencies = [
     "cogniboiler-observability",
+    "cogniboiler-runtime",
     "sqlalchemy[asyncio]>=2.0.44",
     "asyncpg>=0.31.0",
     "alembic>=1.13.0",
@@ -24,3 +25,4 @@ packages = ["src/alert_manager"]
 
 [tool.uv.sources]
 cogniboiler-observability = { workspace = true }
+cogniboiler-runtime = { workspace = true }

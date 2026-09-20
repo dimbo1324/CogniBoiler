@@ -151,8 +151,9 @@ class TestPublisher:
             await until(lambda: TOPIC_PLC_EVENTS in topics())
         await publisher.aclose()
         assert len(Broker.connections) == 4
-        assert caplog.text.count("PLC publisher lost MQTT") == 1
-        assert "PLC publisher reconnected" in caplog.text
+        # Three refused connections, one outage: one warning and one recovery line.
+        assert caplog.text.count("MQTT error") == 1
+        assert "PLC publisher: MQTT connection is back" in caplog.text
 
     async def test_a_full_queue_drops_the_oldest(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture

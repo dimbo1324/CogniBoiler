@@ -5,6 +5,7 @@ description = "Thermodynamic simulation of steam boiler and turbine"
 requires-python = ">=3.14"
 dependencies = [
     "cogniboiler-observability",
+    "cogniboiler-runtime",
     "numpy>=2.3.2",
     "scipy>=1.16.1",
     "pydantic>=2.12.0",
@@ -24,3 +25,4 @@ packages = ["src/physics_engine"]
 
 [tool.uv.sources]
 cogniboiler-observability = { workspace = true }
+cogniboiler-runtime = { workspace = true }

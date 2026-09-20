@@ -32,6 +32,7 @@ from typing import Any
 import cogniboiler_pb2 as pb
 from aiomqtt import Client
 from cogniboiler_observability import MQTT_RECEIVED
+from cogniboiler_runtime import MqttSession, subscribe_all
 from google.protobuf.message import DecodeError
 
 from opcua_server.address_space import BOILER_FIELD_TO_NODEID, TURBINE_FIELD_TO_NODEID
@@ -93,6 +94,12 @@ class MQTTOPCBridge:
             TOPIC_BOILER: self._parse_boiler,
             TOPIC_TURBINE: self._parse_turbine,
         }
+        self._session: MqttSession[Client] = MqttSession(
+            self._open_client,
+            name="MQTT to OPC UA bridge",
+            reconnect_delay_s=RECONNECT_DELAY_S,
+            logger=logger,
+        )
 
     @property
     def stats(self) -> dict[str, int]:
@@ -186,31 +193,26 @@ class MQTTOPCBridge:
                 ):
                     await self._apply(topic, parsed, now)
 
+    def _open_client(self) -> Client:
+        return Client(
+            hostname=self._host,
+            port=self._port,
+            username=self._username,
+            password=self._password,
+        )
+
+    async def _consume(self, client: Client) -> None:
+        await subscribe_all(client, SUBSCRIPTIONS)
+        async for message in client.messages:
+            payload = message.payload
+            await self._handle_message(
+                str(message.topic),
+                payload if isinstance(payload, bytes) else b"",
+            )
+
     async def run(self) -> None:
-        while True:
-            try:
-                async with Client(
-                    hostname=self._host,
-                    port=self._port,
-                    username=self._username,
-                    password=self._password,
-                ) as client:
-                    logger.info(
-                        "MQTT→OPC bridge connected to %s:%d",
-                        self._host,
-                        self._port,
-                    )
-                    for topic, qos in SUBSCRIPTIONS:
-                        await client.subscribe(topic, qos=qos)
-                    async for message in client.messages:
-                        payload = message.payload
-                        await self._handle_message(
-                            str(message.topic),
-                            payload if isinstance(payload, bytes) else b"",
-                        )
-            except Exception as exc:
-                logger.warning("Bridge MQTT error: %s — retrying in 5s", exc)
-                await asyncio.sleep(RECONNECT_DELAY_S)
+        """Project what the plant publishes onto the address space, session after session."""
+        await self._session.run(self._consume)
 
 
 def _fields(message: Any, mapping: dict[str, int]) -> list[Update]:

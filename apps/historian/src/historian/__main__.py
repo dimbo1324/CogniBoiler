@@ -23,8 +23,8 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parents[4] / "shared" / "generated"))
 
 from cogniboiler_observability import configure_logging, start_metrics_server
+from cogniboiler_runtime import LivenessFile
 
-from historian.liveness import LivenessFile
 from historian.points import build_stats_point
 from historian.storage import StoragePolicy, ensure_storage
 from historian.subscriber import HistorianSubscriber

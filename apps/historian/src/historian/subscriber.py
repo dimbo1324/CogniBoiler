@@ -35,6 +35,7 @@ from typing import Any
 import cogniboiler_pb2 as pb
 from aiomqtt import Client
 from cogniboiler_observability import MQTT_RECEIVED
+from cogniboiler_runtime import MqttSession, subscribe_all
 from google.protobuf.message import DecodeError
 
 from historian.metrics import MESSAGES_SKIPPED
@@ -69,7 +70,6 @@ SUBSCRIPTIONS: tuple[tuple[str, int], ...] = (
     (TOPIC_PLC_EVENTS, 1),
     ("status/+", 1),
 )
-SUBSCRIBE_TOPIC: str = "sensors/#"
 RECONNECT_DELAY_S: float = 5.0
 
 
@@ -109,7 +109,12 @@ class HistorianSubscriber:
         self._received: int = 0
         self._stored: int = 0
         self._skipped: int = 0
-        self._connected = False
+        self._session: MqttSession[Client] = MqttSession(
+            self._open_client,
+            name="Historian",
+            reconnect_delay_s=RECONNECT_DELAY_S,
+            logger=logger,
+        )
         self._handlers: dict[str, Callable[[bytes], list[PointLike] | None]] = {
             TOPIC_PLANT: self._plant,
             TOPIC_BOILER: self._boiler,
@@ -121,7 +126,7 @@ class HistorianSubscriber:
     @property
     def connected(self) -> bool:
         """True while subscribed to the broker; the liveness file follows it."""
-        return self._connected
+        return self._session.connected
 
     @property
     def stats(self) -> dict[str, int]:
@@ -232,39 +237,29 @@ class HistorianSubscriber:
             if time.monotonic() - self._last_flush_at >= self._flush_interval_s:
                 await self._flush()
 
+    def _open_client(self) -> Client:
+        return Client(
+            hostname=self._host,
+            port=self._port,
+            identifier=self._client_id,
+            username=self._username,
+            password=self._password,
+            clean_session=False if self._client_id else None,
+        )
+
+    async def _consume(self, client: Client) -> None:
+        await subscribe_all(client, SUBSCRIPTIONS)
+        async for message in client.messages:
+            payload = message.payload
+            await self._handle_message(
+                str(message.topic),
+                payload if isinstance(payload, bytes) else b"",
+            )
+
     async def run(self) -> None:
-        while True:
-            try:
-                async with Client(
-                    hostname=self._host,
-                    port=self._port,
-                    identifier=self._client_id,
-                    username=self._username,
-                    password=self._password,
-                    clean_session=False if self._client_id else None,
-                ) as client:
-                    logger.info(
-                        "Historian connected to MQTT %s:%d",
-                        self._host,
-                        self._port,
-                    )
-                    for topic, qos in SUBSCRIPTIONS:
-                        await client.subscribe(topic, qos=qos)
-                    self._connected = True
-                    try:
-                        async for message in client.messages:
-                            payload = message.payload
-                            await self._handle_message(
-                                str(message.topic),
-                                payload if isinstance(payload, bytes) else b"",
-                            )
-                    finally:
-                        self._connected = False
-            except Exception as exc:
-                logger.warning(
-                    "Historian MQTT error: %s — retrying in %.0fs",
-                    exc,
-                    RECONNECT_DELAY_S,
-                )
-                await self._flush()
-                await asyncio.sleep(RECONNECT_DELAY_S)
+        """Record what the broker delivers, across as many sessions as it takes.
+
+        Whatever was buffered for a connection that just died is flushed before the next
+        attempt, so a broker outage costs no points already taken in.
+        """
+        await self._session.run(self._consume, on_failure=self._flush)

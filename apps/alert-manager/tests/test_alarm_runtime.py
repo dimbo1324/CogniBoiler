@@ -286,8 +286,9 @@ class TestPublisher:
             broker.up = True
             await until(lambda: len(broker.published) == 1)
         await sender.aclose()
-        assert caplog.text.count("lost MQTT") == 1
-        assert "reconnected" in caplog.text
+        # A broker that is away for three attempts costs one warning, not three.
+        assert caplog.text.count("MQTT error") == 1
+        assert "MQTT connection is back" in caplog.text
 
     async def test_a_full_queue_drops_the_oldest(
         self,
@@ -372,6 +373,10 @@ class TestSubscriber:
         assert broker.subscriptions[0] == ("alerts/#", 1)
         assert broker.connections[0]["clean_session"] is False
         assert broker.connections[0]["identifier"] == "alert-manager"
+
+    def test_a_subscriber_that_never_connected_is_not_connected(self) -> None:
+        # What the container healthcheck reads before the first session opens.
+        assert AlertSubscriber().connected is False
 
     async def test_the_connected_flag_follows_the_session(
         self, broker: type[FakeBroker]

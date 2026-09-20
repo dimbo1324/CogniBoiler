@@ -5,6 +5,7 @@ description = "FastAPI gateway with JWT auth and RBAC"
 requires-python = ">=3.14"
 dependencies = [
     "cogniboiler-observability",
+    "cogniboiler-runtime",
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.27.0",
     "pydantic>=2.12.0",
@@ -35,3 +36,4 @@ dev = [
 
 [tool.uv.sources]
 cogniboiler-observability = { workspace = true }
+cogniboiler-runtime = { workspace = true }

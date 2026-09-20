@@ -26,6 +26,7 @@ members = [
   "apps/alert-manager",
   "apps/opcua-server",
   "shared/observability",
+  "shared/runtime",
 ]
 
 [dependency-groups]
@@ -67,6 +68,9 @@ exclude = [
 ]
 explicit_package_bases = true
 files = ["apps", "shared"]
+# The workspace packages are installed editable, through a .pth import hook mypy cannot
+# follow: without this they resolve to Any and every call into them goes unchecked.
+mypy_path = ["shared/observability/src", "shared/runtime/src"]
 ignore_missing_imports = true
 python_version = "3.14"
 strict = true
@@ -80,4 +84,4 @@ module = ["cogniboiler_pb2", "cogniboiler_pb2_grpc"]
 [tool.pytest.ini_options]
 addopts = "--cov --cov-report=term-missing"
 asyncio_mode = "auto"
-testpaths = ["apps", "shared/observability/tests"]
+testpaths = ["apps", "shared/observability/tests", "shared/runtime/tests"]

@@ -12,8 +12,9 @@ import asyncio
 import logging
 from collections import deque
 
-from aiomqtt import Client, MqttError
+from aiomqtt import Client
 from cogniboiler_observability import MQTT_PUBLISHED
+from cogniboiler_runtime import MqttSession
 
 from alert_manager.payloads import TOPIC_CHANGES, change_payload
 from alert_manager.views import AlarmView, TransitionView
@@ -44,8 +45,13 @@ class AlarmChangePublisher:
         self._queue: deque[bytes] = deque()
         self._wakeup = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
-        self._failing = False
         self._dropped = 0
+        self._session: MqttSession[Client] = MqttSession(
+            self._open_client,
+            name="Alarm change publisher",
+            reconnect_delay_s=RECONNECT_DELAY_S,
+            logger=logger,
+        )
 
     def alarm_changed(self, alarm: AlarmView, transition: TransitionView) -> None:
         if len(self._queue) >= QUEUE_LIMIT:
@@ -73,35 +79,27 @@ class AlarmChangePublisher:
             pass
         self._task = None
 
+    def _open_client(self) -> Client:
+        return Client(
+            hostname=self._host,
+            port=self._port,
+            identifier=self._client_id,
+            username=self._username,
+            password=self._password,
+        )
+
     async def _run(self) -> None:
+        await self._session.run(self._publish_queued)
+
+    async def _publish_queued(self, client: Client) -> None:
+        """Send what is queued, then wait for the next change, for as long as the
+        session holds. A publish that fails ends the session, and the queue keeps what
+        it had: the change goes out on the next connection, in order."""
         while True:
-            try:
-                async with Client(
-                    hostname=self._host,
-                    port=self._port,
-                    identifier=self._client_id,
-                    username=self._username,
-                    password=self._password,
-                ) as client:
-                    if self._failing:
-                        logger.info("Alarm change publisher reconnected to MQTT")
-                    self._failing = False
-                    while True:
-                        while self._queue:
-                            await client.publish(TOPIC_CHANGES, self._queue[0], qos=1)
-                            MQTT_PUBLISHED.labels(TOPIC_CHANGES).inc()
-                            self._queue.popleft()
-                        self._wakeup.clear()
-                        if not self._queue:
-                            await self._wakeup.wait()
-            except MqttError as exc:
-                if not self._failing:
-                    logger.warning(
-                        "Alarm change publisher lost MQTT %s:%d: %s — retrying every %.0fs",
-                        self._host,
-                        self._port,
-                        exc,
-                        RECONNECT_DELAY_S,
-                    )
-                self._failing = True
-                await asyncio.sleep(RECONNECT_DELAY_S)
+            while self._queue:
+                await client.publish(TOPIC_CHANGES, self._queue[0], qos=1)
+                MQTT_PUBLISHED.labels(TOPIC_CHANGES).inc()
+                self._queue.popleft()
+            self._wakeup.clear()
+            if not self._queue:
+                await self._wakeup.wait()

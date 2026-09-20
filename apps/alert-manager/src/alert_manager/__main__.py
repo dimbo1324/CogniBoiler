@@ -14,10 +14,10 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parents[4] / "shared" / "generated"))
 
 from cogniboiler_observability import configure_logging, start_metrics_server
+from cogniboiler_runtime import LivenessFile
 
 from alert_manager.db import create_engine, missing_tables, session_factory
 from alert_manager.grpc_server import DEFAULT_PORT, AlarmServicer, start_server
-from alert_manager.liveness import LivenessFile
 from alert_manager.processor import AlarmProcessor
 from alert_manager.publisher import AlarmChangePublisher
 from alert_manager.subscriber import AlertSubscriber

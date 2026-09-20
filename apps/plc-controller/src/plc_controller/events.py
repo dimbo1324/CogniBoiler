@@ -25,8 +25,9 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from aiomqtt import Client, MqttError, Will
+from aiomqtt import Client, Will
 from cogniboiler_observability import MQTT_PUBLISHED
+from cogniboiler_runtime import MqttSession
 
 from plc_controller.alarms import (
     SOURCE_SERVICE,
@@ -159,8 +160,13 @@ class PlcPublisher:
         self._queue: deque[_Message] = deque()
         self._wakeup = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
-        self._failing = False
         self._dropped = 0
+        self._session: MqttSession[Client] = MqttSession(
+            self._open_client,
+            name="PLC publisher",
+            reconnect_delay_s=RECONNECT_DELAY_S,
+            logger=logger,
+        )
 
     @property
     def dropped(self) -> int:
@@ -202,7 +208,7 @@ class PlcPublisher:
             return
         self._enqueue(_Message(TOPIC_AVAILABILITY, b"offline", retain=True))
         deadline = time.monotonic() + CLOSE_DRAIN_TIMEOUT_S
-        while self._queue and not self._failing and time.monotonic() < deadline:
+        while self._queue and self._session.connected and time.monotonic() < deadline:
             await asyncio.sleep(0.05)
         task.cancel()
         try:
@@ -211,37 +217,22 @@ class PlcPublisher:
             pass
         self._task = None
 
+    def _open_client(self) -> Client:
+        return Client(
+            hostname=self._host,
+            port=self._port,
+            identifier=self._client_id,
+            username=self._username,
+            password=self._password,
+            will=Will(TOPIC_AVAILABILITY, payload="offline", qos=1, retain=True),
+        )
+
     async def _run(self) -> None:
-        while True:
-            try:
-                async with Client(
-                    hostname=self._host,
-                    port=self._port,
-                    identifier=self._client_id,
-                    username=self._username,
-                    password=self._password,
-                    will=Will(
-                        TOPIC_AVAILABILITY, payload="offline", qos=1, retain=True
-                    ),
-                ) as client:
-                    await client.publish(
-                        TOPIC_AVAILABILITY, "online", qos=1, retain=True
-                    )
-                    if self._failing:
-                        logger.info("PLC publisher reconnected to MQTT")
-                    self._failing = False
-                    await self._drain(client)
-            except MqttError as exc:
-                if not self._failing:
-                    logger.warning(
-                        "PLC publisher lost MQTT %s:%d: %s — retrying every %.0fs",
-                        self._host,
-                        self._port,
-                        exc,
-                        RECONNECT_DELAY_S,
-                    )
-                self._failing = True
-                await asyncio.sleep(RECONNECT_DELAY_S)
+        await self._session.run(self._announce_and_drain)
+
+    async def _announce_and_drain(self, client: Client) -> None:
+        await client.publish(TOPIC_AVAILABILITY, "online", qos=1, retain=True)
+        await self._drain(client)
 
     async def _drain(self, client: Client) -> None:
         next_snapshot = 0.0

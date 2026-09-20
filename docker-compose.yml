@@ -202,7 +202,7 @@ services:
       influxdb:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-m", "historian.liveness", "/tmp/cogniboiler-liveness"]
+      test: ["CMD", "python", "-m", "cogniboiler_runtime.liveness", "/tmp/cogniboiler-liveness"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -224,7 +224,7 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "python", "-m", "alert_manager.liveness", "/tmp/cogniboiler-liveness"]
+      test: ["CMD", "python", "-m", "cogniboiler_runtime.liveness", "/tmp/cogniboiler-liveness"]
       interval: 10s
       timeout: 5s
       retries: 5

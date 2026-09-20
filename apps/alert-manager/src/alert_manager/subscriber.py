@@ -15,6 +15,7 @@ from typing import Protocol
 
 from aiomqtt import Client
 from cogniboiler_observability import MQTT_RECEIVED
+from cogniboiler_runtime import MqttSession
 from sqlalchemy.exc import SQLAlchemyError
 
 from alert_manager.metrics import MESSAGES_FAILED
@@ -64,13 +65,17 @@ class AlertSubscriber:
         self._processed = 0
         self._skipped = 0
         self._failed = 0
-        self._connected = False
-        self._failing = False
+        self._session: MqttSession[Client] = MqttSession(
+            self._open_client,
+            name="AlertManager",
+            reconnect_delay_s=RECONNECT_DELAY_S,
+            logger=logger,
+        )
 
     @property
     def connected(self) -> bool:
         """True while subscribed to the broker; the liveness file follows it."""
-        return self._connected
+        return self._session.connected
 
     @property
     def stats(self) -> dict[str, int]:
@@ -130,47 +135,37 @@ class AlertSubscriber:
                 )
                 await asyncio.sleep(STORE_RETRY_DELAY_S)
 
+    def _open_client(self) -> Client:
+        return Client(
+            hostname=self._host,
+            port=self._port,
+            identifier=self._client_id,
+            username=self._username,
+            password=self._password,
+            clean_session=False,
+        )
+
+    async def _consume(self, client: Client) -> None:
+        """One session: subscribe, then hand every payload to the processor.
+
+        The session is persistent and the subscription is QoS 1, so conditions published
+        while the alert manager was away are delivered once it is back.
+        """
+        await client.subscribe(SUBSCRIBE_TOPIC, qos=1)
+        logger.info(
+            "AlertManager subscribed to %s on %s:%d",
+            SUBSCRIBE_TOPIC,
+            self._host,
+            self._port,
+        )
+        async for message in client.messages:
+            payload = message.payload
+            if not isinstance(payload, bytes | bytearray):
+                self._received += 1
+                self._skipped += 1
+                continue
+            await self._handle_message(str(message.topic), bytes(payload))
+
     async def run(self) -> None:
-        """Run forever, reconnecting after broker failures."""
-        while True:
-            try:
-                async with Client(
-                    hostname=self._host,
-                    port=self._port,
-                    identifier=self._client_id,
-                    username=self._username,
-                    password=self._password,
-                    clean_session=False,
-                ) as client:
-                    await client.subscribe(SUBSCRIBE_TOPIC, qos=1)
-                    self._connected = True
-                    logger.info(
-                        "AlertManager subscribed to %s on %s:%d",
-                        SUBSCRIBE_TOPIC,
-                        self._host,
-                        self._port,
-                    )
-                    self._failing = False
-                    try:
-                        async for message in client.messages:
-                            payload = message.payload
-                            if not isinstance(payload, bytes | bytearray):
-                                self._received += 1
-                                self._skipped += 1
-                                continue
-                            await self._handle_message(
-                                str(message.topic), bytes(payload)
-                            )
-                    finally:
-                        self._connected = False
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                if not self._failing:
-                    logger.warning(
-                        "AlertManager MQTT error: %s — retrying every %.0fs",
-                        exc,
-                        RECONNECT_DELAY_S,
-                    )
-                self._failing = True
-                await asyncio.sleep(RECONNECT_DELAY_S)
+        """Consume alarm messages for as long as the service lives."""
+        await self._session.run(self._consume)

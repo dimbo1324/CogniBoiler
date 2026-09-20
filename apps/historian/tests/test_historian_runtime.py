@@ -375,7 +375,11 @@ class TestSubscriberSession:
         assert len(store.single) == 1
         assert sub.stats["skipped"] == 1
         assert sub.connected is False
-        assert "Historian MQTT error" in caplog.text
+        assert "Historian: MQTT error" in caplog.text
+
+    async def test_a_subscriber_that_never_connected_is_not_connected(self) -> None:
+        # What the container healthcheck reads before the first session opens.
+        assert HistorianSubscriber(RecordingWriter()).connected is False  # type: ignore[arg-type]
 
     async def test_without_a_client_id_the_session_is_clean(
         self, broker: type[FakeBroker]

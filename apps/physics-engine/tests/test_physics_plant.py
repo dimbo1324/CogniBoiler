@@ -241,7 +241,8 @@ class TestMirror:
                 mirror.cancel()
                 await runtime.stop()
         assert len(FakeBroker.connections) == 3
-        assert caplog.text.count("MQTT disconnected") == 2
+        # Two refused connections in one outage: warned about once, not twice.
+        assert caplog.text.count("MQTT error") == 1
 
     async def test_a_connection_lost_while_publishing_is_reconnected_not_spun_on(
         self, caplog: pytest.LogCaptureFixture
@@ -261,7 +262,7 @@ class TestMirror:
                 mirror.cancel()
                 await runtime.stop()
         assert len(FakeBroker.connections) == 2
-        assert caplog.text.count("MQTT disconnected") == 1
+        assert caplog.text.count("MQTT error") == 1
         assert "not currently connected" in caplog.text
         topics = [topic for topic, *_ in FakeBroker.published]
         assert topics[3] == TOPIC_AVAILABILITY
@@ -284,7 +285,7 @@ class TestMirror:
         with caplog.at_level(logging.ERROR, logger="physics_engine.mqtt_publisher"):
             await runtime.stop()
             await asyncio.wait_for(mirror, timeout=5.0)
-        assert "MQTT mirror stopped" in caplog.text
+        assert "MQTT session stopped: physics runtime stopped" in caplog.text
 
 
 class TestEntryPoint:

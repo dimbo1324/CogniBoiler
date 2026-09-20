@@ -18,7 +18,8 @@ from typing import Any
 from uuid import uuid4
 
 import grpc
-from aiomqtt import Client, MqttError
+from aiomqtt import Client
+from cogniboiler_runtime import MqttSession, subscribe_all
 
 from api_gateway.clients import PhysicsGatewayClient, PLCGatewayClient
 from api_gateway.plant_state import plant_state
@@ -30,6 +31,8 @@ logger = logging.getLogger(__name__)
 RECONNECT_DELAY_S = 3.0
 TOPIC_PLC_EVENTS = "plc/events"
 TOPIC_ALARM_CHANGES = "alarms/changes"
+# Both topics are published at QoS 1 and matter to the operator's screen.
+EVENT_QOS = 1
 
 
 class _OutageLog:
@@ -101,30 +104,39 @@ async def run_mqtt_events(
     username: str | None = None,
     password: str | None = None,
 ) -> None:
-    outage = _OutageLog("mqtt events")
+    """Forward the two JSON topics the console listens to, across broker outages.
+
+    The gateway is a reader here: a payload that is not a JSON object is dropped with a
+    debug line, never passed on to the browser as-is.
+    """
     routes: dict[str, tuple[Channel, str]] = {
         TOPIC_PLC_EVENTS: (Channel.PLC, "event"),
         TOPIC_ALARM_CHANGES: (Channel.ALARMS, "change"),
     }
-    while True:
-        try:
-            async with Client(
-                hostname=host,
-                port=port,
-                identifier=f"api-gateway-{uuid4().hex[:12]}",
-                username=username,
-                password=password,
-            ) as client:
-                for topic in routes:
-                    await client.subscribe(topic, qos=1)
-                outage.recovered()
-                async for message in client.messages:
-                    route = routes.get(str(message.topic))
-                    payload = _json_object(message.payload)
-                    if route is None or payload is None:
-                        logger.debug("Ignored MQTT message on %s", message.topic)
-                        continue
-                    hub.publish(route[0], route[1], payload)
-        except MqttError as exc:
-            outage.failed(exc)
-        await asyncio.sleep(RECONNECT_DELAY_S)
+
+    def open_client() -> Client:
+        return Client(
+            hostname=host,
+            port=port,
+            identifier=f"api-gateway-{uuid4().hex[:12]}",
+            username=username,
+            password=password,
+        )
+
+    async def consume(client: Client) -> None:
+        await subscribe_all(client, [(topic, EVENT_QOS) for topic in routes])
+        async for message in client.messages:
+            route = routes.get(str(message.topic))
+            payload = _json_object(message.payload)
+            if route is None or payload is None:
+                logger.debug("Ignored MQTT message on %s", message.topic)
+                continue
+            hub.publish(route[0], route[1], payload)
+
+    session: MqttSession[Client] = MqttSession(
+        open_client,
+        name="Realtime MQTT events",
+        reconnect_delay_s=RECONNECT_DELAY_S,
+        logger=logger,
+    )
+    await session.run(consume)
