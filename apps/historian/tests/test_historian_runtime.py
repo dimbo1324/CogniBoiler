@@ -21,6 +21,7 @@ from historian.storage import (
     apply_policy,
     downsample_flux,
     ensure_storage,
+    flux_string,
 )
 from historian.subscriber import HistorianSubscriber
 
@@ -119,6 +120,23 @@ class TestStoragePolicy:
             assert f'r._measurement == "{measurement}"' in flux
         for aggregate in ("mean", "min", "max"):
             assert f'set(key: "agg", value: "{aggregate}")' in flux
+
+    def test_a_bucket_name_with_a_quote_cannot_rewrite_the_task(self) -> None:
+        # Bucket and organisation come from the environment: a name with a quote in it
+        # would otherwise close the literal and change the task this service installs.
+        hostile = 'sensors" |> yield(name: "leak'
+        flux = downsample_flux(
+            StoragePolicy(
+                org="cogniboiler",
+                raw_bucket=hostile,
+                aggregate_bucket="sensors_1m",
+            )
+        )
+        assert flux_string(hostile) in flux
+        # With that one literal taken out, the task is the task it was meant to be.
+        skeleton = flux.replace(flux_string(hostile), '"bucket"')
+        assert "yield(name:" not in skeleton
+        assert skeleton.count("from(bucket:") == 1
 
     def test_missing_buckets_and_task_are_created(
         self, influx: type[FakeInflux]

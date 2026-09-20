@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import time
 from collections.abc import AsyncGenerator, Sequence
@@ -332,6 +333,17 @@ def choose_source(
     return HistorySource(config.aggregate_bucket, aggregated=True)
 
 
+def flux_string(value: str) -> str:
+    """A Flux string literal, quoted and escaped.
+
+    Every name that reaches a query — a bucket from the environment, a measurement
+    and the field names from a request — goes through this. The routes validate them
+    too, but the guarantee belongs with the code that builds the query: a caller
+    added later cannot forget a check it never had to make.
+    """
+    return json.dumps(value, ensure_ascii=False)
+
+
 def _flux_range(start_ms: int, end_ms: int) -> str:
     start_ns = start_ms * NANOSECONDS_PER_MILLISECOND
     stop_ns = end_ms * NANOSECONDS_PER_MILLISECOND
@@ -356,11 +368,11 @@ def build_history_query(
     From the aggregate bucket only the one-minute means are read.
     Flux's time(v:) takes integer nanoseconds; InfluxDB rejects float seconds with 400.
     """
-    filters = f'\n  |> filter(fn: (r) => r._measurement == "{measurement}")'
+    filters = f"\n  |> filter(fn: (r) => r._measurement == {flux_string(measurement)})"
     if aggregated:
         filters += '\n  |> filter(fn: (r) => r.agg == "mean")'
     if fields:
-        condition = " or ".join(f'r._field == "{field}"' for field in fields)
+        condition = " or ".join(f"r._field == {flux_string(field)}" for field in fields)
         filters += f"\n  |> filter(fn: (r) => {condition})"
     aggregation = ""
     if window_s > 0:
@@ -371,7 +383,7 @@ def build_history_query(
         )
     return f"""import "types"
 
-from(bucket: "{bucket}")
+from(bucket: {flux_string(bucket)})
   |> {_flux_range(start_ms, end_ms)}{filters}{aggregation}
   |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
   |> group()
@@ -387,12 +399,13 @@ def build_kpi_query(
     Flux for the KPI inputs over a range: the mean of each input, the peak NOx, the
     lowest health index and the number of samples. Rows: _field, stat, _value.
     """
-    condition = " or ".join(f'r._field == "{field}"' for field in KPI_FIELDS)
+    condition = " or ".join(f"r._field == {flux_string(field)}" for field in KPI_FIELDS)
 
     def source(agg: str) -> str:
         agg_filter = f' and r.agg == "{agg}"' if aggregated else ""
         return (
-            f'from(bucket: "{bucket}") |> {_flux_range(start_ms, end_ms)}'
+            f"from(bucket: {flux_string(bucket)})"
+            f" |> {_flux_range(start_ms, end_ms)}"
             f' |> filter(fn: (r) => r._measurement == "plant_status"{agg_filter})'
             f" |> filter(fn: (r) => {condition})"
             ' |> group(columns: ["_field"])'

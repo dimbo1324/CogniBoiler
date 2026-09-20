@@ -17,6 +17,7 @@ and the setup is retried.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -43,15 +44,25 @@ class StoragePolicy:
     aggregate_retention_days: int = 90
 
 
+def flux_string(value: str) -> str:
+    """A Flux string literal, quoted and escaped.
+
+    The bucket and organisation names come from the environment, so a name with a
+    quote in it would otherwise end the literal and break — or change — the task
+    this service installs into InfluxDB.
+    """
+    return json.dumps(value, ensure_ascii=False)
+
+
 def downsample_flux(policy: StoragePolicy) -> str:
     measurements = " or ".join(
-        f'r._measurement == "{name}"' for name in AGGREGATED_MEASUREMENTS
+        f"r._measurement == {flux_string(name)}" for name in AGGREGATED_MEASUREMENTS
     )
     return f"""import "types"
 
-option task = {{name: "{DOWNSAMPLE_TASK_NAME}", every: 1m, offset: 10s}}
+option task = {{name: {flux_string(DOWNSAMPLE_TASK_NAME)}, every: 1m, offset: 10s}}
 
-data = from(bucket: "{policy.raw_bucket}")
+data = from(bucket: {flux_string(policy.raw_bucket)})
   |> range(start: -2m)
   |> filter(fn: (r) => {measurements})
   |> filter(fn: (r) => types.isType(v: r._value, type: "float"))
@@ -62,7 +73,7 @@ union(tables: [
   data |> aggregateWindow(every: 1m, fn: min, createEmpty: false) |> set(key: "agg", value: "min"),
   data |> aggregateWindow(every: 1m, fn: max, createEmpty: false) |> set(key: "agg", value: "max"),
 ])
-  |> to(bucket: "{policy.aggregate_bucket}", org: "{policy.org}")
+  |> to(bucket: {flux_string(policy.aggregate_bucket)}, org: {flux_string(policy.org)})
 """
 
 
