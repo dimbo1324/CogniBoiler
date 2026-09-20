@@ -27,6 +27,7 @@ import {
   heatRateToKilojoulesPerKilowattHour,
   wattsToMegawatts,
 } from "../units";
+import { queryKeys } from "../api/queryKeys";
 
 export type TrendRange = "live" | "15m" | "1h" | "24h";
 
@@ -142,7 +143,7 @@ export function TrendsScreen() {
 
   const history = useQueries({
     queries: requests.map((item) => ({
-      queryKey: ["history", item.measurement, item.fields.join(","), range, anchorMs],
+      queryKey: queryKeys.history(item.measurement, item.fields, range, anchorMs),
       queryFn: ({ signal }: { signal: AbortSignal }) =>
         fetchHistory(item.measurement, item.fields, startMs, anchorMs, HISTORY_POINTS, signal),
       enabled: range !== "live",
@@ -151,7 +152,7 @@ export function TrendsScreen() {
     })),
   });
   const kpi = useQuery({
-    queryKey: ["kpi", range, anchorMs],
+    queryKey: queryKeys.kpi(range, anchorMs),
     queryFn: ({ signal }) => {
       const endMs = range === "live" ? Date.now() : anchorMs;
       return fetchKpi(endMs - spanMs, endMs, signal);

@@ -6,6 +6,7 @@ import { LiveIcon, PlatformIcon } from "../components/ui/icons";
 import { Panel } from "../components/ui/Panel";
 import { useLive } from "../live/LiveProvider";
 import { formatDateTime, formatReading } from "../units";
+import { queryKeys } from "../api/queryKeys";
 
 const REFRESH_MS = 5_000;
 
@@ -18,7 +19,7 @@ const STATUS_TEXT = {
 export function PlatformScreen() {
   const live = useLive();
   const platform = useQuery({
-    queryKey: ["platform"],
+    queryKey: queryKeys.platform,
     queryFn: ({ signal }) => fetchPlatform(signal),
     refetchInterval: REFRESH_MS,
   });

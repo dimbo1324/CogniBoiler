@@ -37,6 +37,7 @@ import {
   pascalsToBar,
   wattsToMegawatts,
 } from "../units";
+import { queryKeys } from "../api/queryKeys";
 
 // The rates the PLC ramps at (plc_controller/control.py), for the sentences that promise
 // them: an operator asks for a target, never for a step.
@@ -426,7 +427,7 @@ export function ControlScreen() {
 
   const command = useMutation({
     mutationFn: (run: () => Promise<CommandAck>) => run(),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["plc"] }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.plc.all }),
   });
 
   if (live.plc === null) {

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { acknowledgeAlarm, acknowledgeAllAlarms, fetchActiveAlarms } from "../api/endpoints";
 import type { Alarm } from "../api/types";
 import { isCritical } from "./severity";
+import { queryKeys } from "../api/queryKeys";
 
 // Alarm changes arrive on the WebSocket and invalidate this query at once; the interval
 // only covers a connection that is down.
@@ -10,7 +11,7 @@ const ACTIVE_ALARMS_REFRESH_MS = 15_000;
 
 export function useActiveAlarms() {
   return useQuery({
-    queryKey: ["alarms", "active"],
+    queryKey: queryKeys.alarms.active,
     queryFn: ({ signal }) => fetchActiveAlarms(signal),
     refetchInterval: ACTIVE_ALARMS_REFRESH_MS,
   });
@@ -21,7 +22,7 @@ export function useAcknowledge() {
   return useMutation({
     mutationFn: ({ alarmId, comment }: { alarmId: number; comment?: string }) =>
       acknowledgeAlarm(alarmId, comment),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["alarms"] }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.alarms.all }),
   });
 }
 
@@ -29,7 +30,7 @@ export function useAcknowledgeAll() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (comment?: string) => acknowledgeAllAlarms(comment),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["alarms"] }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.alarms.all }),
   });
 }
 

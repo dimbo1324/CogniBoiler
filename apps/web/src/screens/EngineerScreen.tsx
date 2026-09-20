@@ -31,6 +31,7 @@ import {
 import { Panel } from "../components/ui/Panel";
 import { useLive } from "../live/LiveProvider";
 import { formatDateTime, formatDuration, formatReading } from "../units";
+import { queryKeys } from "../api/queryKeys";
 
 type Answer = SimulationAck | FaultAck;
 
@@ -185,7 +186,7 @@ function SimulationSection({
 
 function ScenarioSection({ ask }: { ask: (action: PendingAction) => void }) {
   const scenarios = useQuery({
-    queryKey: ["simulation", "scenarios"],
+    queryKey: queryKeys.simulation.scenarios,
     queryFn: ({ signal }) => fetchScenarios(signal),
   });
   return (
@@ -420,7 +421,7 @@ const RUN_KIND: Record<string, string> = {
 function RunsSection() {
   const [offset, setOffset] = useState(0);
   const runs = useQuery({
-    queryKey: ["simulation", "runs", offset],
+    queryKey: queryKeys.simulation.runs(offset),
     queryFn: ({ signal }) => fetchScenarioRuns(RUNS_PAGE, offset, signal),
   });
   return (
@@ -464,7 +465,7 @@ export function EngineerScreen() {
   const [last, setLast] = useState<string | null>(null);
   const action = useMutation({
     mutationFn: (run: () => Promise<Answer>) => run(),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["simulation"] }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.simulation.all }),
   });
   const run = (label: string, perform: () => Promise<Answer>) => {
     setLast(label);

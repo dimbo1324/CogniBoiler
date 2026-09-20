@@ -19,6 +19,7 @@ import { AlarmsIcon, AuditIcon, InfoIcon } from "../components/ui/icons";
 import { Panel } from "../components/ui/Panel";
 import { useCan } from "../session/SessionProvider";
 import { formatDateTime, formatQuantity, localInputToMs, parameterLabel } from "../units";
+import { queryKeys } from "../api/queryKeys";
 
 const STATE_LABEL: Record<AlarmState, string> = {
   ACTIVE_UNACK: "active, unacknowledged",
@@ -98,7 +99,7 @@ function AlarmTableHead({ withAction }: { withAction: boolean }) {
 
 function AlarmDetailPanel({ alarmId }: { alarmId: number }) {
   const detail = useQuery({
-    queryKey: ["alarms", "detail", alarmId],
+    queryKey: queryKeys.alarms.detail(alarmId),
     queryFn: ({ signal }) => fetchAlarm(alarmId, signal),
   });
   if (detail.isError) {
@@ -240,7 +241,7 @@ function AlarmHistory({
   const [draft, setDraft] = useState({ severity: "", parameter: "", from: "", to: "" });
   const [filter, setFilter] = useState<AlarmHistoryFilter>({ limit: HISTORY_PAGE, offset: 0 });
   const page = useQuery({
-    queryKey: ["alarms", "history", filter],
+    queryKey: queryKeys.alarms.history(filter),
     queryFn: ({ signal }) => fetchAlarmHistory(filter, signal),
   });
 

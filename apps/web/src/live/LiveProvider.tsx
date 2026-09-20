@@ -11,6 +11,7 @@ import {
 import { RealtimeClient, realtimeUrl } from "../api/realtime";
 import { useSession } from "../session/SessionProvider";
 import { LiveStore, type LiveSnapshot } from "./store";
+import { queryKeys } from "../api/queryKeys";
 
 // Twice a second is smooth on the mimic and trends and light on a laptop; the gateway caps
 // every client at 10 Hz anyway.
@@ -34,10 +35,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         frame: (frame) => {
           store.apply(frame);
           if (frame.channel === "alarms") {
-            void queryClient.invalidateQueries({ queryKey: ["alarms"] });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.alarms.all });
           }
           if (frame.channel === "plc" && frame.kind === "event") {
-            void queryClient.invalidateQueries({ queryKey: ["plc"] });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.plc.all });
           }
         },
         state: (state) => {

@@ -7,6 +7,7 @@ import { AuditIcon } from "../components/ui/icons";
 import { Panel } from "../components/ui/Panel";
 import { Pager } from "../components/Pager";
 import { formatDateTime, localInputToMs } from "../units";
+import { queryKeys } from "../api/queryKeys";
 
 const PAGE = 50;
 const METHODS = ["", "GET", "POST", "PATCH", "DELETE", "WS"] as const;
@@ -22,7 +23,7 @@ export function AuditScreen() {
   });
   const [filter, setFilter] = useState<AuditFilter>({ limit: PAGE, offset: 0 });
   const page = useQuery({
-    queryKey: ["audit", filter],
+    queryKey: queryKeys.audit(filter),
     queryFn: ({ signal }) => fetchAudit(filter, signal),
   });
 

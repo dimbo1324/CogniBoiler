@@ -18,6 +18,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Pager } from "../components/Pager";
 import { useUser } from "../session/SessionProvider";
 import { formatDateTime } from "../units";
+import { queryKeys } from "../api/queryKeys";
 
 const PAGE = 50;
 // The gateway's password policy (schemas/auth.py).
@@ -44,7 +45,7 @@ function CreateUser({ onCreated }: { onCreated: (message: string) => void }) {
       setUsername("");
       setPassword("");
       onCreated(`Created ${user.username} as ${user.role ?? "no role"}.`);
-      return queryClient.invalidateQueries({ queryKey: ["users"] });
+      return queryClient.invalidateQueries({ queryKey: queryKeys.users.all });
     },
   });
   const valid = USERNAME_PATTERN.test(username.trim()) && password.length >= PASSWORD_MIN_LENGTH;
@@ -238,12 +239,12 @@ export function UsersScreen() {
   const [pending, setPending] = useState<PendingChange | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const users = useQuery({
-    queryKey: ["users", offset],
+    queryKey: queryKeys.users.page(offset),
     queryFn: ({ signal }) => fetchUsers(PAGE, offset, signal),
   });
   const change = useMutation({
     mutationFn: (run: () => Promise<unknown>) => run(),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.users.all }),
   });
 
   return (
