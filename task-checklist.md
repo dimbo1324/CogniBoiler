@@ -1,70 +1,68 @@
-# Task: console polish, the demo script, backup and restore (S13, steps 3–5)
+# Task: console polish and platform sanitation (before 1.0)
 
-Owner instruction of 2026-09-20: continue S13 with step 3 (fix what the readiness check
-found, add the hidden slot for the "Recommendations" panel required by VISION §11, and
-reserve the `InsightService` and `/api/v1/insights` names in the overview), step 4 (a
-`demo` script in the orchestrator that plays the five-minute scenario of VISION §7 through
-the gateway at speed and then checks `logs/*.log` for errors, with its own tests) and
-step 5 (`backup` and `restore` for PostgreSQL and InfluxDB). Asking to start step 5 settles
-the open question: they are done before 1.0, and the decision log records it.
+Owner instruction of 2026-09-20: before the project is wrapped up, improve the console
+(Lucide icons and other open-source, cleanly-integrated building blocks; a dark default
+theme), make the whole project more modular, readable and maintainable (no duplicated
+business logic, reusable things extracted into their own entity), make it safer (extra
+checks where a case is doubtful), remove magic numbers and magic strings, extend the
+tests — especially the backend ones, and especially with awkward and adversarial cases —
+and delete code and text files the project no longer needs. Then run the full gate, fix
+everything it finds, merge into `main`, delete every branch and push.
 
-Three branches merged into `main` one after another, each behind a green full gate.
+Order of work is mine to choose; the owner listed the items as they came to mind.
 
 Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 
-## 3. Console before the demo
+## 1. Console: appearance and structure
 
-+ Mimic values legible on a projector: 13/12 SVG units became 15/14; the layout is
-  unchanged, checked on the tablet and projector screenshots
-+ A "Recommendations" slot on the overview, rendering nothing while no AI service is
-  configured (`VITE_INSIGHTS`); unit tests for both states
-+ `InsightService` and `/api/v1/insights` reserved in the architecture overview next to
-  the MQTT `insights/*` names
-+ No other visual change: the owner asked for none
+[ ] `lucide-react` added (MIT, tree-shaken) — the only new frontend dependency; no UI kit,
+    because the console stays minimal by the project's own rule
+[ ] Icons carry meaning, not decoration: navigation, connection and PLC state, alarm
+    severity, command results, empty states; every icon `aria-hidden` next to real text
+[ ] Dark theme is the default; the operator can still choose light or follow the system
+[ ] The palette is declared once per theme (the dark block was written twice) and the
+    resolved theme is one attribute on `<html>`
+[ ] Design tokens for spacing, radius, shadow and control height; no stray pixel values
+[ ] Repeated markup extracted: panel, section header, empty state, status badge,
+    icon button — screens stop re-declaring the same JSX
+[ ] Vitest covers the new primitives and the changed theme behaviour; the whole suite green
 
-## 4. The `demo` script
+## 2. Backend: modularity and duplication
 
-+ `scripts/demo` plays VISION §7 through the gateway at speed 10: nominal scenario,
-  load to 300 MW, feedwater pump failure, warning then critical, trip, acknowledgement,
-  fault cleared, E-Stop reset, back above 180 MW in AUTO, then the audit log
-+ It restores real time and the nominal starting state even when a step fails — and sets
-  the same state first, so two runs in a row tell the same story
-+ It ends by scanning `logs/*.log` for `error` since it started, and fails on one
-+ Its own tests under `scripts/demo/tests` run without a stack; `selftest` green
-+ Listed in `scripts/runner/config/scripts.json`, the commands module and the reference
-+ Run against the live stack end to end, twice: 15 steps green, about 2 minutes each,
-  logs clean
+[ ] One shared runtime package for what every service repeats: the reconnecting MQTT
+    session and the liveness file (two byte-identical copies today)
+[ ] historian, alert-manager, opcua-server and physics-engine use it; the duplicates are
+    deleted and the compose healthchecks follow
+[ ] `plc_controller/service.py` (893 lines) and `safety.py` (750) split by meaning —
+    the project's own limit is about 700
+[ ] Other duplicated logic found during the pass is extracted or removed
+[ ] Magic numbers and magic strings replaced by named constants where they carry meaning
 
-## 5. `backup` and `restore`
+## 3. Security
 
-+ `backup` writes a timestamped set: PostgreSQL dump (107 KiB) and an InfluxDB backup
-  (2.5 MiB) with a manifest; credentials stay inside the containers
-+ `restore` puts a chosen set back and asks before overwriting data, stopping the four
-  services that hold connections while it works
-+ Both run through the orchestrator on any platform: docker compose only, no shell of the
-  host involved
-+ Tests for the command lines they build, including that no password or token appears in
-  them; `selftest` green
-+ Verified on the running stack: backup, a user created through the API, restore — the
-  user is gone, KPIs are back, smoke green
-+ The backup folder is ignored by git
+[ ] A pass over authentication, authorization, audit, input validation and the places
+    where a value from outside reaches a query, a command line or a file path
+[ ] Every doubtful case either gets a check or an explanation of why it is safe
+[ ] Findings and fixes named in the report; anything left open recorded as debt
 
-## Verification
+## 4. Tests
 
-+ Full gate green before every merge (1001 pytest, 196 Vitest); three branches became one,
-  merged in a single fast-forward after its own green gate
-+ Stack healthy, smoke green; the console's Vitest suite and the layout check green after
-  the mimic change
-+ CI green on the pushed task branch: run 35497295984 — gate, audit and stack, finished
-  2026-09-20T07:44:12Z
+[ ] New backend tests for the awkward cases: boundaries, races, malformed input,
+    unauthorized access, partial failures — not only the happy path
+[ ] Every new or changed module has its own tests; no test weakened or deleted to get green
 
-## Completion
+## 5. Cleanup
 
-+ ROADMAP (S13 progress), overview, README (backup and demo are user-facing), decision log
-  (backup and restore before 1.0), rule modules and their changelog — the AGENTS.md budget
-  is now spent to the byte, which the report raises with the owner
-+ Branch merged into `main` locally and deleted, locally and on `origin` — right after this
-  commit, which cannot record it; the report confirms. `main` is not pushed: no publish was
-  asked for in this task
-+ Checklist filled honestly; report in Russian. The stack is left running with a backup in
-  `backups/`; nothing else was cleaned up, because this task did not ask for it
+[ ] Dead code and dead files removed (unused modules, empty files, superseded documents)
+[ ] Nothing removed that a later stage needs; each removal justified in the report
+
+## 6. Verification and completion
+
+[ ] Full gate green: format, lint, strict types, pytest, generated artifacts, scripts,
+    frontend lint, types, tests and build
+[ ] The live stack rebuilt and checked: `smoke`, `demo` and the Playwright console checks
+[ ] State documents updated (overview, ROADMAP progress, README if a user sees it, rule
+    modules and their changelog)
+[ ] Checklist filled honestly; report in Russian
+[ ] Merged into `main` fast-forward, branch deleted locally and remotely, `main` pushed —
+    the owner asked for the publish in this task
