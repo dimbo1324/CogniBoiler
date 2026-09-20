@@ -1,0 +1,10 @@
+{
+  "_comment": "Restoring replaces live data, so the services holding connections are stopped first and started again afterwards. Both databases are written inside their own container, which already holds the credentials.",
+  "project_name": "cogniboiler",
+  "compose_file": "docker-compose.yml",
+  "backup_dir": "backups",
+  "postgres_service": "postgresql",
+  "influx_service": "influxdb",
+  "dependent_services": ["api-gateway", "alert-manager", "historian", "opcua-server"],
+  "wait_timeout_s": 180
+}

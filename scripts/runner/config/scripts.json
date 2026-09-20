@@ -167,6 +167,46 @@
     ]
   },
   {
+    "title": "backup",
+    "module": "scripts.backup",
+    "category": "platform",
+    "aliases": [
+      "dump"
+    ],
+    "cadence_ref": "on_demand",
+    "summary": {
+      "en": "Back up PostgreSQL and InfluxDB of the running stack.",
+      "ru": "Сделать резервную копию PostgreSQL и InfluxDB поднятого стека."
+    },
+    "description": {
+      "en": "Writes one timestamped folder under backups/: postgres.sql from pg_dump (users, roles, sessions, the append-only audit log, scenario runs, the alarm lifecycle) and influxdb/ from influx backup (telemetry, KPIs, labels, events), plus a manifest. Both run inside their own container, which already holds the credentials, so no password or token ever reaches a command line. The stack must be up; an incomplete backup is removed instead of left behind. --into changes where the folders live.",
+      "ru": "Пишет одну папку с отметкой времени в backups/: postgres.sql от pg_dump (пользователи, роли, сессии, неизменяемый аудит, прогоны сценариев, жизненный цикл тревог) и influxdb/ от influx backup (телеметрия, KPI, метки, события), плюс манифест. Обе команды идут внутри своих контейнеров, где учётные данные уже есть, поэтому ни пароль, ни токен не попадают в командную строку. Стек должен быть поднят; неполная копия удаляется. --into меняет каталог копий."
+    },
+    "examples": [
+      "--into backups"
+    ]
+  },
+  {
+    "title": "restore",
+    "module": "scripts.restore",
+    "category": "platform",
+    "aliases": [],
+    "cadence_ref": "on_demand",
+    "summary": {
+      "en": "Restore PostgreSQL and InfluxDB from a folder written by backup.",
+      "ru": "Восстановить PostgreSQL и InfluxDB из папки, созданной backup."
+    },
+    "description": {
+      "en": "Replaces the live databases with a backup, so it asks first (--yes skips the question). The services that hold connections are stopped while the data is replaced and started again afterwards. Without --from it takes the newest backup; --list only shows what can be restored. Run smoke afterwards.",
+      "ru": "Заменяет данные живых баз резервной копией, поэтому сначала спрашивает (--yes пропускает вопрос). Сервисы, держащие соединения, останавливаются на время замены и запускаются снова. Без --from берётся самая свежая копия; --list только показывает, что можно восстановить. После — smoke."
+    },
+    "examples": [
+      "--list",
+      "--from 20260920T070638Z",
+      "--yes"
+    ]
+  },
+  {
     "title": "console-e2e",
     "module": "scripts.console_e2e",
     "category": "platform",

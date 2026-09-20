@@ -15,7 +15,17 @@ python dev_tools_scripts_runner.py stack logs api-gateway
 python dev_tools_scripts_runner.py smoke              # end-to-end check through the gateway
 python dev_tools_scripts_runner.py demo               # plays the VISION §7 scenario, console can stay open
 python dev_tools_scripts_runner.py stack down         # --volumes also wipes the databases
+python dev_tools_scripts_runner.py backup             # databases into backups/<UTC stamp>/
+python dev_tools_scripts_runner.py restore --list     # ... --from <stamp> puts one back
 ```
+
+`backup` dumps PostgreSQL with `pg_dump` and InfluxDB with `influx backup`, each inside its
+own container, so no password or token reaches a command line; the folder holds
+`postgres.sql`, `influxdb/` and a manifest, and `backups/` is untracked. `restore` replaces
+the live data and asks first (`--yes` skips the question): it stops api-gateway,
+alert-manager, historian and opcua-server, restores both databases and starts them again —
+run `smoke` afterwards. The InfluxDB restore is `--full`, so the backup's tokens must match
+the `.env` the stack runs with; a backup and a `dev-secrets` rerun do not mix.
 
 The gateway seeds demo users `admin`, `engineer`, `operator` and `viewer` with the
 `DEMO_*_PASSWORD` values from `.env`. A one-shot `migrate` service applies Alembic before

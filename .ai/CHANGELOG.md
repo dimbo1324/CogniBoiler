@@ -6,6 +6,21 @@ History of changes to the AI assistant rule system (`.ai/`, `CLAUDE.md`, `AGENTS
 
 Format: date, what changed, why, who decided. Newest first.
 
+## 2026-09-20 — `backup` and `restore` in the commands module; the budget is spent
+
+**What changed.** `project/11-commands.md` lists `backup` / `restore` in the script table
+and `project/14-command-reference.md` describes both, including that credentials never
+reach a command line and that an InfluxDB `--full` restore belongs to the `.env` its backup
+was taken with. Nine more cells and sentences of `11-commands.md` were shortened without
+changing a rule.
+
+**Why.** Two new routine jobs must be in the rules, or the next session will not know they
+exist. **The 30 KiB budget of `AGENTS.md` is now spent to the byte:** the next always-apply
+addition needs a module moved to the extended tier, which `universal/08-rules-evolution.md`
+reserves for the owner. Raised with the owner in the report of 2026-09-20.
+
+**Decided by.** Agent, as part of the owner-requested S13 work of 2026-09-20.
+
 ## 2026-09-20 — The `demo` script in the commands module
 
 **What changed.** `project/11-commands.md` lists `demo` in the script table, and

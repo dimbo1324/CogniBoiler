@@ -256,6 +256,11 @@ all every 10 s in the Compose profiles `observability` and `full` (the default o
   service.
 - The gateway seeds demo users `admin`, `engineer`, `operator`, `viewer` from
   `DEMO_*_PASSWORD` when `AUTO_INIT_DB` is set; no credential is hardcoded.
+- `backup` writes `backups/<UTC stamp>/` with a `pg_dump` of PostgreSQL and an
+  `influx backup` of InfluxDB, both taken inside their own container so no credential
+  reaches a command line; `restore` puts a folder back after asking, stopping the four
+  services that hold connections while it does. The InfluxDB restore is `--full`, so a
+  backup belongs to the `.env` it was taken with.
 - `demo` plays the five-minute scenario of VISION §7 against a running stack through the
   gateway — nominal scenario, 300 MW, a feedwater pump failure, warning and critical
   alarms, the trip, acknowledgement, repair, E-Stop reset, back on load, then the audit
@@ -287,7 +292,7 @@ all every 10 s in the Compose profiles `observability` and `full` (the default o
 - `python dev_tools_scripts_runner.py` is the developer-tools orchestrator: `quality-gate`,
   `format-code`, `audit-deps`, `sync-agents`, `stack`, `dev-secrets`, `smoke`, `console-e2e`,
   `generate-proto`, `generate-openapi`, `doctor`, `install-hooks`, `clean-caches`,
-  `demo`, `selftest`.
+  `demo`, `backup`, `restore`, `selftest`.
 - The quality gate runs ruff, strict mypy, every service test suite, the protobuf,
   OpenAPI and `AGENTS.md` sync checks, the scripts' own tests, and the frontend checks when
   `apps/web/node_modules` exists. The service suites need no broker, database or network:

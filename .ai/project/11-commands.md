@@ -22,19 +22,20 @@ agent or CI can call it safely.
 | `audit-deps` | known vulnerabilities in the lock files |
 | `sync-agents` (`--check`) | regenerate `AGENTS.md` from `.ai/` |
 | `stack up` / `status` / `logs` / `down` | the Docker Compose stack |
-| `dev-secrets` | `.env` with generated dev secrets |
+| `dev-secrets` | `.env` with generated secrets |
 | `smoke` | end-to-end check of a running stack; CI runs it |
 | `demo` | plays the VISION §7 scenario; fails on an `error` in `logs/` |
+| `backup` / `restore` | the stack's databases; `restore` asks before overwriting |
 | `console-e2e` (`--url`) | Playwright checks of the console |
-| `generate-proto`, `generate-openapi` (`--check`) | gRPC stubs; OpenAPI schema and console types |
+| `generate-proto`, `generate-openapi` (`--check`) | gRPC stubs; OpenAPI and console types |
 | `doctor` | read-only toolchain check |
 | `install-hooks` | the pre-commit hook, once per clone |
 | `clean-caches` (`--apply`) | **deletes files**; a dry run unless `--apply` |
 | `selftest` | the scripts' own tests |
 
 **Standing duty — keep the scripts true.** A task that changes how the project is built,
-checked, formatted, run or cleaned updates the matching script in that same task, and
-runs `selftest` after touching `scripts/`. A new routine job is a new directory under
+checked, formatted, run or cleaned updates the matching script in the same task, and runs
+`selftest` after touching `scripts/`. A new routine job is a new directory under
 `scripts/` plus one entry in `scripts/runner/config/scripts.json` — never new Python in
 `scripts/runner/`.
 
@@ -61,13 +62,12 @@ Run commands per service, ports, topics and platform notes: `14-command-referenc
 ## Gate policy
 
 - The full gate is green before any merge to `main`; `--quick` is the minimum before a
-  push. Documentation- and configuration-only changes still run it.
-- The gate runs every section even after one fails and ends with a single summary.
+  push. Docs- and config-only changes still run it.
+- The gate runs every section even after a failure and ends with one summary.
 - The `--check` modes of `sync-agents`, `generate-proto` and `generate-openapi` are gate
   sections on purpose: a source edited without regenerating its artifact breaks the build.
-- Frontend sections are skipped locally without `apps/web/node_modules` and fail when the
-  `CI` variable is set.
+- Frontend sections are skipped without `apps/web/node_modules`, and fail when `CI` is set.
 - The pre-commit hook only formats and checks file hygiene. Lint, strict typing and tests
-  are never commit-time checks and are never skipped at merge time.
-- `xfail(strict=True)` marks a recorded known defect and is allowed only by an owner
-  decision in `docs/__arch__/open-questions.md`; it is never a way to get green.
+  are never commit-time checks, and never skipped at merge time.
+- `xfail(strict=True)` marks a recorded known defect, allowed only by an owner decision in
+  `docs/__arch__/open-questions.md`; never a way to get green.

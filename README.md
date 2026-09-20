@@ -461,6 +461,7 @@ python dev_tools_scripts_runner.py dev-secrets      # .env with generated local 
 python dev_tools_scripts_runner.py stack up         # build and start everything, wait for health
 python dev_tools_scripts_runner.py smoke            # end-to-end check through the gateway
 python dev_tools_scripts_runner.py demo             # play the five-minute demo scenario
+python dev_tools_scripts_runner.py backup           # databases into backups/<UTC stamp>/
 ```
 
 | What | Where |
@@ -476,6 +477,8 @@ python dev_tools_scripts_runner.py demo             # play the five-minute demo 
 Demo users `admin`, `engineer`, `operator` and `viewer` are created on start; their passwords are the `DEMO_*_PASSWORD` values in `.env`. `dev-secrets` also writes the broker's per-service accounts, the database roles' passwords and the self-signed certificates for HTTPS and OPC UA. Nothing in `.env` is ever committed.
 
 Stop with `python dev_tools_scripts_runner.py stack down` (add `--volumes` to wipe the databases).
+
+Back up the databases with `python dev_tools_scripts_runner.py backup`: it writes `backups/<UTC stamp>/` with a PostgreSQL dump and an InfluxDB backup, taken inside their own containers, so no password or token is ever passed on a command line. `python dev_tools_scripts_runner.py restore --list` shows what can be put back and `restore --from <stamp>` puts it back, after asking.
 
 `stack up` starts the Compose profile `full`. `--profile infra` starts only the broker and the databases (for running the services from the host), `core` adds every service and the console, and `observability` is Prometheus, Grafana and InfluxDB.
 

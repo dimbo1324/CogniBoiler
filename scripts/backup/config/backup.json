@@ -1,0 +1,8 @@
+{
+  "_comment": "Both databases are read inside their own container, which already holds the credentials: no password or token ever reaches a command line. The project name matches stack.json so the containers are found whatever the checkout is called.",
+  "project_name": "cogniboiler",
+  "compose_file": "docker-compose.yml",
+  "backup_dir": "backups",
+  "postgres_service": "postgresql",
+  "influx_service": "influxdb"
+}
