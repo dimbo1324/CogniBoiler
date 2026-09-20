@@ -292,21 +292,22 @@ describe("Layout", () => {
     expect(nav.querySelectorAll("a")).toHaveLength(8);
   });
 
-  it("cycles the theme and remembers it", async () => {
+  it("starts dark, cycles the theme and remembers the choice", async () => {
     renderShell(
       <SignedIn>
         <Layout />
       </SignedIn>,
     );
-    const button = await screen.findByRole("button", { name: "Theme: system" });
+    const button = await screen.findByRole("button", { name: "Theme: dark" });
     await userEvent.click(button);
-    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
-    expect(window.localStorage.getItem("cogniboiler.theme")).toBe("dark");
-    await userEvent.click(screen.getByRole("button", { name: "Theme: dark" }));
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    expect(window.localStorage.getItem("cogniboiler.theme")).toBe("light");
     await userEvent.click(screen.getByRole("button", { name: "Theme: light" }));
-    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
-    expect(window.localStorage.getItem("cogniboiler.theme")).toBeNull();
+    // Nothing in jsdom prefers light, so following the system means staying dark.
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(window.localStorage.getItem("cogniboiler.theme")).toBe("system");
+    await userEvent.click(screen.getByRole("button", { name: "Theme: system" }));
+    expect(window.localStorage.getItem("cogniboiler.theme")).toBe("dark");
   });
 
   it("signs out through the gateway", async () => {

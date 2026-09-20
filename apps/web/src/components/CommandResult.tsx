@@ -1,4 +1,6 @@
-import { describeError } from "../api/http";
+import { Icon } from "./ui/Icon";
+import { ErrorNote, ErrorOf } from "./ui/Note";
+import { OkIcon, RefusedIcon } from "./ui/icons";
 
 export interface Acknowledgement {
   accepted: boolean;
@@ -14,22 +16,18 @@ export function CommandResult({
   error: unknown;
 }) {
   if (error) {
-    return (
-      <p className="error" role="alert">
-        {describeError(error)}
-      </p>
-    );
+    return <ErrorOf error={error} />;
   }
   if (!result) {
     return null;
   }
-  return result.accepted ? (
-    <p className="ok-text" role="status">
-      Accepted.
-    </p>
-  ) : (
-    <p className="error" role="alert">
-      Refused: {result.reason}
-    </p>
-  );
+  if (result.accepted) {
+    return (
+      <p className="note ok-text" role="status">
+        <Icon glyph={OkIcon} tone="ok" />
+        Accepted.
+      </p>
+    );
+  }
+  return <ErrorNote glyph={RefusedIcon}>Refused: {result.reason}</ErrorNote>;
 }

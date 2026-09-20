@@ -4,6 +4,12 @@ import { Link } from "react-router";
 import { Horn } from "../alarms/horn";
 import { annunciating, isUnacknowledged, useActiveAlarms } from "../alarms/queries";
 import { parameterLabel } from "../units";
+import { Icon } from "./ui/Icon";
+import { AlarmsIcon, CriticalIcon, SilenceIcon } from "./ui/icons";
+
+function countLabel(count: number, noun: string): string {
+  return `${String(count)} ${noun}${count > 1 ? "s" : ""}`;
+}
 
 /**
  * Above every screen: flashes and sounds while an unacknowledged critical alarm stands.
@@ -43,10 +49,11 @@ export function AlarmBanner() {
       role="alert"
       aria-live="assertive"
     >
+      <Icon glyph={critical.length ? CriticalIcon : AlarmsIcon} />
       <span>
         {critical.length
-          ? `${String(critical.length)} unacknowledged critical alarm${critical.length > 1 ? "s" : ""}`
-          : `${String(unacknowledged)} unacknowledged alarm${unacknowledged > 1 ? "s" : ""}`}
+          ? countLabel(critical.length, "unacknowledged critical alarm")
+          : countLabel(unacknowledged, "unacknowledged alarm")}
         {first ? ` — ${parameterLabel(first.parameter)}: ${first.message}` : ""}
       </span>
       <Link to="/alarms">Open alarms</Link>
@@ -57,6 +64,7 @@ export function AlarmBanner() {
             setSilenced(new Set(critical.map((alarm) => alarm.id)));
           }}
         >
+          <Icon glyph={SilenceIcon} />
           Silence
         </button>
       )}

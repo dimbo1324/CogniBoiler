@@ -62,17 +62,23 @@ test("the alarm screen lists active alarms and history", async ({ page }) => {
   await page.screenshot({ path: "e2e-results/alarms.png", fullPage: true });
 });
 
-test("the dark theme is chosen once and kept across a reload", async ({ page }) => {
+test("the console is dark to begin with, and the choice survives a reload", async ({ page }) => {
   await signIn(page, "viewer");
   const html = page.locator("html");
-  await page.getByRole("button", { name: "Theme: system" }).click();
-  await expect(html).toHaveAttribute("data-theme", "dark");
-  await page.reload();
+  // Nobody chose anything yet: a control room console opens dark.
   await expect(html).toHaveAttribute("data-theme", "dark");
   await expect(page.getByTestId("mimic-power")).toContainText("MW");
   await page.screenshot({ path: "e2e-results/overview-dark.png", fullPage: true });
+
   await page.getByRole("button", { name: "Theme: dark" }).click();
   await expect(html).toHaveAttribute("data-theme", "light");
+  await page.reload();
+  await expect(html).toHaveAttribute("data-theme", "light");
+  await page.screenshot({ path: "e2e-results/overview-light.png", fullPage: true });
+
+  // Following the system resolves to one of the two themes, never to no theme at all.
   await page.getByRole("button", { name: "Theme: light" }).click();
-  await expect(html).not.toHaveAttribute("data-theme", /.+/u);
+  await expect(html).toHaveAttribute("data-theme", /^(dark|light)$/u);
+  await page.getByRole("button", { name: "Theme: system" }).click();
+  await expect(html).toHaveAttribute("data-theme", "dark");
 });

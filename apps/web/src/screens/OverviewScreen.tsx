@@ -1,9 +1,14 @@
 import { Link } from "react-router";
 
 import { isUnacknowledged, sortAlarms, useActiveAlarms } from "../alarms/queries";
+import { isCritical, severityGlyph, severityTone } from "../alarms/severity";
 import type { PlantState, PlcEvent } from "../api/types";
 import { Mimic } from "../components/Mimic";
 import { PlcPanel } from "../components/PlcPanel";
+import { Icon } from "../components/ui/Icon";
+import { EmptyNote, ErrorNote } from "../components/ui/Note";
+import { AlarmsIcon, EventsIcon, OverviewIcon, UnitIcon } from "../components/ui/icons";
+import { Panel } from "../components/ui/Panel";
 import { RecommendationsPanel } from "../insights/RecommendationsPanel";
 import { useLive } from "../live/LiveProvider";
 import {
@@ -15,12 +20,15 @@ import {
   parameterLabel,
 } from "../units";
 
+/** How many of each list the overview shows before sending the operator to its screen. */
+const ALARMS_SHOWN = 6;
+const EVENTS_SHOWN = 8;
+
 function SimulationPanel({ plant }: { plant: PlantState }) {
   const { simulation, faults, performance, sensors } = plant;
   const degraded = sensors.filter((sensor) => sensor.quality !== "good");
   return (
-    <section className="panel" aria-label="Unit">
-      <h2>Unit</h2>
+    <Panel title="Unit" glyph={UnitIcon}>
       <dl className="kv">
         <dt>Scenario</dt>
         <dd data-testid="scenario">{simulation.scenario}</dd>
@@ -52,35 +60,35 @@ function SimulationPanel({ plant }: { plant: PlantState }) {
           </>
         )}
       </dl>
-    </section>
+    </Panel>
   );
 }
 
 function ActiveAlarmsPanel() {
   const { data: alarms = [], isError } = useActiveAlarms();
-  const standing = sortAlarms(alarms).slice(0, 6);
+  const standing = sortAlarms(alarms).slice(0, ALARMS_SHOWN);
   return (
-    <section className="panel" aria-label="Active alarms">
-      <h2>
-        Active alarms <Link to="/alarms">all</Link>
-      </h2>
-      {isError && <p className="error">Alarms are unavailable.</p>}
-      {!isError && standing.length === 0 && <p className="muted">No active alarms.</p>}
-      <ul>
+    <Panel title="Active alarms" glyph={AlarmsIcon} actions={<Link to="/alarms">all</Link>}>
+      {isError && <ErrorNote>Alarms are unavailable.</ErrorNote>}
+      {!isError && standing.length === 0 && <EmptyNote>No active alarms.</EmptyNote>}
+      <ul className="event-list">
         {standing.map((alarm) => (
           <li
             key={alarm.id}
             className={
-              alarm.severity === "critical" && isUnacknowledged(alarm) ? "error flashing" : ""
+              isCritical(alarm.severity) && isUnacknowledged(alarm) ? "error flashing" : ""
             }
           >
-            <strong>{alarm.severity}</strong> {parameterLabel(alarm.parameter)} —{" "}
-            {formatQuantity(alarm.value, alarm.unit)}
-            {isUnacknowledged(alarm) ? " (unacknowledged)" : ""}
+            <Icon glyph={severityGlyph(alarm.severity)} tone={severityTone(alarm.severity)} />
+            <span>
+              <strong>{alarm.severity}</strong> {parameterLabel(alarm.parameter)} —{" "}
+              {formatQuantity(alarm.value, alarm.unit)}
+              {isUnacknowledged(alarm) ? " (unacknowledged)" : ""}
+            </span>
           </li>
         ))}
       </ul>
-    </section>
+    </Panel>
   );
 }
 
@@ -94,21 +102,20 @@ function describeEvent(event: PlcEvent): string {
 
 function EventsPanel({ events }: { events: readonly PlcEvent[] }) {
   return (
-    <section className="panel" aria-label="PLC events">
-      <h2>PLC events</h2>
+    <Panel title="PLC events" glyph={EventsIcon}>
       {events.length === 0 ? (
-        <p className="muted">No events since this page opened.</p>
+        <EmptyNote>No events since this page opened.</EmptyNote>
       ) : (
-        <ul>
-          {events.slice(0, 8).map((event) => (
+        <ul className="event-list">
+          {events.slice(0, EVENTS_SHOWN).map((event) => (
             <li key={event.event_id}>
-              <span className="muted">{formatDateTime(event.timestamp_ms)}</span>{" "}
-              {describeEvent(event)}
+              <span className="muted">{formatDateTime(event.timestamp_ms)}</span>
+              <span>{describeEvent(event)}</span>
             </li>
           ))}
         </ul>
       )}
-    </section>
+    </Panel>
   );
 }
 
@@ -117,18 +124,16 @@ export function OverviewScreen() {
   return (
     <div className="grid overview-grid">
       <div className="stack">
-        <section className="panel" aria-label="Mimic">
+        <Panel title="Mimic" glyph={OverviewIcon}>
           {live.plant ? (
             <Mimic plant={live.plant} plc={live.plc} />
           ) : (
-            <p className="muted" role="status">
-              Waiting for the first plant state…
-            </p>
+            <EmptyNote status>Waiting for the first plant state…</EmptyNote>
           )}
           {live.plantReceivedAtMs !== null && (
             <p className="muted">Updated {formatDateTime(live.plantReceivedAtMs)}</p>
           )}
-        </section>
+        </Panel>
         <EventsPanel events={live.events} />
       </div>
       <div className="stack">

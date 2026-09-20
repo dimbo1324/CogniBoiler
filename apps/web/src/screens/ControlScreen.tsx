@@ -13,6 +13,18 @@ import { CommandResult } from "../components/CommandResult";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PlcModeBadge } from "../components/PlcModeBadge";
 import { tripDescription } from "../components/PlcPanel";
+import { Icon } from "../components/ui/Icon";
+import { EmptyNote, ErrorNote } from "../components/ui/Note";
+import {
+  ControlIcon,
+  EmergencyStopIcon,
+  OkIcon,
+  PlcIcon,
+  PowerIcon,
+  PressureIcon,
+  ResetIcon,
+} from "../components/ui/icons";
+import { Panel } from "../components/ui/Panel";
 import { useLive } from "../live/LiveProvider";
 import { useCan } from "../session/SessionProvider";
 import {
@@ -25,6 +37,11 @@ import {
   pascalsToBar,
   wattsToMegawatts,
 } from "../units";
+
+// The rates the PLC ramps at (plc_controller/control.py), for the sentences that promise
+// them: an operator asks for a target, never for a step.
+const LOAD_RAMP_MW_PER_MIN = 30;
+const PRESSURE_RAMP_BAR_PER_MIN = 5;
 
 // The gateway's limits (schemas/command.py), in display units.
 export const LIMITS = {
@@ -91,12 +108,11 @@ function LoadSection({ plc, ask }: { plc: PlcStatus; ask: (command: PendingComma
   const [load, setLoad] = useState(() => formatReading(wattsToMegawatts(plc.load_demand_w), 0));
   const target = Number(load);
   return (
-    <section className="panel" aria-label="Load">
-      <h2>Load</h2>
+    <Panel title="Load" glyph={PowerIcon}>
       <p>
         Demand <strong>{formatReading(wattsToMegawatts(plc.load_demand_w), 1)} MW</strong>, ramped
         setpoint {formatReading(wattsToMegawatts(plc.load_setpoint_w), 1)} MW. The unit follows a
-        new demand at 30 MW/min.
+        new demand at {LOAD_RAMP_MW_PER_MIN} MW/min.
       </p>
       <div className="form-grid">
         <NumberField
@@ -117,7 +133,8 @@ function LoadSection({ plc, ask }: { plc: PlcStatus; ask: (command: PendingComma
               body: (
                 <p>
                   From {formatReading(wattsToMegawatts(plc.load_demand_w), 1)} MW to{" "}
-                  <strong>{formatReading(target, 1)} MW</strong>. The unit ramps at 30 MW/min.
+                  <strong>{formatReading(target, 1)} MW</strong>. The unit ramps at{" "}
+                  {LOAD_RAMP_MW_PER_MIN} MW/min.
                 </p>
               ),
               confirmLabel: `Set ${formatReading(target, 1)} MW`,
@@ -125,10 +142,11 @@ function LoadSection({ plc, ask }: { plc: PlcStatus; ask: (command: PendingComma
             });
           }}
         >
+          <Icon glyph={PowerIcon} />
           Set load…
         </button>
       </div>
-    </section>
+    </Panel>
   );
 }
 
@@ -147,10 +165,7 @@ function ModeSection({ plc, ask }: { plc: PlcStatus; ask: (command: PendingComma
     });
   };
   return (
-    <section className="panel" aria-label="Mode">
-      <h2>
-        Mode <PlcModeBadge plc={plc} />
-      </h2>
+    <Panel title="Mode" glyph={PlcIcon} headline={<PlcModeBadge plc={plc} />}>
       <div className="row">
         <button
           type="button"
@@ -189,10 +204,11 @@ function ModeSection({ plc, ask }: { plc: PlcStatus; ask: (command: PendingComma
             });
           }}
         >
+          <Icon glyph={EmergencyStopIcon} />
           Emergency stop…
         </button>
       </div>
-    </section>
+    </Panel>
   );
 }
 
@@ -221,8 +237,7 @@ function ValvesSection({ plc, ask }: { plc: PlcStatus; ask: (command: PendingCom
   const valid = numbers.every((value) => inRange(value, LIMITS.valvePct));
   const fraction = (name: ValveName) => Number(positions[name]) / 100;
   return (
-    <section className="panel" aria-label="Manual valves">
-      <h2>Manual valves</h2>
+    <Panel title="Manual valves" glyph={ControlIcon}>
       <p className="muted">
         Sending positions switches the PLC to MANUAL; the interlocks still trip the unit.
       </p>
@@ -274,10 +289,11 @@ function ValvesSection({ plc, ask }: { plc: PlcStatus; ask: (command: PendingCom
             });
           }}
         >
+          <Icon glyph={ControlIcon} />
           Send positions…
         </button>
       </div>
-    </section>
+    </Panel>
   );
 }
 
@@ -300,9 +316,10 @@ function SetpointsSection({
     inRange(Number(level), LIMITS.levelM) &&
     inRange(Number(steam), LIMITS.steamTempC);
   return (
-    <section className="panel" aria-label="Setpoints">
-      <h2>Setpoints</h2>
-      <p className="muted">The working setpoints ramp to new targets at 5 bar/min.</p>
+    <Panel title="Setpoints" glyph={PressureIcon}>
+      <p className="muted">
+        The working setpoints ramp to new targets at {PRESSURE_RAMP_BAR_PER_MIN} bar/min.
+      </p>
       <div className="form-grid">
         <NumberField
           label="Drum pressure"
@@ -353,7 +370,7 @@ function SetpointsSection({
           Apply…
         </button>
       </div>
-    </section>
+    </Panel>
   );
 }
 
@@ -362,9 +379,10 @@ function ResetSection({ plc, ask }: { plc: PlcStatus; ask: (command: PendingComm
     return null;
   }
   return (
-    <section className="panel" aria-label="Emergency stop reset">
-      <h2>Emergency stop</h2>
-      <p className="error">Tripped: {tripDescription(plc)}</p>
+    <Panel title="Emergency stop" label="Emergency stop reset" glyph={EmergencyStopIcon}>
+      <ErrorNote glyph={EmergencyStopIcon} status>
+        Tripped: {tripDescription(plc)}
+      </ErrorNote>
       {plc.reset_permitted ? (
         <p>The cause has cleared; the unit returns to AUTO and ramps back to the load demand.</p>
       ) : (
@@ -389,9 +407,10 @@ function ResetSection({ plc, ask }: { plc: PlcStatus; ask: (command: PendingComm
           });
         }}
       >
+        <Icon glyph={ResetIcon} />
         Reset E-Stop…
       </button>
-    </section>
+    </Panel>
   );
 }
 
@@ -411,16 +430,19 @@ export function ControlScreen() {
   });
 
   if (live.plc === null) {
-    return <p className="muted">Waiting for the PLC…</p>;
+    return <EmptyNote status>Waiting for the PLC…</EmptyNote>;
   }
   const plc = live.plc;
   return (
     <div className="stack">
       {last && (
-        <section className="panel" aria-label="Last command">
-          <strong>{last}</strong>
+        <Panel
+          title="Last command"
+          glyph={OkIcon}
+          headline={<span className="muted">: {last}</span>}
+        >
           <CommandResult result={command.data} error={command.error} />
-        </section>
+        </Panel>
       )}
       {mayOperate && <LoadSection plc={plc} ask={setPending} />}
       {mayOperate && <ModeSection plc={plc} ask={setPending} />}

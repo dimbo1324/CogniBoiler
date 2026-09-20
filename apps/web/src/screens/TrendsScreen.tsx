@@ -4,6 +4,18 @@ import { useMemo, useState } from "react";
 import { fetchHistory, fetchKpi } from "../api/endpoints";
 import type { HistoryMeasurement, HistoryResponse, Kpi } from "../api/types";
 import { TrendChart } from "../components/TrendChart";
+import { Icon, type IconGlyph } from "../components/ui/Icon";
+import { EmptyNote, ErrorNote } from "../components/ui/Note";
+import {
+  EfficiencyIcon,
+  EmissionsIcon,
+  FuelIcon,
+  HealthIcon,
+  PendingIcon,
+  PowerIcon,
+  TrendsIcon,
+} from "../components/ui/icons";
+import { Panel } from "../components/ui/Panel";
 import { useLive, useLiveStore } from "../live/LiveProvider";
 import { DEFAULT_TREND_IDS, TREND_PARAMETERS, type TrendParameter } from "../trends/parameters";
 import { buildColumns } from "../trends/series";
@@ -44,51 +56,62 @@ export function historyRequests(
 
 function KpiPanel({ kpi, isError }: { kpi: Kpi | undefined; isError: boolean }) {
   if (isError) {
-    return <p className="error">KPIs are unavailable: the historian did not answer.</p>;
+    return <ErrorNote>KPIs are unavailable: the historian did not answer.</ErrorNote>;
   }
   if (!kpi) {
-    return <p className="muted">Loading KPIs…</p>;
+    return <EmptyNote glyph={PendingIcon}>Loading KPIs…</EmptyNote>;
   }
-  const items: [string, string][] = [
+  const items: [string, string, IconGlyph][] = [
     [
       "Mean output",
       `${formatReading(kpi.mean_electrical_power_w === null ? null : wattsToMegawatts(kpi.mean_electrical_power_w), 1)} MW`,
+      PowerIcon,
     ],
     [
       "Net efficiency",
       `${formatReading(kpi.net_efficiency === null ? null : fractionToPercent(kpi.net_efficiency), 2)} %`,
+      EfficiencyIcon,
     ],
     [
       "Boiler efficiency",
       `${formatReading(kpi.boiler_efficiency === null ? null : fractionToPercent(kpi.boiler_efficiency), 2)} %`,
+      EfficiencyIcon,
     ],
     [
       "Plant heat rate",
       `${formatReading(kpi.plant_heat_rate_j_per_j === null ? null : heatRateToKilojoulesPerKilowattHour(kpi.plant_heat_rate_j_per_j), 0)} kJ/kWh`,
+      FuelIcon,
     ],
     [
       "Turbine heat rate",
       `${formatReading(kpi.turbine_heat_rate_j_per_j === null ? null : heatRateToKilojoulesPerKilowattHour(kpi.turbine_heat_rate_j_per_j), 0)} kJ/kWh`,
+      FuelIcon,
     ],
     [
       "CO2 intensity",
       `${formatReading(kpi.co2_intensity_kg_per_j === null ? null : co2PerJouleToKilogramsPerMegawattHour(kpi.co2_intensity_kg_per_j), 0)} kg/MWh`,
+      EmissionsIcon,
     ],
     [
       "NOx mean / peak",
       `${formatReading(kpi.mean_nox_ppmv, 1)} / ${formatReading(kpi.peak_nox_ppmv, 1)} ppmv`,
+      EmissionsIcon,
     ],
     [
       "Health mean / lowest",
       `${formatReading(kpi.mean_health_pct, 1)} / ${formatReading(kpi.lowest_health_pct, 1)} %`,
+      HealthIcon,
     ],
   ];
   return (
     <>
       <div className="kpis" data-testid="kpis">
-        {items.map(([label, value]) => (
+        {items.map(([label, value, glyph]) => (
           <div className="kpi" key={label}>
-            <div className="muted">{label}</div>
+            <div className="kpi-label">
+              <Icon glyph={glyph} tone="muted" />
+              {label}
+            </div>
             <div className="kpi-value">{value}</div>
           </div>
         ))}
@@ -152,7 +175,7 @@ export function TrendsScreen() {
 
   return (
     <div className="stack">
-      <section className="panel" aria-label="Trend settings">
+      <Panel title="Trend settings" glyph={TrendsIcon}>
         <div className="row" role="group" aria-label="Time range">
           {RANGES.map((item) => (
             <button
@@ -209,9 +232,9 @@ export function TrendsScreen() {
             )}
           </p>
         )}
-      </section>
-      <section className="panel trend-list" aria-label="Trends">
-        {parameters.length === 0 && <p className="muted">Choose at least one parameter.</p>}
+      </Panel>
+      <Panel title="Trends" glyph={TrendsIcon} className="trend-list">
+        {parameters.length === 0 && <EmptyNote>Choose at least one parameter.</EmptyNote>}
         {parameters.map((parameter, index) => (
           <TrendChart
             key={parameter.id}
@@ -221,11 +244,10 @@ export function TrendsScreen() {
             syncKey="trends"
           />
         ))}
-      </section>
-      <section className="panel" aria-label="KPIs">
-        <h2>KPIs for the range</h2>
+      </Panel>
+      <Panel title="KPIs for the range" label="KPIs" glyph={EfficiencyIcon}>
         <KpiPanel kpi={kpi.data} isError={kpi.isError} />
-      </section>
+      </Panel>
     </div>
   );
 }

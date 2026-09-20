@@ -1,3 +1,4 @@
+import { isCritical, severityOf, type Severity } from "../alarms/severity";
 import type { AlarmCondition, PlantState, PlcStatus } from "../api/types";
 import {
   formatReading,
@@ -36,15 +37,16 @@ const EQUIPMENT_OF_PARAMETER: Record<string, Equipment> = {
 
 export function equipmentInAlarm(
   conditions: readonly AlarmCondition[],
-): Partial<Record<Equipment, "warning" | "critical">> {
-  const result: Partial<Record<Equipment, "warning" | "critical">> = {};
+): Partial<Record<Equipment, Severity>> {
+  const result: Partial<Record<Equipment, Severity>> = {};
   for (const condition of conditions) {
     const equipment = EQUIPMENT_OF_PARAMETER[condition.parameter];
     if (equipment === undefined) {
       continue;
     }
-    if (condition.severity === "critical" || result[equipment] === undefined) {
-      result[equipment] = condition.severity === "critical" ? "critical" : "warning";
+    // A critical condition wins over a warning already drawn on the same equipment.
+    if (isCritical(condition.severity) || result[equipment] === undefined) {
+      result[equipment] = severityOf(condition.severity);
     }
   }
   return result;
@@ -109,7 +111,7 @@ function Valve({
   );
 }
 
-function stroke(alarm: "warning" | "critical" | undefined): string {
+function stroke(alarm: Severity | undefined): string {
   return alarm ? ` in-alarm-${alarm}` : "";
 }
 

@@ -13,15 +13,32 @@ import {
   setSimulationSpeed,
   stepSimulation,
 } from "../api/endpoints";
-import { describeError } from "../api/http";
 import type { FaultAck, FaultKind, SimulationAck, SimulationStatus } from "../api/types";
 import { CommandResult } from "../components/CommandResult";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Pager } from "../components/Pager";
+import { Icon } from "../components/ui/Icon";
+import { EmptyNote, ErrorOf } from "../components/ui/Note";
+import {
+  AuditIcon,
+  EngineerIcon,
+  OkIcon,
+  PauseIcon,
+  RunIcon,
+  UnitIcon,
+  WarningIcon,
+} from "../components/ui/icons";
+import { Panel } from "../components/ui/Panel";
 import { useLive } from "../live/LiveProvider";
 import { formatDateTime, formatDuration, formatReading } from "../units";
 
 type Answer = SimulationAck | FaultAck;
+
+// The gateway's bounds for these two fields (schemas/plant.py): one hour of steps, and a
+// fault that takes at most an hour to develop.
+const STEPS_MIN = 1;
+const STEPS_MAX = 3600;
+const FAULT_RAMP_MAX_S = 3600;
 
 interface PendingAction {
   title: string;
@@ -93,8 +110,7 @@ function SimulationSection({
   const [steps, setSteps] = useState("10");
   const paused = status.run_state === "paused";
   return (
-    <section className="panel" aria-label="Simulation">
-      <h2>Simulation</h2>
+    <Panel title="Simulation" glyph={EngineerIcon}>
       <dl className="kv">
         <dt>Scenario</dt>
         <dd>{status.scenario}</dd>
@@ -115,6 +131,7 @@ function SimulationSection({
             run(paused ? "Resume" : "Pause", paused ? resumeSimulation : pauseSimulation);
           }}
         >
+          <Icon glyph={paused ? RunIcon : PauseIcon} />
           {paused ? "Resume" : "Pause"}
         </button>
         <label>
@@ -144,8 +161,8 @@ function SimulationSection({
           Steps{" "}
           <input
             type="number"
-            min={1}
-            max={3600}
+            min={STEPS_MIN}
+            max={STEPS_MAX}
             value={steps}
             onChange={(event) => {
               setSteps(event.target.value);
@@ -154,7 +171,7 @@ function SimulationSection({
         </label>
         <button
           type="button"
-          disabled={!paused || !(Number(steps) >= 1 && Number(steps) <= 3600)}
+          disabled={!paused || !(Number(steps) >= STEPS_MIN && Number(steps) <= STEPS_MAX)}
           onClick={() => {
             run(`Step ${steps}`, () => stepSimulation(Number(steps)));
           }}
@@ -162,7 +179,7 @@ function SimulationSection({
           Step
         </button>
       </div>
-    </section>
+    </Panel>
   );
 }
 
@@ -172,9 +189,8 @@ function ScenarioSection({ ask }: { ask: (action: PendingAction) => void }) {
     queryFn: ({ signal }) => fetchScenarios(signal),
   });
   return (
-    <section className="panel" aria-label="Scenarios">
-      <h2>Scenarios</h2>
-      {scenarios.isError && <p className="error">{describeError(scenarios.error)}</p>}
+    <Panel title="Scenarios" glyph={UnitIcon}>
+      {scenarios.isError && <ErrorOf error={scenarios.error} />}
       <table>
         <tbody>
           {(scenarios.data?.scenarios ?? []).map((scenario) => (
@@ -211,7 +227,7 @@ function ScenarioSection({ ask }: { ask: (action: PendingAction) => void }) {
           ))}
         </tbody>
       </table>
-    </section>
+    </Panel>
   );
 }
 
@@ -235,12 +251,11 @@ function FaultSection({ ask }: { ask: (action: PendingAction) => void }) {
         severityValue <= spec.severity.max)) &&
     Number.isFinite(rampValue) &&
     rampValue >= 0 &&
-    rampValue <= 3600;
+    rampValue <= FAULT_RAMP_MAX_S;
   const faults = live.plant?.faults ?? [];
 
   return (
-    <section className="panel" aria-label="Faults">
-      <h2>Faults</h2>
+    <Panel title="Faults" glyph={WarningIcon}>
       <div className="form-grid">
         <label>
           Fault
@@ -299,7 +314,7 @@ function FaultSection({ ask }: { ask: (action: PendingAction) => void }) {
           <input
             type="number"
             min={0}
-            max={3600}
+            max={FAULT_RAMP_MAX_S}
             value={ramp}
             onChange={(event) => {
               setRamp(event.target.value);
@@ -338,7 +353,7 @@ function FaultSection({ ask }: { ask: (action: PendingAction) => void }) {
       </div>
       <h3>Active faults</h3>
       {faults.length === 0 ? (
-        <p className="muted">None.</p>
+        <EmptyNote>None.</EmptyNote>
       ) : (
         <table>
           <thead>
@@ -392,7 +407,7 @@ function FaultSection({ ask }: { ask: (action: PendingAction) => void }) {
           Clear all…
         </button>
       )}
-    </section>
+    </Panel>
   );
 }
 
@@ -409,9 +424,8 @@ function RunsSection() {
     queryFn: ({ signal }) => fetchScenarioRuns(RUNS_PAGE, offset, signal),
   });
   return (
-    <section className="panel" aria-label="Scenario and fault log">
-      <h2>Scenario and fault log</h2>
-      {runs.isError && <p className="error">{describeError(runs.error)}</p>}
+    <Panel title="Scenario and fault log" glyph={AuditIcon}>
+      {runs.isError && <ErrorOf error={runs.error} />}
       <div className="table-scroll">
         <table>
           <thead>
@@ -439,7 +453,7 @@ function RunsSection() {
         </table>
       </div>
       <Pager offset={offset} limit={RUNS_PAGE} total={runs.data?.total ?? 0} onChange={setOffset} />
-    </section>
+    </Panel>
   );
 }
 
@@ -460,15 +474,18 @@ export function EngineerScreen() {
   return (
     <div className="stack">
       {last && (
-        <section className="panel" aria-label="Last action">
-          <strong>{last}</strong>
+        <Panel
+          title="Last action"
+          glyph={OkIcon}
+          headline={<span className="muted">: {last}</span>}
+        >
           <CommandResult result={action.data} error={action.error} />
-        </section>
+        </Panel>
       )}
       {live.plant ? (
         <SimulationSection status={live.plant.simulation} run={run} />
       ) : (
-        <p className="muted">Waiting for the plant…</p>
+        <EmptyNote status>Waiting for the plant…</EmptyNote>
       )}
       <FaultSection ask={setPending} />
       <ScenarioSection ask={setPending} />

@@ -1,3 +1,6 @@
+import { Icon } from "./ui/Icon";
+import { NextIcon, PreviousIcon } from "./ui/icons";
+
 export function Pager({
   offset,
   limit,
@@ -20,6 +23,7 @@ export function Pager({
           onChange(Math.max(offset - limit, 0));
         }}
       >
+        <Icon glyph={PreviousIcon} tone="muted" />
         Previous
       </button>
       <span>
@@ -33,6 +37,7 @@ export function Pager({
         }}
       >
         Next
+        <Icon glyph={NextIcon} tone="muted" />
       </button>
     </div>
   );

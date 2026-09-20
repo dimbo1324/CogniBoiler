@@ -60,6 +60,17 @@ export function co2PerJouleToKilogramsPerMegawattHour(kilogramsPerJoule: number)
   return kilogramsPerJoule * JOULES_PER_MEGAWATT_HOUR;
 }
 
+// Longest first: `pressure_rate_pa_s` ends with `_pa_s`, not with `_s`.
+const UNIT_SUFFIXES: readonly (readonly [string, string])[] = [
+  ["_pa_s", "Pa/s"],
+  ["_kg_s", "kg/s"],
+  ["_pa", "Pa"],
+  ["_k", "K"],
+  ["_m", "m"],
+  ["_w", "W"],
+  ["_pct", "%"],
+];
+
 export function formatReading(value: number | null | undefined, fractionDigits = 1): string {
   return typeof value === "number" && Number.isFinite(value) ? value.toFixed(fractionDigits) : "—";
 }
@@ -91,6 +102,17 @@ export function displayQuantity(value: number | null | undefined, siUnit: string
     default:
       return { value: formatReading(finite, 2), unit: siUnit };
   }
+}
+
+/**
+ * The SI unit a contract field is named after: `pressure_pa` is Pa, `pressure_rate_pa_s` is
+ * Pa/s. The suffixes are part of the naming rule of the contracts (SI unit in the field
+ * name), so a value can be shown correctly without a table of every parameter. An unknown
+ * suffix yields no unit rather than a wrong one.
+ */
+export function siUnitOf(parameter: string): string {
+  const match = UNIT_SUFFIXES.find(([suffix]) => parameter.endsWith(suffix));
+  return match ? match[1] : "";
 }
 
 export function formatQuantity(value: number | null | undefined, siUnit: string): string {

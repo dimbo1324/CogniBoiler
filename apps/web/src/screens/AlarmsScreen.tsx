@@ -8,10 +8,15 @@ import {
   useAcknowledgeAll,
   useActiveAlarms,
 } from "../alarms/queries";
+import { isCritical, severityGlyph, severityTone, SEVERITIES } from "../alarms/severity";
 import { fetchAlarm, fetchAlarmHistory, type AlarmHistoryFilter } from "../api/endpoints";
-import { describeError } from "../api/http";
 import type { Alarm, AlarmState } from "../api/types";
+import { CommandResult } from "../components/CommandResult";
 import { Pager } from "../components/Pager";
+import { Icon } from "../components/ui/Icon";
+import { EmptyNote, ErrorOf } from "../components/ui/Note";
+import { AlarmsIcon, AuditIcon, InfoIcon } from "../components/ui/icons";
+import { Panel } from "../components/ui/Panel";
 import { useCan } from "../session/SessionProvider";
 import { formatDateTime, formatQuantity, localInputToMs, parameterLabel } from "../units";
 
@@ -38,7 +43,7 @@ function AlarmRow({
   const classes = [`severity-${alarm.severity}`];
   if (isUnacknowledged(alarm)) {
     classes.push("unacknowledged");
-    if (alarm.severity === "critical") {
+    if (isCritical(alarm.severity)) {
       classes.push("flashing");
     }
   }
@@ -48,7 +53,12 @@ function AlarmRow({
       aria-selected={selected}
       data-testid={`alarm-${String(alarm.id)}`}
     >
-      <td>{alarm.severity}</td>
+      <td>
+        <span className="severity-cell">
+          <Icon glyph={severityGlyph(alarm.severity)} tone={severityTone(alarm.severity)} />
+          {alarm.severity}
+        </span>
+      </td>
       <td>{STATE_LABEL[alarm.state]}</td>
       <td>
         <button type="button" className="link" onClick={onSelect}>
@@ -92,17 +102,18 @@ function AlarmDetailPanel({ alarmId }: { alarmId: number }) {
     queryFn: ({ signal }) => fetchAlarm(alarmId, signal),
   });
   if (detail.isError) {
-    return <p className="error">{describeError(detail.error)}</p>;
+    return <ErrorOf error={detail.error} />;
   }
   if (!detail.data) {
-    return <p className="muted">Loading…</p>;
+    return <EmptyNote>Loading…</EmptyNote>;
   }
   const { alarm, transitions } = detail.data;
   return (
-    <section className="panel" aria-label="Alarm details">
-      <h2>
-        Alarm {alarm.id}: {parameterLabel(alarm.parameter)} ({alarm.severity})
-      </h2>
+    <Panel
+      title={`Alarm ${String(alarm.id)}: ${parameterLabel(alarm.parameter)} (${alarm.severity})`}
+      label="Alarm details"
+      glyph={severityGlyph(alarm.severity)}
+    >
       <p>{alarm.message}</p>
       <dl className="kv">
         <dt>Condition</dt>
@@ -137,7 +148,7 @@ function AlarmDetailPanel({ alarmId }: { alarmId: number }) {
           ))}
         </tbody>
       </table>
-    </section>
+    </Panel>
   );
 }
 
@@ -157,10 +168,11 @@ function ActiveAlarms({
   const failure = acknowledge.error ?? acknowledgeAll.error;
 
   return (
-    <section className="panel" aria-label="Active alarms">
-      <div className="row">
-        <h2>Active alarms</h2>
-        {mayAcknowledge && (
+    <Panel
+      title="Active alarms"
+      glyph={AlarmsIcon}
+      actions={
+        mayAcknowledge ? (
           <button
             type="button"
             disabled={unacknowledged === 0 || acknowledgeAll.isPending}
@@ -168,23 +180,16 @@ function ActiveAlarms({
               acknowledgeAll.mutate("");
             }}
           >
+            <Icon glyph={AlarmsIcon} tone="muted" />
             Acknowledge all ({unacknowledged})
           </button>
-        )}
-      </div>
-      {active.isError && <p className="error">{describeError(active.error)}</p>}
-      {failure && (
-        <p className="error" role="alert">
-          {describeError(failure)}
-        </p>
-      )}
-      {acknowledge.data && !acknowledge.data.accepted && (
-        <p className="error" role="alert">
-          Refused: {acknowledge.data.reason}
-        </p>
-      )}
+        ) : undefined
+      }
+    >
+      {active.isError && <ErrorOf error={active.error} />}
+      <CommandResult result={acknowledge.data ?? undefined} error={failure} />
       {alarms.length === 0 && !active.isLoading ? (
-        <p className="muted">No active alarms.</p>
+        <EmptyNote>No active alarms.</EmptyNote>
       ) : (
         <div className="table-scroll">
           <table>
@@ -221,7 +226,7 @@ function ActiveAlarms({
           </table>
         </div>
       )}
-    </section>
+    </Panel>
   );
 }
 
@@ -253,8 +258,7 @@ function AlarmHistory({
 
   const total = page.data?.total ?? 0;
   return (
-    <section className="panel" aria-label="Alarm history">
-      <h2>History</h2>
+    <Panel title="History" label="Alarm history" glyph={AuditIcon}>
       <form className="form-grid" onSubmit={apply} aria-label="Alarm history filters">
         <label>
           Severity
@@ -265,8 +269,11 @@ function AlarmHistory({
             }}
           >
             <option value="">any</option>
-            <option value="warning">warning</option>
-            <option value="critical">critical</option>
+            {SEVERITIES.map((severity) => (
+              <option key={severity} value={severity}>
+                {severity}
+              </option>
+            ))}
           </select>
         </label>
         <label>
@@ -301,9 +308,12 @@ function AlarmHistory({
             }}
           />
         </label>
-        <button type="submit">Apply</button>
+        <button type="submit">
+          <Icon glyph={InfoIcon} tone="muted" />
+          Apply
+        </button>
       </form>
-      {page.isError && <p className="error">{describeError(page.error)}</p>}
+      {page.isError && <ErrorOf error={page.error} />}
       <div className="table-scroll">
         <table>
           <AlarmTableHead withAction={false} />
@@ -329,7 +339,7 @@ function AlarmHistory({
           setFilter({ ...filter, offset });
         }}
       />
-    </section>
+    </Panel>
   );
 }
 

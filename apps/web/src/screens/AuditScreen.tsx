@@ -2,7 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 
 import { fetchAudit, type AuditFilter } from "../api/endpoints";
-import { describeError } from "../api/http";
+import { ErrorOf } from "../components/ui/Note";
+import { AuditIcon } from "../components/ui/icons";
+import { Panel } from "../components/ui/Panel";
 import { Pager } from "../components/Pager";
 import { formatDateTime, localInputToMs } from "../units";
 
@@ -39,8 +41,7 @@ export function AuditScreen() {
   };
 
   return (
-    <section className="panel" aria-label="Audit log">
-      <h2>Audit log</h2>
+    <Panel title="Audit log" glyph={AuditIcon}>
       <p className="muted">
         Every sign-in, sign-out, refusal and change, newest first. The log is append-only: the
         database refuses to change or delete an entry.
@@ -114,7 +115,7 @@ export function AuditScreen() {
         </label>
         <button type="submit">Apply</button>
       </form>
-      {page.isError && <p className="error">{describeError(page.error)}</p>}
+      {page.isError && <ErrorOf error={page.error} />}
       <div className="table-scroll">
         <table>
           <thead>
@@ -156,6 +157,6 @@ export function AuditScreen() {
           setFilter({ ...filter, offset });
         }}
       />
-    </section>
+    </Panel>
   );
 }

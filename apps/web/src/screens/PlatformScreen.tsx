@@ -1,7 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { fetchPlatform } from "../api/endpoints";
-import { describeError } from "../api/http";
+import { ErrorOf } from "../components/ui/Note";
+import { LiveIcon, PlatformIcon } from "../components/ui/icons";
+import { Panel } from "../components/ui/Panel";
 import { useLive } from "../live/LiveProvider";
 import { formatDateTime, formatReading } from "../units";
 
@@ -23,9 +25,8 @@ export function PlatformScreen() {
   const data = platform.data;
   return (
     <div className="stack">
-      <section className="panel" aria-label="Services">
-        <h2>Services</h2>
-        {platform.isError && <p className="error">{describeError(platform.error)}</p>}
+      <Panel title="Services" glyph={PlatformIcon}>
+        {platform.isError && <ErrorOf error={platform.error} />}
         {data && (
           <>
             <p data-testid="platform-status">{STATUS_TEXT[data.readiness.status]}</p>
@@ -60,9 +61,8 @@ export function PlatformScreen() {
             <p className="muted">Checked {formatDateTime(data.readiness.checked_at_ms)}.</p>
           </>
         )}
-      </section>
-      <section className="panel" aria-label="Live data">
-        <h2>Live data</h2>
+      </Panel>
+      <Panel title="Live data" glyph={LiveIcon}>
         <dl className="kv">
           <dt>This console</dt>
           <dd>{live.connection}</dd>
@@ -77,7 +77,7 @@ export function PlatformScreen() {
           <dt>WebSocket clients</dt>
           <dd>{data?.websocket_clients ?? "—"}</dd>
         </dl>
-      </section>
+      </Panel>
     </div>
   );
 }

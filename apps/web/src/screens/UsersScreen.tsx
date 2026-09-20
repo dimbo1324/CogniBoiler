@@ -9,7 +9,10 @@ import {
   revokeUserSessions,
   updateUser,
 } from "../api/endpoints";
-import { describeError } from "../api/http";
+import { Icon } from "../components/ui/Icon";
+import { ErrorOf } from "../components/ui/Note";
+import { OkIcon, UsersIcon } from "../components/ui/icons";
+import { Panel } from "../components/ui/Panel";
 import type { Role, User } from "../api/types";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Pager } from "../components/Pager";
@@ -50,8 +53,7 @@ function CreateUser({ onCreated }: { onCreated: (message: string) => void }) {
     create.mutate();
   };
   return (
-    <section className="panel" aria-label="New user">
-      <h2>New user</h2>
+    <Panel title="New user" glyph={UsersIcon}>
       <form className="form-grid" onSubmit={submit} aria-label="Create a user">
         <label>
           Username
@@ -94,12 +96,8 @@ function CreateUser({ onCreated }: { onCreated: (message: string) => void }) {
           Create
         </button>
       </form>
-      {create.error && (
-        <p className="error" role="alert">
-          {describeError(create.error)}
-        </p>
-      )}
-    </section>
+      {create.error && <ErrorOf error={create.error} />}
+    </Panel>
   );
 }
 
@@ -251,19 +249,15 @@ export function UsersScreen() {
   return (
     <div className="stack">
       <CreateUser onCreated={setMessage} />
-      <section className="panel" aria-label="Users">
-        <h2>Users</h2>
+      <Panel title="Users" glyph={UsersIcon}>
         {message && (
-          <p className="ok-text" role="status">
+          <p className="note ok-text" role="status">
+            <Icon glyph={OkIcon} tone="ok" />
             {message}
           </p>
         )}
-        {change.error && (
-          <p className="error" role="alert">
-            {describeError(change.error)}
-          </p>
-        )}
-        {users.isError && <p className="error">{describeError(users.error)}</p>}
+        {change.error && <ErrorOf error={change.error} />}
+        {users.isError && <ErrorOf error={users.error} />}
         <div className="table-scroll">
           <table>
             <thead>
@@ -289,7 +283,7 @@ export function UsersScreen() {
           </table>
         </div>
         <Pager offset={offset} limit={PAGE} total={users.data?.total ?? 0} onChange={setOffset} />
-      </section>
+      </Panel>
       {pending && (
         <ConfirmDialog
           title={pending.title}

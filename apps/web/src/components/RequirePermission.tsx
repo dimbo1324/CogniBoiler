@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { useCan, useRole } from "../session/SessionProvider";
 import type { Permission } from "../session/roles";
+import { InfoNote } from "./ui/Note";
 
 /**
  * A screen reached by its address without the role for it. The gateway would refuse its
@@ -17,11 +18,7 @@ export function RequirePermission({
   const allowed = useCan(permission);
   const role = useRole();
   if (!allowed) {
-    return (
-      <p className="notice" role="status">
-        This screen is not available to the {role ?? "current"} role.
-      </p>
-    );
+    return <InfoNote>This screen is not available to the {role ?? "current"} role.</InfoNote>;
   }
   return <>{children}</>;
 }

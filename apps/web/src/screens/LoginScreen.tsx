@@ -1,6 +1,9 @@
 import { useState, type FormEvent } from "react";
 
 import { ApiError } from "../api/http";
+import { Icon } from "../components/ui/Icon";
+import { ErrorNote, InfoNote } from "../components/ui/Note";
+import { BrandIcon, PendingIcon } from "../components/ui/icons";
 import { useSession } from "../session/SessionProvider";
 
 /** What to tell the operator after a refused sign-in. Never whether the account exists. */
@@ -44,13 +47,12 @@ export function LoginScreen({ notice }: { notice: string | null }) {
 
   return (
     <main className="login panel">
-      <h1>CogniBoiler</h1>
+      <h1 className="brand">
+        <Icon glyph={BrandIcon} />
+        CogniBoiler
+      </h1>
       <p className="muted">Operator console of the 300 MW unit</p>
-      {notice && (
-        <p className="notice" role="status">
-          {notice}
-        </p>
-      )}
+      {notice && <InfoNote>{notice}</InfoNote>}
       <form onSubmit={submit} aria-label="Sign in">
         <label>
           Username
@@ -77,12 +79,9 @@ export function LoginScreen({ notice }: { notice: string | null }) {
             required
           />
         </label>
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNote>{error}</ErrorNote>}
         <button type="submit" className="primary" disabled={busy}>
+          {busy && <Icon glyph={PendingIcon} spin />}
           {busy ? "Signing in…" : "Sign in"}
         </button>
       </form>

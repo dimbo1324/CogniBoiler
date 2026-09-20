@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { acknowledgeAlarm, acknowledgeAllAlarms, fetchActiveAlarms } from "../api/endpoints";
 import type { Alarm } from "../api/types";
+import { isCritical } from "./severity";
 
 // Alarm changes arrive on the WebSocket and invalidate this query at once; the interval
 // only covers a connection that is down.
@@ -38,12 +39,12 @@ export function isUnacknowledged(alarm: Pick<Alarm, "state">): boolean {
 
 /** Unacknowledged critical alarms: these flash and sound until someone acknowledges them. */
 export function annunciating(alarms: readonly Alarm[]): Alarm[] {
-  return alarms.filter((alarm) => alarm.severity === "critical" && isUnacknowledged(alarm));
+  return alarms.filter((alarm) => isCritical(alarm.severity) && isUnacknowledged(alarm));
 }
 
 /** Critical before warning, unacknowledged before acknowledged, newest first. */
 export function sortAlarms(alarms: readonly Alarm[]): Alarm[] {
   const rank = (alarm: Alarm) =>
-    (alarm.severity === "critical" ? 0 : 2) + (isUnacknowledged(alarm) ? 0 : 1);
+    (isCritical(alarm.severity) ? 0 : 2) + (isUnacknowledged(alarm) ? 0 : 1);
   return [...alarms].sort((a, b) => rank(a) - rank(b) || b.raised_at_ms - a.raised_at_ms);
 }

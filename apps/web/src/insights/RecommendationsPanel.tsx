@@ -3,6 +3,10 @@
 // keep a slot for its recommendations, hidden while no such service runs. Nothing in the
 // console may depend on it: with VITE_INSIGHTS unset, this renders nothing at all.
 
+import { EmptyNote } from "../components/ui/Note";
+import { InfoIcon } from "../components/ui/icons";
+import { Panel } from "../components/ui/Panel";
+
 export function insightsEnabled(): boolean {
   return import.meta.env.VITE_INSIGHTS === "true";
 }
@@ -12,11 +16,8 @@ export function RecommendationsPanel() {
     return null;
   }
   return (
-    <section className="panel" aria-label="Recommendations">
-      <h2>Recommendations</h2>
-      <p className="muted" role="status">
-        No recommendations: the insight service does not answer yet.
-      </p>
-    </section>
+    <Panel title="Recommendations" glyph={InfoIcon}>
+      <EmptyNote status>No recommendations: the insight service does not answer yet.</EmptyNote>
+    </Panel>
   );
 }

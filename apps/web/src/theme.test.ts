@@ -1,7 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Horn } from "./alarms/horn";
-import { applyTheme, nextTheme, storedTheme } from "./theme";
+import {
+  DEFAULT_THEME,
+  applyTheme,
+  nextTheme,
+  resolveTheme,
+  storedTheme,
+  systemTheme,
+  watchSystemTheme,
+} from "./theme";
 import { plantState } from "./test/fixtures";
 import { DEFAULT_TREND_IDS, TREND_PARAMETERS, trendParameter } from "./trends/parameters";
 
@@ -14,24 +22,59 @@ afterEach(() => {
 });
 
 describe("theme", () => {
-  it("cycles system, dark, light", () => {
-    expect(nextTheme("system")).toBe("dark");
-    expect(nextTheme("dark")).toBe("light");
-    expect(nextTheme("light")).toBe("system");
+  it("is dark until the operator chooses otherwise", () => {
+    expect(DEFAULT_THEME).toBe("dark");
+    expect(storedTheme()).toBe("dark");
+    expect(applyTheme(storedTheme())).toBe("dark");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
   });
 
-  it("is kept and applied, and the system choice forgets it", () => {
-    applyTheme("dark");
-    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
-    expect(storedTheme()).toBe("dark");
+  it("cycles dark, light, system", () => {
+    expect(nextTheme("dark")).toBe("light");
+    expect(nextTheme("light")).toBe("system");
+    expect(nextTheme("system")).toBe("dark");
+  });
+
+  it("keeps the choice and puts the resolved theme on the page", () => {
+    applyTheme("light");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    expect(storedTheme()).toBe("light");
     applyTheme("system");
-    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
     expect(storedTheme()).toBe("system");
+    // The stub of jsdom matches no media query, so the system asks for nothing and the
+    // console stays dark — which is what an unknown preference should give.
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+  });
+
+  it("follows the system only while that is the choice", () => {
+    const listeners: (() => void)[] = [];
+    let light = true;
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(prefers-color-scheme: light)" && light,
+      media: query,
+      addEventListener: (_: string, listener: () => void) => listeners.push(listener),
+      removeEventListener: (_: string, listener: () => void) => {
+        listeners.splice(listeners.indexOf(listener), 1);
+      },
+    }));
+    expect(systemTheme()).toBe("light");
+    expect(resolveTheme("system")).toBe("light");
+    expect(resolveTheme("dark")).toBe("dark");
+
+    const seen: string[] = [];
+    const stop = watchSystemTheme((resolved) => seen.push(resolved));
+    light = false;
+    listeners.forEach((listener) => {
+      listener();
+    });
+    expect(seen).toEqual(["dark"]);
+    stop();
+    expect(listeners).toHaveLength(0);
   });
 
   it("ignores a stored value it does not know", () => {
     window.localStorage.setItem("cogniboiler.theme", "purple");
-    expect(storedTheme()).toBe("system");
+    expect(storedTheme()).toBe("dark");
   });
 
   it("still applies when storage is refused", () => {
@@ -41,9 +84,19 @@ describe("theme", () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new Error("blocked");
     });
-    applyTheme("light");
+    expect(applyTheme("light")).toBe("light");
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
-    expect(storedTheme()).toBe("system");
+    expect(storedTheme()).toBe("dark");
+  });
+
+  it("survives a browser without matchMedia at all", () => {
+    vi.stubGlobal("matchMedia", () => {
+      throw new Error("not implemented");
+    });
+    expect(systemTheme()).toBe("dark");
+    expect(watchSystemTheme(() => undefined)()).toBeUndefined();
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query }));
+    expect(watchSystemTheme(() => undefined)()).toBeUndefined();
   });
 });
 

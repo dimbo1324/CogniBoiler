@@ -1,47 +1,54 @@
 import type { PlcStatus } from "../api/types";
-import { formatQuantity, formatReading, parameterLabel, wattsToMegawatts } from "../units";
+import {
+  formatQuantity,
+  formatReading,
+  parameterLabel,
+  siUnitOf,
+  wattsToMegawatts,
+} from "../units";
 import { PlcModeBadge } from "./PlcModeBadge";
+import { EmptyNote, ErrorNote } from "./ui/Note";
+import { EmergencyStopIcon, PlcIcon } from "./ui/icons";
+import { Panel } from "./ui/Panel";
 
 export function tripDescription(plc: PlcStatus): string | null {
   if (!plc.trip_cause) {
     return plc.emergency_stop_active ? "Manual trip" : null;
   }
   const cause = plc.trip_cause;
-  const unit = cause.parameter.endsWith("_pa") ? "Pa" : cause.parameter.endsWith("_k") ? "K" : "m";
+  const unit = siUnitOf(cause.parameter);
   return `${parameterLabel(cause.parameter)} ${formatQuantity(cause.value, unit)} (limit ${formatQuantity(cause.threshold, unit)})`;
 }
 
 export function PlcPanel({ plc }: { plc: PlcStatus | null }) {
   if (plc === null) {
     return (
-      <section className="panel" aria-label="PLC">
-        <h2>PLC</h2>
-        <p className="muted">Waiting for the PLC…</p>
-      </section>
+      <Panel title="PLC" glyph={PlcIcon}>
+        <EmptyNote>Waiting for the PLC…</EmptyNote>
+      </Panel>
     );
   }
   const trip = tripDescription(plc);
   return (
-    <section className="panel" aria-label="PLC">
-      <h2>
-        PLC <PlcModeBadge plc={plc} />
-      </h2>
+    <Panel title="PLC" glyph={PlcIcon} headline={<PlcModeBadge plc={plc} />}>
       {plc.emergency_stop_active && (
-        <p className="error" role="status">
-          Tripped: {trip}
-          {plc.reset_blockers.length > 0 && (
-            <>
-              <br />
-              Reset blocked: {plc.reset_blockers.join("; ")}
-            </>
-          )}
-          {plc.reset_permitted && (
-            <>
-              <br />
-              The cause has cleared; an engineer may reset.
-            </>
-          )}
-        </p>
+        <ErrorNote glyph={EmergencyStopIcon} status>
+          <span>
+            Tripped: {trip}
+            {plc.reset_blockers.length > 0 && (
+              <>
+                <br />
+                Reset blocked: {plc.reset_blockers.join("; ")}
+              </>
+            )}
+            {plc.reset_permitted && (
+              <>
+                <br />
+                The cause has cleared; an engineer may reset.
+              </>
+            )}
+          </span>
+        </ErrorNote>
       )}
       <dl className="kv">
         <dt>Load demand</dt>
@@ -61,6 +68,6 @@ export function PlcPanel({ plc }: { plc: PlcStatus | null }) {
           {plc.warning_count} / {plc.trip_count}
         </dd>
       </dl>
-    </section>
+    </Panel>
   );
 }
