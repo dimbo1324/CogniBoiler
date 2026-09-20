@@ -25,6 +25,7 @@ gives atomic writes and faster range queries.
 from __future__ import annotations
 
 import logging
+import math
 import time
 from typing import Protocol, cast
 
@@ -35,7 +36,12 @@ from influxdb_client.client.write.point import Point as _Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 from influxdb_client.domain.write_precision import WritePrecision
 
-from historian.metrics import POINTS_FAILED, POINTS_WRITTEN, WRITE_SECONDS
+from historian.metrics import (
+    FIELDS_DROPPED,
+    POINTS_FAILED,
+    POINTS_WRITTEN,
+    WRITE_SECONDS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -103,15 +109,26 @@ def add_numeric_fields(
     prefix: str = "",
     skip: frozenset[str] = _NOT_FIELDS,
 ) -> PointLike:
-    """Every scalar numeric field of a flat message as a float field."""
+    """Every scalar numeric field of a flat message as a float field.
+
+    A field that is NaN or infinite is left out rather than written: the line protocol
+    has no spelling for either, so InfluxDB refuses the whole batch — with a batch of
+    fifty, one diverging value would cost forty-nine good points, again and again. The
+    gap is visible in the data and counted in `historian_fields_dropped_total`.
+    """
     for descriptor in message.DESCRIPTOR.fields:
         if descriptor.name in skip or descriptor.type == descriptor.TYPE_MESSAGE:
             continue
+        name = f"{prefix}{descriptor.name}"
         value = getattr(message, descriptor.name)
         if isinstance(value, bool):
-            point = point.field(f"{prefix}{descriptor.name}", 1.0 if value else 0.0)
+            point = point.field(name, 1.0 if value else 0.0)
         elif isinstance(value, int | float):
-            point = point.field(f"{prefix}{descriptor.name}", float(value))
+            number = float(value)
+            if not math.isfinite(number):
+                FIELDS_DROPPED.labels(name).inc()
+                continue
+            point = point.field(name, number)
     return point
 
 

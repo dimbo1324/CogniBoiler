@@ -25,7 +25,17 @@ class ThrottlePolicy:
 
 
 class _FailureLog:
-    """Failure times per key, oldest keys evicted first once the bound is reached."""
+    """Failure times per key, least recently used keys evicted once the bound is reached.
+
+    "Used" means asked about as well as recorded: a key is asked about on exactly the
+    attempts it is meant to refuse, so an account being attacked stays in the table while
+    the attempt is being made. Without that, a flood of invented names would push the
+    account that is actually locked out of the table and unlock it.
+
+    The table is still bounded, so a flood of more than `max_keys` distinct names inside
+    one window, between two attempts on an account, would forget the account's failures.
+    Counting per account and per client address bounds how fast such a flood can go.
+    """
 
     def __init__(self, policy: ThrottlePolicy, max_keys: int) -> None:
         self._policy = policy
@@ -42,6 +52,7 @@ class _FailureLog:
         if not times:
             del self._failures[key]
             return None
+        self._failures.move_to_end(key)
         return times
 
     def retry_after_s(self, key: str, now: float) -> float:
@@ -57,8 +68,6 @@ class _FailureLog:
             self._failures[key] = times
             while len(self._failures) > self._max_keys:
                 self._failures.popitem(last=False)
-        else:
-            self._failures.move_to_end(key)
         times.append(now)
 
     def clear(self, key: str) -> None:

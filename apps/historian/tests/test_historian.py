@@ -386,3 +386,34 @@ class TestHistorianSubscriber:
         arg = writer.write_point.call_args.args[0]
         line = arg.to_line_protocol()
         assert "steam_flow_kg_s=175.5" in line
+
+
+class TestValuesInfluxDbCannotStore:
+    """A diverging model publishes NaN; the line protocol has no spelling for it.
+
+    Written as a field, it makes InfluxDB refuse the whole batch — with the stack's batch
+    of fifty, one bad value would cost forty-nine good points on every flush. The field is
+    left out instead, so the gap shows in that one series and nothing else is lost.
+    """
+
+    def test_a_not_a_number_field_is_left_out_of_the_point(self) -> None:
+        line = build_boiler_point(
+            make_boiler_msg(pressure_pa=float("nan"), water_level_m=4.8)
+        ).to_line_protocol()
+        assert "pressure_pa" not in line
+        assert "water_level_m=4.8" in line
+
+    def test_an_infinite_field_is_left_out_too(self) -> None:
+        for value in (float("inf"), float("-inf")):
+            line = build_boiler_point(
+                make_boiler_msg(pressure_pa=value, water_level_m=4.8)
+            ).to_line_protocol()
+            assert "pressure_pa" not in line
+            assert "water_level_m=4.8" in line
+
+    def test_a_point_that_keeps_its_other_fields_is_still_written(self) -> None:
+        line = build_turbine_point(
+            make_turbine_msg(steam_flow_kg_s=float("nan"))
+        ).to_line_protocol()
+        assert line.startswith(MEASUREMENT_TURBINE)
+        assert "steam_flow_kg_s" not in line

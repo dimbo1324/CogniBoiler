@@ -19,3 +19,8 @@ MESSAGES_SKIPPED = Counter(
     "historian_messages_skipped_total",
     "Messages that produced no point: heartbeats, unknown topics, bad payloads.",
 )
+FIELDS_DROPPED = Counter(
+    "historian_fields_dropped_total",
+    "Numeric fields left out of a point because they were NaN or infinite.",
+    ["field"],
+)
