@@ -51,15 +51,20 @@ Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 
 ## Verification
 
-[ ] Full gate green before every merge
++ Full gate green before every merge (1001 pytest, 196 Vitest); three branches became one,
+  merged in a single fast-forward after its own green gate
 + Stack healthy, smoke green; the console's Vitest suite and the layout check green after
   the mimic change
-[ ] CI green on the pushed task branch
++ CI green on the pushed task branch: run 35497295984 — gate, audit and stack, finished
+  2026-09-20T07:44:12Z
 
 ## Completion
 
 + ROADMAP (S13 progress), overview, README (backup and demo are user-facing), decision log
   (backup and restore before 1.0), rule modules and their changelog — the AGENTS.md budget
   is now spent to the byte, which the report raises with the owner
-[ ] Branches merged into `main` locally and deleted, locally and on `origin`
-[ ] Checklist filled honestly; report in Russian
++ Branch merged into `main` locally and deleted, locally and on `origin` — right after this
+  commit, which cannot record it; the report confirms. `main` is not pushed: no publish was
+  asked for in this task
++ Checklist filled honestly; report in Russian. The stack is left running with a backup in
+  `backups/`; nothing else was cleaned up, because this task did not ask for it
