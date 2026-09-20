@@ -57,6 +57,7 @@ performs their writes through the gateway, as the signed-in user.
 | `PhysicsService` (:50052) | `Health`, `GetSystemState`, `StreamSystemState`, `ApplyControlCommand`, `GetSimulationStatus`, `PauseSimulation`, `ResumeSimulation`, `SetSimulationSpeed`, `StepSimulation`, `ListScenarios`, `LoadScenario`, `InjectFault`, `ClearFault` |
 | `PLCService` (:50051) | `Health`, `SendCommand`, `GetSetpoints`, `UpdateSetpoints`, `GetControlStatus`, `ResetEmergencyStop`, `StreamCommands`, `SetLoadDemand`, `SetControlMode` |
 | `AlarmService` (:50053) | `Health`, `ListAlarms`, `GetAlarm`, `AcknowledgeAlarm`, `AcknowledgeAll` |
+| `InsightService` | reserved for the deferred AI stage; no service, no port, nothing depends on it |
 
 `SystemStateMsg` carries measured boiler and turbine values, flows and heat duties, valve
 commands and positions (spray included), emissions, condenser, equipment health, active
@@ -87,7 +88,12 @@ listener: the browser never speaks MQTT.
 | `alarms/changes` | JSON `alarm`, `transition`, `timestamp_ms` | alert-manager → api-gateway (WebSocket `alarms`), historian, opcua-server |
 | `status/physics-engine`, `status/plc-controller` | retained `online` / `offline` | the service itself (MQTT will) → historian |
 
-Reserved for the deferred AI stage, not implemented: `insights/*`.
+Reserved for the deferred AI stage, not implemented: the MQTT topics `insights/*`
+(anomalies, recommendations, equipment health), the gRPC `InsightService` and the REST
+route group `/api/v1/insights`. The console keeps a hidden slot for them: the
+`Recommendations` panel of the overview renders nothing unless a build sets
+`VITE_INSIGHTS=true` (`apps/web/src/insights`). No service, screen or test needs any of
+them to run.
 
 ### REST (api-gateway)
 

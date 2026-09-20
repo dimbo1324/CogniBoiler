@@ -436,13 +436,15 @@ tr.unacknowledged.severity-warning {
 
 .mimic text {
   fill: var(--text);
-  font-size: 13px;
+  /* SVG units: the mimic scales to its panel, so these shrink with it. At 15 and 14 the
+     values stay legible on a projector at 1280×720, where 13 and 12 read at about 10 px. */
+  font-size: 15px;
   font-variant-numeric: tabular-nums;
 }
 
 .mimic .label {
   fill: var(--muted);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .mimic .value {

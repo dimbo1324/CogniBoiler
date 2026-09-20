@@ -4,6 +4,7 @@ import { isUnacknowledged, sortAlarms, useActiveAlarms } from "../alarms/queries
 import type { PlantState, PlcEvent } from "../api/types";
 import { Mimic } from "../components/Mimic";
 import { PlcPanel } from "../components/PlcPanel";
+import { RecommendationsPanel } from "../insights/RecommendationsPanel";
 import { useLive } from "../live/LiveProvider";
 import {
   formatDateTime,
@@ -133,6 +134,7 @@ export function OverviewScreen() {
       <div className="stack">
         <PlcPanel plc={live.plc} />
         <ActiveAlarmsPanel />
+        <RecommendationsPanel />
         {live.plant && <SimulationPanel plant={live.plant} />}
       </div>
     </div>
