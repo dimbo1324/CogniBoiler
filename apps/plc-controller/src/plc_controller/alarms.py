@@ -26,9 +26,10 @@ from plc_controller.measurements import (
     SENSOR_FURNACE_GAS_TEMP,
     SENSOR_STEAM_FLOW,
     SENSOR_STEAM_TEMP,
+    ProcessMeasurements,
     SignalQuality,
 )
-from plc_controller.safety import (
+from plc_controller.safety_limits import (
     FLUE_GAS_TEMP_LIMITS,
     PRESSURE_LIMITS,
     PRESSURE_RATE_LIMITS,
@@ -40,6 +41,18 @@ from plc_controller.safety import (
 )
 
 SOURCE_SERVICE: str = "plc-controller"
+
+# Measured values whose limits are alarmed, with the instrument that provides them.
+ALARMED_VALUES: tuple[tuple[str, str], ...] = (
+    ("pressure_pa", SENSOR_DRUM_PRESSURE),
+    ("water_level_m", SENSOR_DRUM_LEVEL),
+    ("water_temp_k", SENSOR_DRUM_WATER_TEMP),
+    ("flue_gas_temp_k", SENSOR_FURNACE_GAS_TEMP),
+    ("steam_temp_k", SENSOR_STEAM_TEMP),
+)
+
+# Interlock trip causes named differently from the alarm parameter they depend on.
+TRIP_CAUSE_PARAMETERS: dict[str, str] = {"fuel_permissive": "water_level_m"}
 
 
 class Severity(StrEnum):
@@ -286,3 +299,41 @@ class AlarmConditionMonitor:
                 return state.firing_proven
             case _:
                 return True
+
+
+def alarm_values(
+    measurements: ProcessMeasurements, pressure_rate_pa_s: float | None
+) -> dict[str, float]:
+    """The values the monitor judges this scan.
+
+    A reading from an instrument reported bad is left out entirely rather than passed on
+    as a number: an alarm raised on a dead sensor would send an operator after the wrong
+    fault. The instrument qualities themselves are judged as values of their own.
+    """
+    values: dict[str, float] = {}
+    for parameter, sensor in ALARMED_VALUES:
+        if not measurements.is_bad(sensor):
+            values[parameter] = float(getattr(measurements, parameter))
+    if pressure_rate_pa_s is not None and not measurements.is_bad(SENSOR_DRUM_PRESSURE):
+        values["pressure_rate_pa_s"] = pressure_rate_pa_s
+    for sensor, quality in measurements.qualities.items():
+        values[f"{sensor}_quality"] = float(quality)
+    return values
+
+
+def blocking_conditions(
+    conditions: Iterable[AlarmCondition], trip_cause: str
+) -> list[str]:
+    """Why a reset would be refused now.
+
+    Every critical condition blocks, and so does any condition — warnings included — on
+    the parameter that caused the trip: a drum that tripped on low level must be back
+    above its low-level warning, not just above the trip limit.
+    """
+    cause = TRIP_CAUSE_PARAMETERS.get(trip_cause, trip_cause)
+    return [
+        condition.message
+        for condition in conditions
+        if condition.rule.severity is Severity.CRITICAL
+        or condition.rule.parameter == cause
+    ]

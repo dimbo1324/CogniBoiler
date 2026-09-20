@@ -23,12 +23,12 @@ from physics_engine.models import BoilerParameters
 from physics_engine.runtime import PhysicsRuntime, PhysicsRuntimeConfig
 from physics_engine.server import PhysicsServicer
 from plc_controller.client import PhysicsClient, PhysicsClientConfig
-from plc_controller.server import PLCServicer
-from plc_controller.service import (
+from plc_controller.commands import (
     PRESSURE_SETPOINT_MAX_PA,
     PRESSURE_SETPOINT_MIN_PA,
-    PLCService,
 )
+from plc_controller.server import PLCServicer
+from plc_controller.service import PLCService
 
 # ─── Pure unit tests ──────────────────────────────────────────────────────────
 

@@ -28,14 +28,16 @@ import logging
 
 import pytest
 from plc_controller.safety import (
+    EmergencyStop,
+    RateOfChangeLimiter,
+    SafetyInterlock,
+)
+from plc_controller.safety_limits import (
     PRESSURE_LIMITS,
     PRESSURE_RATE_TRIP,
     PRESSURE_RATE_WARN,
-    EmergencyStop,
     ParameterLimits,
-    RateOfChangeLimiter,
     SafetyEvent,
-    SafetyInterlock,
     SafetyLevel,
     SafetyStatus,
 )

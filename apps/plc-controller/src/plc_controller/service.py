@@ -16,55 +16,44 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
 from enum import StrEnum
 
 import cogniboiler_pb2 as pb2
 
-from plc_controller.alarms import AlarmConditionMonitor, AlarmTransition, Severity
-from plc_controller.client import PhysicsClient
-from plc_controller.control import (
-    RATED_POWER_W,
-    ControlTargets,
-    UnitController,
+from plc_controller.alarms import (
+    AlarmConditionMonitor,
+    AlarmTransition,
+    alarm_values,
+    blocking_conditions,
 )
+from plc_controller.client import PhysicsClient
+from plc_controller.commands import (
+    CommandSnapshot,
+    Setpoints,
+    ValidationResult,
+    check_load_demand,
+    check_setpoints,
+    check_valves,
+)
+from plc_controller.control import ControlTargets, UnitController
 from plc_controller.events import PlcEvent, PlcEventKind, PlcPublisher, now_ms
 from plc_controller.measurements import (
-    SENSOR_DRUM_LEVEL,
-    SENSOR_DRUM_PRESSURE,
-    SENSOR_DRUM_WATER_TEMP,
-    SENSOR_FURNACE_GAS_TEMP,
-    SENSOR_STEAM_TEMP,
     ProcessMeasurements,
 )
 from plc_controller.metrics import SCAN_SECONDS
 from plc_controller.safety import (
+    ArmingTracker,
+    SafetyInterlock,
+)
+from plc_controller.safety_limits import (
     WATER_LEVEL_LIMITS,
     ArmingState,
-    ArmingTracker,
     SafetyEvent,
-    SafetyInterlock,
     trip_overrides,
 )
+from plc_controller.status import SafetySnapshot, control_status
 
 logger = logging.getLogger(__name__)
-
-# Valve position limits
-VALVE_MIN: float = 0.0
-VALVE_MAX: float = 1.0
-
-# Setpoints an engineer may choose. They stay inside the alarm warning bands, so an
-# accepted setpoint never parks the unit in a standing alarm: pressure below the
-# 160 bar warning, level inside 2–7 m, steam below the 565 °C warning.
-PRESSURE_SETPOINT_MIN_PA: float = 60.0e5
-PRESSURE_SETPOINT_MAX_PA: float = 155.0e5
-LEVEL_SETPOINT_MIN_M: float = 2.5
-LEVEL_SETPOINT_MAX_M: float = 6.5
-TEMP_SETPOINT_MIN_K: float = 700.0
-TEMP_SETPOINT_MAX_K: float = 835.0
-
-LOAD_DEMAND_MIN_W: float = 0.0
-LOAD_DEMAND_MAX_W: float = RATED_POWER_W
 
 DEFAULT_CONTROL_INTERVAL_S: float = 0.2
 DEFAULT_ALERT_MQTT_HOST: str = "localhost"
@@ -76,18 +65,6 @@ EXTERNAL_COMMAND_SOURCES: frozenset[int] = frozenset(
     {int(pb2.CommandSource.OPERATOR), int(pb2.CommandSource.SCHEDULER)}
 )
 
-# Interlock trip causes named differently from the alarm parameter they depend on.
-TRIP_CAUSE_PARAMETERS: dict[str, str] = {"fuel_permissive": "water_level_m"}
-
-# Measured values whose limits are alarmed, with the instrument that provides them.
-ALARMED_VALUES: tuple[tuple[str, str], ...] = (
-    ("pressure_pa", SENSOR_DRUM_PRESSURE),
-    ("water_level_m", SENSOR_DRUM_LEVEL),
-    ("water_temp_k", SENSOR_DRUM_WATER_TEMP),
-    ("flue_gas_temp_k", SENSOR_FURNACE_GAS_TEMP),
-    ("steam_temp_k", SENSOR_STEAM_TEMP),
-)
-
 
 class RuntimeMode(StrEnum):
     """PLC operating mode."""
@@ -95,60 +72,6 @@ class RuntimeMode(StrEnum):
     AUTO = "auto"
     MANUAL = "manual"
     ESTOP = "estop"
-
-
-@dataclass
-class Setpoints:
-    """Engineer's targets for the process loops."""
-
-    pressure_pa: float = 140.0e5  # 140 bar nominal
-    water_level_m: float = 4.8
-    steam_temp_k: float = 811.0  # turbine inlet design temperature
-    updated_at_ms: int = field(default_factory=now_ms)
-
-
-@dataclass
-class ValidationResult:
-    """Result of a command or setpoint validation check."""
-
-    accepted: bool
-    reason: str = ""
-
-
-@dataclass
-class CommandSnapshot:
-    """A valve command the PLC sent or is about to send."""
-
-    fuel_valve: float = 0.5
-    feedwater_valve: float = 0.5
-    steam_valve: float = 0.5
-    spray_valve: float = 0.0
-    source: int = pb2.CommandSource.PID
-    operator_id: str = ""
-    timestamp_ms: int = field(default_factory=now_ms)
-
-
-@dataclass
-class SafetySnapshot:
-    """The event that latched the E-Stop."""
-
-    timestamp_ms: int
-    parameter: str
-    value: float
-    threshold: float
-    level: str
-    action: str
-
-    @classmethod
-    def from_event(cls, event: SafetyEvent) -> SafetySnapshot:
-        return cls(
-            timestamp_ms=event.timestamp_ms,
-            parameter=event.parameter,
-            value=event.value,
-            threshold=event.threshold,
-            level=event.level.value,
-            action=event.action.value,
-        )
 
 
 class PLCService:
@@ -278,12 +201,7 @@ class PLCService:
 
     def get_setpoints(self) -> Setpoints:
         """Return current setpoints (copy)."""
-        return Setpoints(
-            pressure_pa=self._setpoints.pressure_pa,
-            water_level_m=self._setpoints.water_level_m,
-            steam_temp_k=self._setpoints.steam_temp_k,
-            updated_at_ms=self._setpoints.updated_at_ms,
-        )
+        return self._setpoints.copy()
 
     def update_setpoints(
         self,
@@ -293,32 +211,9 @@ class PLCService:
         operator_id: str = "",
     ) -> ValidationResult:
         """Validate and store new targets; the working setpoints ramp toward them."""
-        if not (PRESSURE_SETPOINT_MIN_PA <= pressure_pa <= PRESSURE_SETPOINT_MAX_PA):
-            return ValidationResult(
-                accepted=False,
-                reason=(
-                    f"Pressure setpoint {pressure_pa / 1e5:.1f} bar "
-                    f"outside [{PRESSURE_SETPOINT_MIN_PA / 1e5:.0f}, "
-                    f"{PRESSURE_SETPOINT_MAX_PA / 1e5:.0f}] bar"
-                ),
-            )
-        if not (LEVEL_SETPOINT_MIN_M <= water_level_m <= LEVEL_SETPOINT_MAX_M):
-            return ValidationResult(
-                accepted=False,
-                reason=(
-                    f"Level setpoint {water_level_m:.2f} m "
-                    f"outside [{LEVEL_SETPOINT_MIN_M}, {LEVEL_SETPOINT_MAX_M}] m"
-                ),
-            )
-        if not (TEMP_SETPOINT_MIN_K <= steam_temp_k <= TEMP_SETPOINT_MAX_K):
-            return ValidationResult(
-                accepted=False,
-                reason=(
-                    f"Steam temp setpoint {steam_temp_k:.1f} K "
-                    f"outside [{TEMP_SETPOINT_MIN_K}, {TEMP_SETPOINT_MAX_K}] K"
-                ),
-            )
-
+        refusal = check_setpoints(pressure_pa, water_level_m, steam_temp_k)
+        if not refusal.accepted:
+            return refusal
         self._setpoints = Setpoints(
             pressure_pa=pressure_pa,
             water_level_m=water_level_m,
@@ -345,14 +240,9 @@ class PLCService:
 
     def set_load_demand(self, load_w: float, operator_id: str = "") -> ValidationResult:
         """Set the electrical load target; the load setpoint ramps toward it."""
-        if not LOAD_DEMAND_MIN_W <= load_w <= LOAD_DEMAND_MAX_W:
-            return ValidationResult(
-                accepted=False,
-                reason=(
-                    f"Load demand {load_w / 1e6:.1f} MW outside "
-                    f"[{LOAD_DEMAND_MIN_W / 1e6:.0f}, {LOAD_DEMAND_MAX_W / 1e6:.0f}] MW"
-                ),
-            )
+        refusal = check_load_demand(load_w)
+        if not refusal.accepted:
+            return refusal
         previous = self._load_demand_w
         self._load_demand_w = load_w
         self._publisher.publish_event(
@@ -375,36 +265,14 @@ class PLCService:
     ) -> ValidationResult:
         """Validate a control command against hard valve bounds."""
         self._commands_received += 1
-
-        values = [
-            ("fuel_valve", fuel_valve),
-            ("feedwater_valve", feedwater_valve),
-            ("steam_valve", steam_valve),
-        ]
-        if spray_valve is not None:
-            values.append(("spray_valve", spray_valve))
-        for name, value in values:
-            if not (VALVE_MIN <= value <= VALVE_MAX):
-                self._commands_rejected += 1
-                return ValidationResult(
-                    accepted=False,
-                    reason=f"{name}={value:.3f} outside [0.0, 1.0]",
-                )
-
-        return ValidationResult(accepted=True)
+        result = check_valves(fuel_valve, feedwater_valve, steam_valve, spray_valve)
+        if not result.accepted:
+            self._commands_rejected += 1
+        return result
 
     def latest_command(self) -> CommandSnapshot:
         """Return the most recently accepted command."""
-        latest = self._latest_command
-        return CommandSnapshot(
-            fuel_valve=latest.fuel_valve,
-            feedwater_valve=latest.feedwater_valve,
-            steam_valve=latest.steam_valve,
-            spray_valve=latest.spray_valve,
-            source=latest.source,
-            operator_id=latest.operator_id,
-            timestamp_ms=latest.timestamp_ms,
-        )
+        return self._latest_command.copy()
 
     async def send_command(
         self,
@@ -527,85 +395,27 @@ class PLCService:
 
     async def get_control_status(self) -> pb2.PLCStatusMsg:
         """The PLC's mode, targets, working setpoints, loops and alarm conditions."""
-        latest = self.latest_command()
-        setpoints = self.get_setpoints()
-        cause = self._trip_cause
         output = self._controller.last_output
         working = (
             self._controller.working_setpoints() if self._controller.primed else None
         )
-        blockers = (
-            self._reset_blockers() if self._interlock.emergency_stop.is_active else []
-        )
-        load_demand = self._load_demand_w if self._load_demand_w is not None else 0.0
-        return pb2.PLCStatusMsg(
+        return control_status(
             mode=self._mode_to_proto(self._mode),
             emergency_stop_active=self._interlock.emergency_stop.is_active,
-            setpoints=pb2.SetpointsMsg(
-                pressure_pa=setpoints.pressure_pa,
-                water_level_m=setpoints.water_level_m,
-                steam_temp_k=setpoints.steam_temp_k,
-                timestamp_ms=setpoints.updated_at_ms,
-            ),
-            latest_command=pb2.ControlCommandMsg(
-                fuel_valve=latest.fuel_valve,
-                feedwater_valve=latest.feedwater_valve,
-                steam_valve=latest.steam_valve,
-                spray_valve=latest.spray_valve,
-                timestamp_ms=latest.timestamp_ms,
-                source=latest.source,
-                operator_id=latest.operator_id,
-            ),
+            setpoints=self.get_setpoints(),
+            latest_command=self.latest_command(),
             warning_count=self._interlock.warning_count,
             trip_count=self._interlock.trip_count,
-            active_trip=(
-                pb2.SafetyEventMsg(
-                    timestamp_ms=cause.timestamp_ms,
-                    parameter=cause.parameter,
-                    value=cause.value,
-                    threshold=cause.threshold,
-                    level=cause.level,
-                    action=cause.action,
-                )
-                if cause is not None
-                else pb2.SafetyEventMsg()
+            trip_cause=self._trip_cause,
+            load_demand_w=self._load_demand_w or 0.0,
+            working=working,
+            reset_blockers=(
+                self._reset_blockers()
+                if self._interlock.emergency_stop.is_active
+                else []
             ),
-            load_demand_w=load_demand,
-            load_setpoint_w=working.load_w if working is not None else load_demand,
-            active_setpoints=(
-                pb2.SetpointsMsg(
-                    pressure_pa=working.pressure_pa,
-                    water_level_m=working.water_level_m,
-                    steam_temp_k=working.steam_temp_k,
-                )
-                if working is not None
-                else pb2.SetpointsMsg()
-            ),
-            reset_permitted=self._interlock.emergency_stop.is_active and not blockers,
-            reset_blockers=blockers,
-            active_conditions=[
-                pb2.AlarmConditionMsg(
-                    key=condition.key,
-                    parameter=condition.rule.parameter,
-                    severity=condition.rule.severity.value,
-                    direction=condition.rule.direction.value,
-                    value=condition.value,
-                    threshold=condition.rule.threshold,
-                    message=condition.message,
-                    since_ms=condition.since_ms,
-                )
-                for condition in self._alarms.active()
-            ],
-            loops=[
-                pb2.ControlLoopMsg(
-                    name=loop.name,
-                    setpoint=loop.setpoint,
-                    measurement=loop.measurement,
-                    output=loop.output,
-                    unit=loop.unit,
-                )
-                for loop in (output.loops if output is not None else ())
-            ],
+            conditions=self._alarms.active(),
+            loops=output.loops if output is not None else (),
             run_id=self._run_id or 0,
         )
 
@@ -738,37 +548,17 @@ class PLCService:
     def _evaluate_alarms(
         self, m: ProcessMeasurements, arming: ArmingState, now: int
     ) -> None:
-        values: dict[str, float] = {}
-        for parameter, sensor in ALARMED_VALUES:
-            if not m.is_bad(sensor):
-                values[parameter] = getattr(m, parameter)
-        rate = self._interlock.last_pressure_rate
-        if rate is not None and not m.is_bad(SENSOR_DRUM_PRESSURE):
-            values["pressure_rate_pa_s"] = rate
-        for sensor, quality in m.qualities.items():
-            values[f"{sensor}_quality"] = float(quality)
+        values = alarm_values(m, self._interlock.last_pressure_rate)
         for transition in self._alarms.evaluate(values, arming, now):
             self._log_alarm(transition)
             self._publisher.publish_alarm(transition)
 
     def _reset_blockers(self) -> list[str]:
-        """
-        Why a reset would be refused now.
-
-        Every critical condition blocks, and so does any condition — warnings included —
-        on the parameter that caused the trip: a drum that tripped on low level must be
-        back above its low-level warning, not just above the trip limit.
-        """
+        """Why a reset would be refused now; empty means the cause has cleared."""
         if self._latest_measurements is None:
             return ["no plant state received yet"]
         cause = self._trip_cause.parameter if self._trip_cause is not None else ""
-        cause = TRIP_CAUSE_PARAMETERS.get(cause, cause)
-        return [
-            condition.message
-            for condition in self._alarms.active()
-            if condition.rule.severity is Severity.CRITICAL
-            or condition.rule.parameter == cause
-        ]
+        return blocking_conditions(self._alarms.active(), cause)
 
     # ─── Mode and trip handling ─────────────────────────────────────────────
 

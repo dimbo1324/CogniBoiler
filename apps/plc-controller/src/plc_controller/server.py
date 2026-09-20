@@ -17,9 +17,10 @@ import grpc.aio
 from cogniboiler_observability import ServerObservability, start_metrics_server
 
 from plc_controller.client import PhysicsClient, PhysicsClientConfig
+from plc_controller.commands import ValidationResult
 from plc_controller.events import now_ms
 from plc_controller.metrics import observe_service
-from plc_controller.service import PLCService, RuntimeMode, ValidationResult
+from plc_controller.service import PLCService, RuntimeMode
 
 logger = logging.getLogger(__name__)
 

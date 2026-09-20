@@ -29,7 +29,7 @@ from plc_controller.events import (
     PlcEventKind,
     PlcPublisher,
 )
-from plc_controller.safety import ArmingState
+from plc_controller.safety_limits import ArmingState
 
 LEVEL_LOW = ConditionRule(
     "water_level_m", "m", Severity.CRITICAL, Direction.LOW, 1.0, 0.2
