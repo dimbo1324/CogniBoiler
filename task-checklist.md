@@ -1,62 +1,56 @@
-# Task: version 1.0 readiness check (S13, steps 1 and 2)
+# Task: console polish, the demo script, backup and restore (S13, steps 3–5)
 
-Owner instruction of 2026-09-19: review the project's state, then (1) check it against the
-VISION §10 criteria and the non-functional requirements — a clean clone started with three
-commands within ten minutes, the stack recovering by itself when the broker and databases
-restart, the console on a tablet and a projector, and session expiry on the sign-in
-screen — and (2) log a safety trip as `warning`, keeping `error` for real failures, as the
-agent proposed, so the demo scenario can run without a single error in the logs.
+Owner instruction of 2026-09-20: continue S13 with step 3 (fix what the readiness check
+found, add the hidden slot for the "Recommendations" panel required by VISION §11, and
+reserve the `InsightService` and `/api/v1/insights` names in the overview), step 4 (a
+`demo` script in the orchestrator that plays the five-minute scenario of VISION §7 through
+the gateway at speed and then checks `logs/*.log` for errors, with its own tests) and
+step 5 (`backup` and `restore` for PostgreSQL and InfluxDB). Asking to start step 5 settles
+the open question: they are done before 1.0, and the decision log records it.
+
+Three branches merged into `main` one after another, each behind a green full gate.
 
 Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 
-## Preparation
+## 3. Console before the demo
 
-+ Orientation: `main` equals `origin/main`, Docker empty, no `.env` — a true clean start.
-  The main checkout's `.venv` had lost `pyvenv.cfg` while VS Code held it; restored, and
-  the platform note in the command reference now names that symptom
-+ Owner decision on trip log levels recorded in the decision log
+[ ] Mimic values legible on a projector: the readiness check found them at about 10 px at
+    1280×720; larger without changing the layout, checked on screenshots at every size
+[ ] A "Recommendations" slot on the overview, rendering nothing while no AI service is
+    configured; unit tests for both states
+[ ] `InsightService` and `/api/v1/insights` reserved in the architecture overview next to
+    the MQTT `insights/*` names
+[ ] No other visual change: the owner asked for none
 
-## 1. Readiness check
+## 4. The `demo` script
 
-+ Clean clone in a fresh directory: `uv sync --all-packages`, `dev-secrets`,
-  `stack up` — each timed, all services healthy, no manual step; smoke green: 3 s clone,
-  5 s sync (warm uv cache), 4 s secrets, 232 s stack on an empty Docker, 29 s smoke
-+ Restart resilience: `docker compose restart` of the whole stack, then of the broker,
-  PostgreSQL and InfluxDB one at a time — every service healthy again without help,
-  smoke green, what each service logged while its peer was down. First run found
-  physics-engine never reconnecting to the broker (fixed) and smoke blind to stalled
-  telemetry (fixed); the rerun: healthy in 13–14 s, gateway ready in 13–15 s, all green
-+ Console on a tablet (portrait and landscape) and a projector: every screen and role
-  without horizontal page scroll, controls reachable; kept as a Playwright check. Wide
-  tables scroll inside themselves; the mimic's value labels are small for a room
-  projector — left for the console polish step
-+ Session expiry: what the sign-in screen says when a session ends or is revoked;
-  kept as a Playwright check (a revoked session ends with its reason in about 15 s)
-+ Every defect the check finds is fixed in this task or recorded with its reason: fixed —
-  the physics reconnect, smoke's history window, the OPC UA host name; recorded in the
-  roadmap — paho's error line on a broker restart, the alarm publisher's late notice of a
-  lost broker, the history gap on an InfluxDB restart
+[ ] `scripts/demo` plays VISION §7 through the gateway at speed 10: nominal scenario,
+    load to 300 MW, feedwater pump failure, warning then critical, trip, acknowledgement,
+    fault cleared, E-Stop reset, back to AUTO in the demo's own words
+[ ] It restores real time and the nominal scenario even when a step fails
+[ ] It ends by scanning `logs/*.log` for `error` since it started, and fails on one
+[ ] Its own tests under `scripts/demo/tests` run without a stack; `selftest` green
+[ ] Listed in `scripts/runner/config/scripts.json`, the commands module and the reference
+[ ] Run against the live stack end to end, with the console open
 
-## 2. Trip log level
+## 5. `backup` and `restore`
 
-+ A trip and the E-Stop latch log at `warning`; real failures stay `error`; tests assert
-  the levels. A refused operator command never logged `error`: the PLC counts it and
-  returns the reason, the gateway audits it, and a refusal by physics logs `warning`
-+ The demo scenario (Playwright demo check) leaves no `error` line in `logs/*.log`
+[ ] `backup` writes a timestamped set: PostgreSQL dump and an InfluxDB backup
+[ ] `restore` puts a chosen set back and asks before overwriting data
+[ ] Both run through the orchestrator on any platform, no shell-specific commands
+[ ] Tests for the command lines they build; `selftest` green
+[ ] Verified on the running stack: backup, a change, restore, smoke green afterwards
+[ ] The backup folder is ignored by git
 
 ## Verification
 
-+ Full gate green (1001 pytest, 193 Vitest)
-+ Stack rebuilt from this branch: healthy, smoke and Playwright (22) green
-+ CI green on the pushed task branch: run 35459680501 — gate, audit and stack (smoke with
-  the fresh-telemetry check, Playwright, log files, Trivy), finished 2026-09-19T18:06:26Z
+[ ] Full gate green before every merge
+[ ] Stack healthy, smoke and Playwright green after the console change
+[ ] CI green on the pushed task branch
 
 ## Completion
 
-+ ROADMAP (S13 progress, criteria found), overview, decision log; README unchanged — the
-  run instructions did not change
-+ Branch merged into `main` locally; task branch deleted locally and on `origin` — right
-  after this commit, which cannot record it; the report confirms. `main` is not pushed:
-  the owner did not ask for a publish in this task
-+ Checklist filled honestly; report in Russian (after this commit; then the stack is
-  stopped, volumes kept, and the computer shut down as the owner asked)
+[ ] ROADMAP (S13 progress), overview, README if a user-facing command appears, decision
+    log (backup and restore before 1.0), rule modules and their changelog
+[ ] Branches merged into `main` locally and deleted, locally and on `origin`
+[ ] Checklist filled honestly; report in Russian
