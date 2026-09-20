@@ -23,9 +23,8 @@ from physics_engine.mqtt_publisher import (
     TOPIC_TURBINE,
     MQTTConfig,
     MQTTPublisher,
-    boiler_state_to_proto,
-    turbine_state_to_proto,
 )
+from physics_engine.proto_mapping import boiler_state_to_proto, turbine_state_to_proto
 from physics_engine.turbine import TurbineModel, TurbineState
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────

@@ -181,6 +181,14 @@ UA method calls start their own id and hand it to the gateway. The shared packag
 `shared/observability` (`cogniboiler_observability`) holds the log setup, the correlation
 scope, the gRPC interceptors and the MQTT counters.
 
+A second shared package, `shared/runtime` (`cogniboiler_runtime`), holds what every
+service does the same way and no service owns: the MQTT session loop — connect, work,
+warn once per outage, wait, reconnect, forever, and never spin — and the liveness file
+behind the healthchecks of the two services that expose no port. A service still builds
+its own client, so the address, the credentials, the will and a persistent session stay
+its own decision; physics-engine names `RuntimeUnavailableError` fatal, so a stopped
+runtime ends its mirror instead of reconnecting to a broker with nothing to say.
+
 With `LOG_DIR` set, a service also writes the same lines, always as JSON, to
 `<LOG_DIR>/<service>.log`, rotated by size (`LOG_FILE_MAX_BYTES`, 10 MiB by default; the
 `LOG_FILE_BACKUPS` newest older files, 5 by default). In the Compose stack every Python
@@ -280,9 +288,16 @@ all every 10 s in the Compose profiles `observability` and `full` (the default o
   then gets a GitHub release with generated notes, `docker-compose.yml` and
   `.env.example`.
 - `apps/web` is the operator console: React 19 + TypeScript (6.0) + Vite 8, React Router,
-  TanStack Query and uPlot. One HTTP module keeps the access token in memory and refreshes
-  it through the httpOnly cookie; one WebSocket client authenticates in the first frame and
-  renews in-band; one module converts SI units for display. The Vite dev server proxies
+  TanStack Query, uPlot and Lucide icons. One HTTP module keeps the access token in memory
+  and refreshes it through the httpOnly cookie; one WebSocket client authenticates in the
+  first frame and renews in-band; one module converts SI units for display, and one names
+  the SI unit a contract field is called after. Every screen is built from the same few
+  primitives — a titled panel, a state badge, an error, empty or framed line, an icon —
+  and the icon vocabulary is chosen once in `components/ui/icons.ts`, so one meaning is
+  one glyph everywhere. An icon is always `aria-hidden` beside a real label. The console
+  is dark by default (a control room is dim and a white mimic is glare); the operator can
+  choose light or follow the system, and only the resolved theme reaches the page as
+  `data-theme`, so the stylesheet declares each palette once. The Vite dev server proxies
   `/api`, `/auth`, `/health` and `/ws` to the gateway, so the browser sees one origin.
   Vitest covers the modules and screens; Playwright (`apps/web/e2e`, script `console-e2e`)
   checks the console against a running stack with the demo users from `.env`, including the

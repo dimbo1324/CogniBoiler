@@ -361,7 +361,7 @@ Shared and supporting areas:
 - `shared/proto/cogniboiler.proto` — the gRPC and telemetry contract, stubs in
   `shared/generated/`; `shared/openapi/` — the gateway's REST contract;
   `shared/observability` — logging, correlation ids and metrics for every service;
-  `shared/models/` — cross-service Pydantic models.
+  `shared/runtime` — the MQTT session and liveness.
 - `docker-compose.yml`, `Dockerfile`, `.env.example` — the local stack.
 - `infrastructure/` — Mosquitto, Grafana and Prometheus provisioning.
 - `ml/` — deferred AI material.

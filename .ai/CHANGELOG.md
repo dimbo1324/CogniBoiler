@@ -6,6 +6,21 @@ History of changes to the AI assistant rule system (`.ai/`, `CLAUDE.md`, `AGENTS
 
 Format: date, what changed, why, who decided. Newest first.
 
+## 2026-09-20 — `shared/models` out of the project map, `shared/runtime` in
+
+**What changed.** `project/10-project-map.md` replaces the line about `shared/models/`
+(a package nothing imported, deleted in the same task) with one about `shared/runtime` —
+the MQTT session loop and the liveness file every service now shares. The line was written
+to the byte length of the one it replaced.
+
+**Why.** The map named a package that no longer exists and did not name one every service
+depends on: a factual correction, which `universal/08-rules-evolution.md` allows without
+approval. **The 30 KiB budget of `AGENTS.md` is still spent to the byte** — this entry
+cost nothing only because a line left as another arrived. The next always-apply addition
+still needs a module moved to the extended tier, which is the owner's decision.
+
+**Decided by.** Agent, as part of the owner-requested sanitation work of 2026-09-20.
+
 ## 2026-09-20 — `backup` and `restore` in the commands module; the budget is spent
 
 **What changed.** `project/11-commands.md` lists `backup` / `restore` in the script table

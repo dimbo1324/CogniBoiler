@@ -34,15 +34,11 @@ from cogniboiler_runtime import MqttSession
 from physics_engine.models import BoilerState
 from physics_engine.plant import PlantSnapshot
 from physics_engine.proto_mapping import (
-    boiler_state_to_proto as boiler_state_to_proto,
-)
-from physics_engine.proto_mapping import (
+    boiler_state_to_proto,
     boiler_to_proto,
     plant_status_to_proto,
+    turbine_state_to_proto,
     turbine_to_proto,
-)
-from physics_engine.proto_mapping import (
-    turbine_state_to_proto as turbine_state_to_proto,
 )
 from physics_engine.runtime import (
     PhysicsRuntime,
