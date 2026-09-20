@@ -1,0 +1,25 @@
+{
+  "_comment": "The demo of VISION §7 through the gateway. Users are the demo accounts the gateway seeds from DEMO_*_PASSWORD. Timeouts are wall-clock seconds at the chosen speed factor; they are generous, because a demo that fails on a slow laptop is worse than one that takes a minute longer.",
+  "base_url": "http://localhost:8080",
+  "env_file": ".env",
+  "log_dir": "logs",
+  "speed_factor": 10.0,
+  "scenario": "steady_state",
+  "nominal_load_mw": 250.0,
+  "target_load_mw": 300.0,
+  "restart_load_mw": 180.0,
+  "fault": { "kind": "feedwater_pump_failure", "target": "", "severity": 1.0, "ramp_s": 0.0 },
+  "timeouts": {
+    "nominal_s": 120,
+    "load_s": 240,
+    "warning_s": 180,
+    "trip_s": 240,
+    "recovery_s": 300,
+    "restart_s": 300
+  },
+  "users": {
+    "operator": { "username": "operator", "password_env": "DEMO_OPERATOR_PASSWORD" },
+    "engineer": { "username": "engineer", "password_env": "DEMO_ENGINEER_PASSWORD" },
+    "admin": { "username": "admin", "password_env": "DEMO_ADMIN_PASSWORD" }
+  }
+}

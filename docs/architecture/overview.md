@@ -256,6 +256,11 @@ all every 10 s in the Compose profiles `observability` and `full` (the default o
   service.
 - The gateway seeds demo users `admin`, `engineer`, `operator`, `viewer` from
   `DEMO_*_PASSWORD` when `AUTO_INIT_DB` is set; no credential is hardcoded.
+- `demo` plays the five-minute scenario of VISION §7 against a running stack through the
+  gateway — nominal scenario, 300 MW, a feedwater pump failure, warning and critical
+  alarms, the trip, acknowledgement, repair, E-Stop reset, back on load, then the audit
+  log — at ten times speed, leaves the unit as it found it, and fails when any service
+  wrote an `error` line while it ran.
 - `smoke` checks a running stack through the gateway: health and readiness, logins, role
   refusals, live state, a setpoint accepted by the PLC, alarms, telemetry recorded in the
   last 30 s, KPIs and the audit log of sign-ins.
@@ -282,7 +287,7 @@ all every 10 s in the Compose profiles `observability` and `full` (the default o
 - `python dev_tools_scripts_runner.py` is the developer-tools orchestrator: `quality-gate`,
   `format-code`, `audit-deps`, `sync-agents`, `stack`, `dev-secrets`, `smoke`, `console-e2e`,
   `generate-proto`, `generate-openapi`, `doctor`, `install-hooks`, `clean-caches`,
-  `selftest`.
+  `demo`, `selftest`.
 - The quality gate runs ruff, strict mypy, every service test suite, the protobuf,
   OpenAPI and `AGENTS.md` sync checks, the scripts' own tests, and the frontend checks when
   `apps/web/node_modules` exists. The service suites need no broker, database or network:

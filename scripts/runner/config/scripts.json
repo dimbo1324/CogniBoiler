@@ -146,6 +146,27 @@
     ]
   },
   {
+    "title": "demo",
+    "module": "scripts.demo",
+    "category": "platform",
+    "aliases": [
+      "story"
+    ],
+    "cadence_ref": "on_demand",
+    "summary": {
+      "en": "Play the VISION §7 demo through the gateway and read the logs.",
+      "ru": "Проиграть демо VISION §7 через шлюз и прочитать логи."
+    },
+    "description": {
+      "en": "Plays the five-minute demo scenario against a running stack, through the same REST API an operator uses, so the console can stay open beside it: the nominal scenario at speed, a load change to 300 MW, a feedwater pump failure, the warning and critical alarms, the interlock trip, the acknowledgement, the repair, the E-Stop reset and the return to AUTO, then the audit log of who did what, to the second. The nominal scenario and real time are restored even when a step fails. It ends by reading logs/*.log: one error line written while the demo ran fails the run. --speed sets the simulation speed factor, --base-url the console's origin, --keep-logs-unread skips the final scan.",
+      "ru": "Проигрывает пятиминутный демо-сценарий на поднятом стеке через тот же REST API, которым пользуется оператор, так что консоль можно держать открытой: номинальный сценарий на ускорении, переход на 300 МВт, отказ питательного насоса, предупреждение и критическая тревога, срабатывание блокировки, квитирование, ремонт, сброс E-Stop и возврат в AUTO, затем журнал аудита с точным временем. Номинальный сценарий и реальное время восстанавливаются даже после неудачного шага. В конце читает logs/*.log: одна строка error, записанная во время демо, валит запуск. --speed задаёт ускорение, --base-url — адрес консоли, --keep-logs-unread пропускает чтение логов."
+    },
+    "examples": [
+      "--speed 20",
+      "--base-url http://localhost:8080"
+    ]
+  },
+  {
     "title": "console-e2e",
     "module": "scripts.console_e2e",
     "category": "platform",

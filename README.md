@@ -460,6 +460,7 @@ uv sync --all-packages                              # Python 3.14 environment fr
 python dev_tools_scripts_runner.py dev-secrets      # .env with generated local secrets
 python dev_tools_scripts_runner.py stack up         # build and start everything, wait for health
 python dev_tools_scripts_runner.py smoke            # end-to-end check through the gateway
+python dev_tools_scripts_runner.py demo             # play the five-minute demo scenario
 ```
 
 | What | Where |
@@ -484,6 +485,8 @@ Stop with `python dev_tools_scripts_runner.py stack down` (add `--volumes` to wi
 python dev_tools_scripts_runner.py dev-secrets
 COGNIBOILER_REGISTRY=ghcr.io/dimbo1324/cogniboiler COGNIBOILER_TAG=v1.0.0 python dev_tools_scripts_runner.py stack up --no-build
 ```
+
+`python dev_tools_scripts_runner.py demo` plays the five-minute scenario through the gateway with the console open beside it: the unit goes to 300 MW, a feedwater pump fails, alarms are raised, the interlocks trip the unit, the operator acknowledges, the pump is repaired, the E-Stop is reset and the unit comes back on load — then the audit log shows who did what, to the second. It runs the simulation ten times faster, leaves the unit at nominal in real time, and fails if any service logged an error while it ran.
 
 `python dev_tools_scripts_runner.py console-e2e` runs the console's Playwright checks against the running stack, including the five-minute demo; it installs Playwright's Chromium on first use and reads the demo passwords from `.env`. The demo check trips and resets the running unit, so do not run it while presenting.
 

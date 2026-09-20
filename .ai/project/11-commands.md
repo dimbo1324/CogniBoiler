@@ -7,23 +7,24 @@ shell elsewhere.
 
 ```powershell
 python dev_tools_scripts_runner.py          # interactive menu
-python dev_tools_scripts_runner.py list     # machine-readable catalog — use this, not the menu
-python dev_tools_scripts_runner.py <name>   # run one directly; `help` prints the manuals
+python dev_tools_scripts_runner.py list     # the catalog — use this, not the menu
+python dev_tools_scripts_runner.py <name>   # run one; `help` prints the manuals
 ```
 
-The orchestrator is stdlib-only and runs on any Python 3.14; a script that needs a project
-package hands itself to `uv run`. With no arguments and no terminal it runs
-`quality-gate`, which makes it safe for an agent or CI to call.
+The orchestrator is stdlib-only on any Python 3.14; a script needing a project package
+hands itself to `uv run`. With no arguments and no terminal it runs `quality-gate`, so an
+agent or CI can call it safely.
 
 | Script | Purpose |
 |---|---|
-| `quality-gate` (`--quick`) | the one verification path; CI runs exactly this |
+| `quality-gate` (`--quick`) | the one verification path; CI runs it |
 | `format-code` (`--check`) | ruff for Python, Prettier for the frontend |
-| `audit-deps` | known vulnerabilities in the locked dependencies |
+| `audit-deps` | known vulnerabilities in the lock files |
 | `sync-agents` (`--check`) | regenerate `AGENTS.md` from `.ai/` |
-| `stack up` / `status` / `logs <svc>` / `down` | the Docker Compose stack |
-| `dev-secrets` | `.env` with generated development secrets |
+| `stack up` / `status` / `logs` / `down` | the Docker Compose stack |
+| `dev-secrets` | `.env` with generated dev secrets |
 | `smoke` | end-to-end check of a running stack; CI runs it |
+| `demo` | plays the VISION §7 scenario; fails on an `error` in `logs/` |
 | `console-e2e` (`--url`) | Playwright checks of the console |
 | `generate-proto`, `generate-openapi` (`--check`) | gRPC stubs; OpenAPI schema and console types |
 | `doctor` | read-only toolchain check |
@@ -46,8 +47,7 @@ uv run ruff check . ; uv run mypy         # lint, strict types
 pnpm --dir apps/web install               # frontend dependencies, once
 ```
 
-Service-by-service run commands, ports, topics and platform notes are in
-`14-command-reference.md`.
+Run commands per service, ports, topics and platform notes: `14-command-reference.md`.
 
 ## Publishing
 

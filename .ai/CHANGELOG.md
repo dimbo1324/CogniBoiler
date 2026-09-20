@@ -6,6 +6,21 @@ History of changes to the AI assistant rule system (`.ai/`, `CLAUDE.md`, `AGENTS
 
 Format: date, what changed, why, who decided. Newest first.
 
+## 2026-09-20 — The `demo` script in the commands module
+
+**What changed.** `project/11-commands.md` lists `demo` in the script table, and
+`project/14-command-reference.md` describes what it plays, that it leaves the unit at its
+starting state and that it fails on an `error` line in `logs/`. To stay inside the 30 KiB
+budget of `AGENTS.md`, five table cells and two paragraphs of `11-commands.md` were
+shortened without changing a rule; the file now assembles at 30703 of 30720 bytes, so the
+next always-apply addition will need a module moved to the extended tier.
+
+**Why.** A new routine job must be in the catalog and in the rules, or the next session
+will not know it exists. A factual addition, which `universal/08-rules-evolution.md` allows
+without approval.
+
+**Decided by.** Agent, as part of the owner-requested S13 work of 2026-09-20.
+
 ## 2026-09-19 — A `.venv` without `pyvenv.cfg` in the platform notes
 
 **What changed.** The note on a `.venv` held by VS Code in

@@ -13,6 +13,7 @@ python dev_tools_scripts_runner.py stack up --profile core   # or infra (= --inf
 python dev_tools_scripts_runner.py stack status
 python dev_tools_scripts_runner.py stack logs api-gateway
 python dev_tools_scripts_runner.py smoke              # end-to-end check through the gateway
+python dev_tools_scripts_runner.py demo               # plays the VISION §7 scenario, console can stay open
 python dev_tools_scripts_runner.py stack down         # --volumes also wipes the databases
 ```
 
@@ -111,6 +112,13 @@ pnpm --dir apps/web dev          # http://localhost:5173
 pnpm --dir apps/web run lint ; pnpm --dir apps/web run typecheck ; pnpm --dir apps/web run test
 python dev_tools_scripts_runner.py console-e2e   # Playwright against the running stack
 ```
+
+`demo` plays the five-minute scenario of VISION §7 through the gateway at `--speed` (10 by
+default): nominal scenario, 300 MW, feedwater pump failure, warning and critical, trip,
+acknowledgement, repair, E-Stop reset, back on load, then the audit log. It sets and leaves
+the same starting state (nominal scenario, 250 MW demand, no fault, no latched trip, real
+time), so two runs in a row tell the same story, and it fails when any service wrote an
+`error` line into `logs/` while it ran.
 
 `console-e2e` installs Playwright's Chromium on first use (`--no-install` skips it) and starts
 the Vite dev server when no `--url` is given. Its demo check reloads the nominal scenario, runs
