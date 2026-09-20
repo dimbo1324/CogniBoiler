@@ -7,9 +7,8 @@ true state stays inside the simulator. Faults are published with their labels.
 
 from __future__ import annotations
 
-import time
-
 import cogniboiler_pb2 as pb
+from cogniboiler_runtime import now_ms
 
 from physics_engine.constants import FUEL_HEATING_VALUE
 from physics_engine.faults import ActiveFault, FaultKind
@@ -28,11 +27,6 @@ BOILER_SENSORS: tuple[SensorId, ...] = (
     SensorId.FEEDWATER_FLOW,
     SensorId.FUEL_FLOW,
 )
-
-
-def now_ms() -> int:
-    """Current UTC epoch milliseconds."""
-    return int(time.time() * 1000)
 
 
 def fault_kind_to_proto(kind: FaultKind) -> int:

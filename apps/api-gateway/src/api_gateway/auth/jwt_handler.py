@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 import jwt
+from cogniboiler_runtime import MILLISECONDS_PER_DAY
 
 from api_gateway.config import settings
 
@@ -155,7 +156,9 @@ def issue_refresh_token(
     """
     now_ms = int(time.time() * 1000)
     if expires_at_ms is None:
-        expires_at_ms = now_ms + settings.jwt_refresh_token_expire_days * 86_400_000
+        expires_at_ms = (
+            now_ms + settings.jwt_refresh_token_expire_days * MILLISECONDS_PER_DAY
+        )
     return _issue(
         user_id=user_id,
         role=role,

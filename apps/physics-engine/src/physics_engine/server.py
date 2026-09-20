@@ -14,13 +14,13 @@ import cogniboiler_pb2_grpc as pb2_grpc
 import grpc
 import grpc.aio
 from cogniboiler_observability import ServerObservability
+from cogniboiler_runtime import now_ms
 
 from physics_engine import __version__
 from physics_engine.faults import FaultError, FaultSpec
 from physics_engine.proto_mapping import (
     fault_kind_from_proto,
     fault_to_proto,
-    now_ms,
     scenario_to_proto,
     simulation_status_to_proto,
     system_state_to_proto,

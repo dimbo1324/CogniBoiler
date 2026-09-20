@@ -15,10 +15,10 @@ import cogniboiler_pb2_grpc as pb2_grpc
 import grpc
 import grpc.aio
 from cogniboiler_observability import ServerObservability, start_metrics_server
+from cogniboiler_runtime import now_ms
 
 from plc_controller.client import PhysicsClient, PhysicsClientConfig
 from plc_controller.commands import ValidationResult
-from plc_controller.events import now_ms
 from plc_controller.metrics import observe_service
 from plc_controller.service import PLCService, RuntimeMode
 

@@ -19,6 +19,7 @@ import time
 from enum import StrEnum
 
 import cogniboiler_pb2 as pb2
+from cogniboiler_runtime import now_ms
 
 from plc_controller.alarms import (
     AlarmConditionMonitor,
@@ -36,7 +37,7 @@ from plc_controller.commands import (
     check_valves,
 )
 from plc_controller.control import ControlTargets, UnitController
-from plc_controller.events import PlcEvent, PlcEventKind, PlcPublisher, now_ms
+from plc_controller.events import PlcEvent, PlcEventKind, PlcPublisher
 from plc_controller.measurements import (
     ProcessMeasurements,
 )

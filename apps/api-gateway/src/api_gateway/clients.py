@@ -14,6 +14,7 @@ import cogniboiler_pb2 as pb2
 import cogniboiler_pb2_grpc as pb2_grpc
 import grpc.aio
 from cogniboiler_observability import client_interceptors
+from cogniboiler_runtime import MILLISECONDS_PER_DAY
 from influxdb_client.client.influxdb_client import InfluxDBClient as _InfluxDBClient
 
 
@@ -277,7 +278,7 @@ class AlarmGatewayClient:
 NANOSECONDS_PER_MILLISECOND = 1_000_000
 AGGREGATE_WINDOW_S = 60
 # Raw data answers ranges of up to a day; longer or older ranges read the aggregates.
-MAX_RAW_SPAN_MS = 86_400_000
+MAX_RAW_SPAN_MS = MILLISECONDS_PER_DAY
 
 # Aggregation windows a history query may use, so neighbouring queries line up.
 HISTORY_WINDOWS_S: tuple[int, ...] = (
@@ -327,7 +328,7 @@ def choose_source(
     config: HistorianQueryConfig, start_ms: int, end_ms: int, now_ms: int
 ) -> HistorySource:
     """Raw data for recent ranges of up to a day; aggregates for older or longer ones."""
-    raw_horizon_ms = now_ms - config.raw_retention_days * 86_400_000
+    raw_horizon_ms = now_ms - config.raw_retention_days * MILLISECONDS_PER_DAY
     if start_ms >= raw_horizon_ms and end_ms - start_ms <= MAX_RAW_SPAN_MS:
         return HistorySource(config.bucket, aggregated=False)
     return HistorySource(config.aggregate_bucket, aggregated=True)

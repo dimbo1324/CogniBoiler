@@ -4,6 +4,12 @@
 "is it still running, and is it still connected".
 """
 
+from cogniboiler_runtime.clock import (
+    MILLISECONDS_PER_DAY,
+    MILLISECONDS_PER_SECOND,
+    NANOSECONDS_PER_MILLISECOND,
+    now_ms,
+)
 from cogniboiler_runtime.liveness import (
     DEFAULT_INTERVAL_S,
     DEFAULT_MAX_AGE_S,
@@ -20,8 +26,12 @@ __all__ = [
     "DEFAULT_INTERVAL_S",
     "DEFAULT_MAX_AGE_S",
     "DEFAULT_RECONNECT_DELAY_S",
+    "MILLISECONDS_PER_DAY",
+    "MILLISECONDS_PER_SECOND",
+    "NANOSECONDS_PER_MILLISECOND",
     "LivenessFile",
     "MqttSession",
     "is_fresh",
+    "now_ms",
     "subscribe_all",
 ]

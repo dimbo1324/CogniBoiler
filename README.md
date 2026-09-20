@@ -444,7 +444,7 @@ What runs today, end to end, with one command:
 - **historian** — telemetry, KPIs, scenario and fault labels, alarm changes and PLC events in InfluxDB, with retention and one-minute aggregates;
 - **opcua-server** — OPC UA address space of the plant, PLC and alarms, with methods run as the signed-in gateway user;
 - **Grafana** with provisioned Process, Efficiency and emissions, Alarms and Platform dashboards;
-- **web** — the operator console (React + TypeScript + Vite): sign-in, a live SVG mimic of the unit, trends with history and KPIs, alarms with acknowledgement and an audible annunciator, load and mode control with confirmations, the engineer's simulation and fault panel, the audit log, user administration, platform health, light and dark themes;
+- **web** — the operator console (React + TypeScript + Vite): sign-in, a live SVG mimic of the unit, trends with history and KPIs, alarms with acknowledgement and an audible annunciator, load and mode control with confirmations, the engineer's simulation and fault panel, the audit log, user administration, platform health; dark by default — a control room is dim and a white mimic is glare — with light and follow-the-system a click away;
 - **delivery** — one image per service, Compose profiles, CI that starts the whole stack and runs the smoke and Playwright checks and an image scan, images published to GitHub Container Registry, and a GitHub release for every version tag.
 
 Known gaps are listed in [docs/architecture/overview.md](docs/architecture/overview.md#known-gaps).

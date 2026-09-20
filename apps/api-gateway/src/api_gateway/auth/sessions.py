@@ -14,11 +14,11 @@ Sign-in sessions: refresh-token families with rotation and revocation.
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass
 from uuid import uuid4
 
 import jwt
+from cogniboiler_runtime import now_ms
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,10 +33,6 @@ from api_gateway.config import settings
 from api_gateway.models.user import RefreshToken, User
 
 logger = logging.getLogger(__name__)
-
-
-def now_ms() -> int:
-    return int(time.time() * 1000)
 
 
 @dataclass(frozen=True, slots=True)

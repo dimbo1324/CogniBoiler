@@ -27,7 +27,7 @@ from typing import Any
 
 from aiomqtt import Client, Will
 from cogniboiler_observability import MQTT_PUBLISHED
-from cogniboiler_runtime import MqttSession
+from cogniboiler_runtime import MqttSession, now_ms
 
 from plc_controller.alarms import (
     SOURCE_SERVICE,
@@ -48,11 +48,6 @@ QUEUE_LIMIT: int = 1000
 RECONNECT_DELAY_S: float = 5.0
 SNAPSHOT_INTERVAL_S: float = 10.0
 CLOSE_DRAIN_TIMEOUT_S: float = 1.0
-
-
-def now_ms() -> int:
-    """Current UTC epoch milliseconds."""
-    return int(time.time() * 1000)
 
 
 class PlcEventKind(StrEnum):

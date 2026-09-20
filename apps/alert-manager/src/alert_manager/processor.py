@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from cogniboiler_runtime import now_ms
 from sqlalchemy import ColumnElement, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -44,11 +44,6 @@ MAX_OPERATOR_LENGTH: int = 128
 _ACTIVE = [state.value for state in ACTIVE_STATES]
 _OPEN = [state.value for state in OPEN_STATES]
 _UNACKNOWLEDGED = [state.value for state in UNACKNOWLEDGED_STATES]
-
-
-def now_ms() -> int:
-    """Current UTC epoch milliseconds."""
-    return int(time.time() * 1000)
 
 
 class ChangeListener(Protocol):

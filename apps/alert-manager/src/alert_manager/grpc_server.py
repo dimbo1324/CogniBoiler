@@ -11,13 +11,13 @@ import cogniboiler_pb2_grpc as pb2_grpc
 import grpc
 import grpc.aio
 from cogniboiler_observability import ServerObservability
+from cogniboiler_runtime import now_ms
 
 from alert_manager.lifecycle import AlarmState, LifecycleError
 from alert_manager.processor import (
     AlarmNotFoundError,
     AlarmProcessor,
     AlarmQuery,
-    now_ms,
 )
 from alert_manager.views import AlarmView, TransitionView
 

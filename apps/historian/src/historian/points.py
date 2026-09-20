@@ -21,12 +21,12 @@ from __future__ import annotations
 
 import json
 import math
-import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
 import cogniboiler_pb2 as pb
+from cogniboiler_runtime import now_ms
 from influxdb_client.domain.write_precision import WritePrecision
 
 from historian.writer import PointLike, add_numeric_fields, new_point, timestamp_ns
@@ -46,10 +46,6 @@ AGGREGATED_MEASUREMENTS: tuple[str, ...] = (
 )
 
 _TEXT_LIMIT = 1000
-
-
-def now_ms() -> int:
-    return int(time.time() * 1000)
 
 
 def _text(value: object, limit: int = _TEXT_LIMIT) -> str:

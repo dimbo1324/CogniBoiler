@@ -16,9 +16,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import cogniboiler_pb2 as pb2
+from cogniboiler_runtime import now_ms
 
 from plc_controller.control import RATED_POWER_W
-from plc_controller.events import now_ms
 
 # Valve position limits.
 VALVE_MIN: float = 0.0

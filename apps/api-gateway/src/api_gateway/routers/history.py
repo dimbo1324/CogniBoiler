@@ -6,6 +6,7 @@ import asyncio
 import re
 import time
 
+from cogniboiler_runtime import MILLISECONDS_PER_DAY
 from fastapi import APIRouter, Query, Request
 from influxdb_client.rest import ApiException
 from urllib3.exceptions import HTTPError as Urllib3HTTPError
@@ -17,7 +18,7 @@ from api_gateway.schemas.ops import HistoryPointResponse, HistoryResponse
 
 router = APIRouter(prefix="/api/v1", tags=["history"])
 
-MAX_HISTORY_SPAN_MS = 90 * 86_400_000
+MAX_HISTORY_SPAN_MS = 90 * MILLISECONDS_PER_DAY
 DEFAULT_HISTORY_SPAN_MS = 15 * 60_000
 FIELD_NAME = re.compile("^[a-z][a-z0-9_]{0,63}$")
 HISTORY_ERRORS = (ApiException, OSError, Urllib3HTTPError)
