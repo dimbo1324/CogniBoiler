@@ -92,7 +92,9 @@ Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
   green, `demo` green with no `error` line in `logs/`, Playwright console checks green
 + State documents updated: the architecture overview (the shared runtime package and the
   console's primitives), the ROADMAP progress note, the README (dark by default), the
-  project map, the rule changelog and the regenerated `AGENTS.md`
+  project map, the platform notes, the rule changelog and the regenerated `AGENTS.md` —
+  which now has 34 bytes to spare instead of none, because the deleted archive left the
+  map with it
 + Checklist filled honestly; report in Russian
 + Merged into `main` fast-forward, branch deleted locally and on `origin`, `main` pushed —
   the owner asked for the publish in this task

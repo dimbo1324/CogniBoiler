@@ -376,8 +376,7 @@ A document serves exactly one audience.
 
 **Internal — everything in `docs/__arch__/`, written in Russian.** For the builders:
 `VISION.txt` (the product vision without AI), `ROADMAP.md` (stages and what is done),
-`open-questions.md` (owner decisions), `archive/` (superseded plans). Nothing a user reads
-links to them.
+`open-questions.md` (owner decisions). Nothing a user reads links to them.
 
 **External — written in English.** For newcomers: `README.md` (the hub; every external
 document is reachable from it), `docs/architecture/overview.md`,
