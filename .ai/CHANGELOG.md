@@ -6,6 +6,20 @@ History of changes to the AI assistant rule system (`.ai/`, `CLAUDE.md`, `AGENTS
 
 Format: date, what changed, why, who decided. Newest first.
 
+## 2026-09-24 — The gate runs its checkers as modules, and the note that says why
+
+**What changed.** `scripts/quality_gate/config/steps.json` runs ruff, mypy and pytest as
+`python -m <tool>` instead of the `.exe` shims, and `project/14-command-reference.md`
+records why in the platform notes.
+
+**Why.** Windows App Control refuses to spawn the shims from `.venv/Scripts` at random
+(`os error 4551`), failing a gate whose code is fine — it did exactly that during this
+task. A correction of fact and of a command that no longer worked reliably, which
+`universal/08-rules-evolution.md` allows without approval. The extended-tier module costs
+nothing against the `AGENTS.md` budget, which is still spent to the byte.
+
+**Decided by.** Agent, as part of the owner-requested sanitation work of 2026-09-20.
+
 ## 2026-09-20 — `shared/models` out of the project map, `shared/runtime` in
 
 **What changed.** `project/10-project-map.md` replaces the line about `shared/models/`

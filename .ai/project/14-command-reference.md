@@ -156,6 +156,11 @@ or nginx in the stack).
   published port binds 127.0.0.1. Docker Desktop started from such a session
   runs inside the container and its backend crashes on its AppData sockets: the owner
   starts Docker Desktop (found 2026-09-16).
+- **App Control blocks the console scripts.** On this machine Windows App Control
+  refuses to spawn `pytest.exe`, `ruff.exe` and `mypy.exe` from `.venv/Scripts`
+  (`os error 4551`), at random and in the middle of a run. The same tool started as a
+  module is allowed, so every gate step runs `uv run --no-sync python -m <tool>`; a step
+  added later should do the same (found 2026-09-24).
 - **Git Bash path conversion.** `git show origin/branch:path` gets mangled into a Windows
   path; prefix the command with `MSYS_NO_PATHCONV=1`.
 - **Line endings.** The repository normalizes to LF (pre-commit `mixed-line-ending`).

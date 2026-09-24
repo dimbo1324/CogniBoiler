@@ -2,10 +2,10 @@
   "_comment": "The gate CI runs verbatim. uv sync --locked comes first: every later step runs with --no-sync against exactly what uv.lock declares, and a lock file that drifted from pyproject.toml fails here by name. Steps with requires_path are skipped locally when that path is absent and fail under CI.",
   "steps": [
     { "label": "environment matches uv.lock", "argv": ["uv", "sync", "--all-packages", "--locked"], "required": true },
-    { "label": "ruff format --check", "argv": ["uv", "run", "--no-sync", "ruff", "format", "--check", "."], "required": true },
-    { "label": "ruff check", "argv": ["uv", "run", "--no-sync", "ruff", "check", "."], "required": true },
-    { "label": "mypy (strict)", "argv": ["uv", "run", "--no-sync", "mypy"], "required": true },
-    { "label": "service test suites (pytest)", "argv": ["uv", "run", "--no-sync", "pytest", "-q", "--no-cov"], "required": true },
+    { "label": "ruff format --check", "argv": ["uv", "run", "--no-sync", "python", "-m", "ruff", "format", "--check", "."], "required": true },
+    { "label": "ruff check", "argv": ["uv", "run", "--no-sync", "python", "-m", "ruff", "check", "."], "required": true },
+    { "label": "mypy (strict)", "argv": ["uv", "run", "--no-sync", "python", "-m", "mypy"], "required": true },
+    { "label": "service test suites (pytest)", "argv": ["uv", "run", "--no-sync", "python", "-m", "pytest", "-q", "--no-cov"], "required": true },
     { "label": "protobuf stubs match shared/proto", "argv": ["uv", "run", "--no-sync", "python", "-m", "scripts.generate_proto", "--check"], "required": true },
     { "label": "OpenAPI schema and console types match the gateway", "argv": ["uv", "run", "--no-sync", "python", "-m", "scripts.generate_openapi", "--check"], "required": true },
     { "label": "AGENTS.md in sync with .ai/", "argv": ["python", "-m", "scripts.sync_agents", "--check"], "required": true },
@@ -18,9 +18,9 @@
   ],
   "quick_steps": [
     { "label": "environment matches uv.lock", "argv": ["uv", "sync", "--all-packages", "--locked"], "required": true },
-    { "label": "ruff format --check", "argv": ["uv", "run", "--no-sync", "ruff", "format", "--check", "."], "required": true },
-    { "label": "ruff check", "argv": ["uv", "run", "--no-sync", "ruff", "check", "."], "required": true },
-    { "label": "mypy (strict)", "argv": ["uv", "run", "--no-sync", "mypy"], "required": true },
+    { "label": "ruff format --check", "argv": ["uv", "run", "--no-sync", "python", "-m", "ruff", "format", "--check", "."], "required": true },
+    { "label": "ruff check", "argv": ["uv", "run", "--no-sync", "python", "-m", "ruff", "check", "."], "required": true },
+    { "label": "mypy (strict)", "argv": ["uv", "run", "--no-sync", "python", "-m", "mypy"], "required": true },
     { "label": "AGENTS.md in sync with .ai/", "argv": ["python", "-m", "scripts.sync_agents", "--check"], "required": true },
     { "label": "frontend lint", "argv": ["pnpm", "--dir", "apps/web", "run", "lint"], "required": true, "requires_path": "apps/web/node_modules" },
     { "label": "frontend typecheck", "argv": ["pnpm", "--dir", "apps/web", "run", "typecheck"], "required": true, "requires_path": "apps/web/node_modules" }
