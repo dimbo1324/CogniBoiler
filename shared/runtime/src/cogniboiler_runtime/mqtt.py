@@ -2,9 +2,10 @@
 
 Every service that speaks MQTT had the same outer loop written out by hand: open a
 session, work with the live client, and when the broker goes away say so, wait, and try
-again — forever, without spinning and without a wall of identical warnings. Five copies
-of that loop had already drifted apart (one of them, in physics-engine, swallowed the
-failure and published into a dead link until 2026-09-19). This is the loop, written once.
+again — forever, without spinning and without a wall of identical warnings. Seven copies
+of that loop had drifted apart: two warned on every retry instead of once per outage, one
+kept no `connected` flag for its healthcheck, and one (physics-engine, until 2026-09-19)
+swallowed the failure and published into a dead link. This is the loop, written once.
 
 The client itself is still built by the caller: the address, the credentials, the will and
 whether the session is persistent are the service's decisions, and building it there also
