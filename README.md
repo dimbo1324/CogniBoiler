@@ -1,581 +1,255 @@
 # CogniBoiler
 
-**A digital twin platform for industrial steam boiler and turbine systems, built to host AI analytics as a later layer.**
+**A digital twin of a 300 MW gas-fired steam unit — boiler, turbine and a virtual PLC — that
+runs on one machine, is operated from a web console, and trips, alarms and recovers like the
+real thing.**
 
-> **Quick start:** see [Getting Started](#getting-started). **Current state:** see [Project Status](#project-status). The AI layer is deferred — the platform is being completed without it first.
+[![CI](https://github.com/dimbo1324/CogniBoiler/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/dimbo1324/CogniBoiler/actions/workflows/ci.yml)
+![Python 3.14](https://img.shields.io/badge/python-3.14-3776ab)
+![React 19](https://img.shields.io/badge/react-19-149eca)
+![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)
 
-CogniBoiler is a software project that brings together **physics simulation**, **industrial control logic**, **real-time telemetry**, **historical data storage**, **web APIs**, and **machine learning** into one coherent platform.
+![The five-minute demo from the operator's overview: a feedwater pump fails, the drum level falls, the interlock trips the unit, and after the repair and the reset the unit ramps back to its load](docs/images/demo.gif)
 
-In simple terms, it is a digital environment that can **simulate how a large industrial steam power unit behaves**, **control it like a real plant**, **stream and store operational data**, and eventually **analyse that data with AI** to detect abnormal behaviour, improve efficiency, and support predictive maintenance.
-
-This project is designed to feel much closer to a real industrial system than to a classroom demo. It uses the same types of concepts and technologies that appear in modern automation and energy systems: microservices, MQTT, gRPC, OPC UA, time-series databases, web gateways, role-based security, and ML-based operational intelligence.
-
----
-
-## Table of Contents
-
-- [What is CogniBoiler?](#what-is-cogniboiler)
-- [The Big Idea](#the-big-idea)
-- [What Problem the Project Solves](#what-problem-the-project-solves)
-- [How to Think About the Platform](#how-to-think-about-the-platform)
-- [Core Capabilities](#core-capabilities)
-- [System Architecture](#system-architecture)
-- [Main Components](#main-components)
-- [AI Layer](#ai-layer)
-- [Industrial Communication and Data Flow](#industrial-communication-and-data-flow)
-- [Security and Reliability Philosophy](#security-and-reliability-philosophy)
-- [Who This Project Is For](#who-this-project-is-for)
-- [Typical Use Cases](#typical-use-cases)
-- [Technology Overview](#technology-overview)
-- [Project Status](#project-status)
-- [Getting Started](#getting-started)
-- [Development](#development)
-- [Documentation](#documentation)
-- [Design Principles](#design-principles)
-- [Long-Term Direction](#long-term-direction)
-- [Final Note](#final-note)
+*The five-minute demo, as the operator sees it: the feedwater pump fails, the drum level
+falls, the interlock shuts the fuel and a critical alarm flashes; the pump is repaired, an
+engineer resets the trip and the unit ramps back to its load. Recorded from a running stack
+by [`readme-media`](#development).*
 
 ---
 
-## What is CogniBoiler?
-
-CogniBoiler is an **industrial digital twin platform** focused on a steam boiler–turbine system.
-
-A **digital twin** is a software representation of a real physical system. In this case, the goal is to represent the behaviour of equipment commonly found in steam power generation and process industries:
-
-- the **boiler**, where fuel is converted into thermal energy;
-- the **steam system**, where pressure, temperature, and flow must be controlled;
-- the **turbine**, where steam energy is converted into useful mechanical and electrical output;
-- the **control layer**, which behaves like a virtual industrial PLC;
-- the **data layer**, which records system history and makes it observable;
-- the **AI layer**, which interprets behaviour and supports decision-making.
-
-This means CogniBoiler is not just “a simulator” and not just “an AI project”. It is a **complete software architecture** that tries to represent how a modern industrial system can be modeled, controlled, observed, and analysed.
-
----
-
-## The Big Idea
-
-The central idea behind CogniBoiler is straightforward:
-
-> Build one platform that can simulate an industrial steam system, operate like a real control environment, and eventually provide intelligent insight about efficiency, risk, and maintenance.
-
-That idea turns into several layers working together:
-
-1. A **physics layer** produces realistic process behaviour.
-2. A **control layer** acts like an industrial controller.
-3. A **communication layer** moves data between services.
-4. A **storage and observability layer** records and visualises everything.
-5. A **security layer** protects access and actions.
-6. An **AI layer** learns from system history and helps interpret what is happening.
-
----
-
-## What Problem the Project Solves
-
-Industrial systems are complex.
-
-A large steam unit is not something you can understand from one sensor or one graph. Pressure, temperature, water level, steam flow, valve positions, fuel input, and turbine output all influence each other. Real systems also require:
-
-- safe control logic;
-- reliable communication between subsystems;
-- structured historical storage;
-- monitoring and alarms;
-- clear access control;
-- explainable operational insight.
-
-CogniBoiler addresses this by creating a software platform where all of those concerns can live together.
-
-At a high level, the project helps answer questions like these:
-
-- What does a realistic industrial steam system look like in software?
-- How can a digital twin be structured as a modern microservice platform?
-- How can control, telemetry, storage, APIs, and AI coexist in one architecture?
-- How can simulation data be turned into useful signals for anomaly detection and maintenance planning?
-
----
-
-## How to Think About the Platform
-
-The easiest way to understand CogniBoiler is to imagine a **virtual industrial plant** built out of software services.
-
-Each service has a specific job.
-
-Some services are responsible for **simulating the physical process**.
-Some are responsible for **control and commands**.
-Some move data between layers using **industrial protocols**.
-Some store the system’s history.
-Some expose information through a web API.
-Some will analyse the data with machine learning.
-
-Together, they form a system that behaves like a miniature industrial ecosystem.
-
-You can think of CogniBoiler as a combination of:
-
-- a **physics simulator**;
-- a **virtual automation stack**;
-- a **data platform**;
-- an **AI-assisted monitoring system**.
-
----
-
-## Core Capabilities
-
-CogniBoiler is being designed to provide the following broad capabilities.
-
-### 1. Physics-based process simulation
-
-The platform models boiler and turbine behaviour using engineering and thermodynamic logic rather than arbitrary fake numbers. The purpose is to generate system states that behave like a real process and respond to control actions in a realistic way.
-
-### 2. Virtual industrial control
-
-The project includes a virtual control layer intended to resemble PLC-style behaviour. This includes actuator logic, operating constraints, and safety-oriented decision paths.
-
-### 3. Real-time telemetry streaming
-
-The system is built to move process data in near real time between components, allowing live monitoring, state distribution, and downstream processing.
-
-### 4. Historical recording
-
-Operational data can be recorded as time series so the platform has memory. This is essential for dashboards, diagnostics, model training, and later analysis.
-
-### 5. External access through APIs
-
-A web gateway provides a structured way for external clients to read system state, retrieve history, and submit controlled actions.
-
-### 6. Industrial protocol integration
-
-The architecture includes technologies commonly used in industrial and plant environments, which makes the project relevant beyond pure software experimentation.
-
-### 7. AI-assisted operational intelligence
-
-The platform is designed to support anomaly detection, efficiency guidance, and predictive maintenance based on simulated operational history.
-
----
-
-## System Architecture
-
-CogniBoiler follows a **microservice-oriented architecture**.
-
-That means the platform is split into multiple focused services rather than one giant application. Each service owns a specific responsibility and communicates with others through explicit contracts.
-
-At a conceptual level, the architecture looks like this:
-
-- **Process simulation services** generate the operational state.
-- **Control services** interpret commands and enforce operating logic.
-- **Messaging services** move data through the system.
-- **Historical storage services** record process behaviour over time.
-- **Integration services** expose data using industrial protocols.
-- **API services** provide external access for dashboards and clients.
-- **AI services** consume historical and real-time data to produce higher-level insight.
-
-This kind of structure helps keep the platform modular, understandable, and extensible.
-
----
-
-## Main Components
-
-### Physics Engine
-
-The Physics Engine is the heart of the digital twin.
-
-Its job is to simulate how the boiler and turbine behave over time. Instead of using random placeholder numbers, it is intended to model relationships between physical quantities such as:
-
-- pressure;
-- temperature;
-- water level;
-- energy balance;
-- steam flow;
-- turbine output.
-
-This makes it possible to generate realistic operating scenarios and use them as the foundation for monitoring, control, and AI training.
-
-### PLC Controller
-
-The PLC Controller is the virtual control layer.
-
-In real industrial environments, PLCs and related control systems are responsible for turning high-level goals into low-level actions. CogniBoiler mirrors that idea in software.
-
-The controller layer is meant to:
-
-- receive commands or target values;
-- manage actuators such as valves;
-- apply operating logic;
-- respect safety constraints;
-- keep the simulated process within acceptable limits.
-
-### API Gateway
-
-The API Gateway acts as the main external entry point.
-
-It is responsible for exposing the platform to clients through a controlled and structured HTTP/WebSocket interface. This is where status queries, command submission, authentication, and future web integrations naturally belong.
-
-### Historian
-
-The Historian stores process history.
-
-Industrial systems are heavily dependent on historical trends. You usually do not understand a boiler from a single value; you understand it from how values change over time.
-
-The Historian is designed to:
-
-- consume live telemetry;
-- store it as time-series data;
-- support trend visualisation;
-- enable retrospective analysis;
-- feed future AI models.
-
-### OPC UA Server
-
-The OPC UA Server is the industrial interoperability layer.
-
-OPC UA is widely used in automation and industrial environments to expose machine state and structured variables. In CogniBoiler, this layer allows the digital twin to behave more like an industrial-grade system and less like a simple software-only experiment.
-
-### Alert Manager
-
-The Alert Manager is intended to handle abnormal events and structured alarm workflows.
-
-Its role is to centralise operational signals such as warnings, alarms, and event records so they can be stored, reviewed, and acted upon in a disciplined way.
-
-### AI Predictor
-
-The AI Predictor is the intelligence layer of the platform.
-
-It is designed to transform raw plant history into higher-level interpretation. Rather than only answering “what is the current pressure?”, it aims to answer questions like:
-
-- Is the current behaviour normal?
-- Is the system drifting away from an efficient operating point?
-- Does this pattern suggest future maintenance risk?
-
----
-
-## AI Layer
-
-> **Status: deferred.** The models below are the long-term direction. They are not being built yet: the rest of the platform is completed first, and it is designed so the AI layer can be added later without changing how the plant is controlled.
-
-One of the defining ideas of CogniBoiler is that machine learning should not be an isolated add-on. It should be part of the broader operational architecture.
-
-The planned AI layer is centered around three major classes of intelligence.
-
-### Anomaly Detection
-
-This part of the platform is intended to identify behaviour that deviates from learned normal operating patterns.
-
-In practical terms, anomaly detection helps answer:
-
-- Is the plant behaving in a way that looks unusual?
-- Does this pattern resemble drift, instability, or degradation?
-- Should this be surfaced as an operational concern?
-
-### Efficiency Advisory
-
-This part of the platform is intended to estimate or recommend operating targets that improve efficiency while respecting physical and operational constraints.
-
-The purpose is not to replace the control system directly, but to support better decisions by highlighting more effective operating regions.
-
-### Predictive Maintenance
-
-This part of the platform is intended to infer component health and estimate future maintenance risk from observed behaviour over time.
-
-Instead of only reacting when something fails, the goal is to recognise gradual degradation early enough to act before failure becomes critical.
-
-### Why the AI Layer Matters
-
-The AI features are especially interesting because they are designed to be trained from the digital twin itself.
-
-That means the physics and data layers are not just for visualisation. They also create the foundation for model development, experimentation, and intelligent diagnostics.
-
----
-
-## Industrial Communication and Data Flow
-
-CogniBoiler is not just about calculations inside one Python process. It is designed as a connected system where information flows between services.
-
-At a broad level, the expected data movement looks like this:
-
-### Process data flow
-
-1. The simulation layer generates system state.
-2. That state is published into the internal communication backbone.
-3. Storage and integration services consume the data.
-4. Dashboards and APIs expose current and historical state.
-
-### Command flow
-
-1. A user or client issues a command through the gateway.
-2. The command is validated and routed to the relevant control layer.
-3. The control logic updates the process or the virtual actuators.
-4. The resulting process state is propagated back through telemetry.
-
-### AI flow
-
-1. Historical and/or live data is collected.
-2. The AI layer evaluates the behaviour.
-3. The result is converted into events, recommendations, or maintenance-oriented signals.
-4. Those results can be surfaced through APIs, dashboards, or alerting paths.
-
-This architecture reflects an important engineering idea: **information is a first-class part of the system**, not an afterthought.
-
----
-
-## Security and Reliability Philosophy
-
-CogniBoiler is designed with the assumption that industrial-style systems should not be open by default.
-
-Even though the project is still evolving, its direction clearly includes structured security principles such as:
-
-- authentication before sensitive operations;
-- role-based access control;
-- separation of concerns between services;
-- auditability of actions;
-- secure communication between components;
-- operational logging and observability.
-
-This matters because a realistic industrial platform is not only about simulating physics. It is also about representing how real systems are governed, monitored, and protected.
-
-Reliability is treated as part of the design as well. That includes ideas such as:
-
-- clear service boundaries;
-- explicit contracts between components;
-- structured telemetry;
-- historical storage;
-- validation and tests;
-- support for monitoring and operational visibility.
-
----
-
-## Who This Project Is For
-
-CogniBoiler can be interesting to several different audiences.
-
-### Software engineers
-
-Developers can use it as an example of how to build a serious multi-service system with APIs, messaging, storage, observability, and security.
-
-### Industrial and control engineers
-
-Automation-oriented readers can use it as a software interpretation of process control, telemetry flow, and industrial integration concepts.
-
-### Data and ML practitioners
-
-People working in machine learning can view it as a self-contained environment for building models on top of synthetic operational data.
-
-### Students and learners
-
-Anyone trying to understand what a modern industrial software system looks like can use the project as a structured learning artifact.
-
-### Employers and technical reviewers
-
-As a portfolio project, CogniBoiler demonstrates not only coding ability, but also architectural thinking, system design, and domain modeling.
-
----
-
-## Typical Use Cases
-
-Although the platform is not yet positioned as a finished commercial product, its architecture naturally supports several meaningful use cases.
-
-### Educational demonstration
-
-The project can help explain how a boiler-turbine system, control layer, communication stack, and AI layer fit together.
-
-### Portfolio-grade systems engineering
-
-CogniBoiler shows the ability to design and implement a complex technical system that crosses several disciplines at once.
-
-### Simulation-driven experimentation
-
-It can be used as a sandbox for testing control logic, telemetry designs, storage models, and AI methods without requiring a real industrial plant.
-
-### Synthetic data generation
-
-The project can generate realistic operational data for downstream analytics and machine learning experiments.
-
-### Industrial software prototyping
-
-The architecture can serve as a prototype for ideas related to digital twins, remote monitoring, predictive analytics, or process optimisation.
-
----
-
-## Technology Overview
-
-CogniBoiler combines several technology domains into one platform.
-
-### Application and service layer
-
-Python is used as the main implementation language, with a monorepo layout managed through `uv`.
-
-### API and backend layer
-
-FastAPI and related backend technologies support structured external access and service orchestration.
-
-### Simulation and numerical computation
-
-Scientific Python tooling supports modeling, numerical processing, and dataset generation.
-
-### Messaging and contracts
-
-Protobuf, gRPC, and MQTT provide typed contracts and service communication.
-
-### Industrial integration
-
-OPC UA brings the project closer to real automation and plant-style interoperability.
-
-### Data storage and visualisation
-
-Time-series and relational storage, combined with dashboarding tools, support both operational visibility and historical analysis.
-
-### AI and model lifecycle
-
-Machine learning frameworks and model-management tooling support future development of intelligent diagnostics and advisory systems.
-
-The significance of this stack is not just that it is “modern”. It is that each part supports a real responsibility in the platform.
-
----
-
-## Project Status
-
-CogniBoiler is **under active development**, working toward a complete, demonstrable platform without the AI layer first.
-
-What runs today, end to end, with one command:
-
-- **physics-engine** — energy-conserving 300 MW drum unit, scenarios and labelled faults, simulation control, unit performance, gRPC state API, MQTT telemetry;
-- **plc-controller** — coordinated load, pressure, level and steam-temperature control, AUTO/MANUAL/ESTOP, safety interlocks and an E-Stop latch;
-- **alert-manager** — alarm lifecycle with acknowledgement and history;
-- **api-gateway** — sessions with rotated refresh tokens, roles, user administration, append-only audit, REST with Problem Details, WebSocket channels (`/ws`), simulation control, history and KPIs;
-- **historian** — telemetry, KPIs, scenario and fault labels, alarm changes and PLC events in InfluxDB, with retention and one-minute aggregates;
-- **opcua-server** — OPC UA address space of the plant, PLC and alarms, with methods run as the signed-in gateway user;
-- **Grafana** with provisioned Process, Efficiency and emissions, Alarms and Platform dashboards;
-- **web** — the operator console (React + TypeScript + Vite): sign-in, a live SVG mimic of the unit, trends with history and KPIs, alarms with acknowledgement and an audible annunciator, load and mode control with confirmations, the engineer's simulation and fault panel, the audit log, user administration, platform health; dark by default — a control room is dim and a white mimic is glare — with light and follow-the-system a click away;
-- **delivery** — one image per service, Compose profiles, CI that starts the whole stack and runs the smoke and Playwright checks and an image scan, images published to GitHub Container Registry, and a GitHub release for every version tag.
-
-Known gaps are listed in [docs/architecture/overview.md](docs/architecture/overview.md#known-gaps).
-
----
-
-## Getting Started
-
-**Prerequisites:** Git, [uv](https://docs.astral.sh/uv/), Docker with Compose v2, and — for the web console only — Node.js 22+ with pnpm (via corepack or a standalone install). uv installs the pinned Python 3.14 itself.
+- [What it is](#what-it-is) · [Run it](#run-it) · [The five-minute demo](#the-five-minute-demo)
+  · [Screens](#screens) · [How it works](#how-it-works) · [Inside](#inside)
+  · [Quality and security](#quality-and-security) · [Status and scope](#status-and-scope)
+  · [Development](#development) · [Documentation](#documentation)
+
+## What it is
+
+- **A plant model** of a drum boiler and a steam turbine, built on energy and mass
+  balances and IAPWS-97 steam tables: drum pressure, level and temperature, furnace,
+  superheater, turbine and condenser, efficiency, heat rate, CO₂ and NOx, equipment wear.
+  Six scenarios (steady, part and full load, hot and cold start, a pump drill) and six kinds
+  of fault an engineer can inject: burner fouling, a steam leak, a feedwater pump failure,
+  a stuck valve, a drifting and a failed instrument.
+- **A virtual PLC that is the only way to a valve.** Coordinated control — the turbine on
+  power, the boiler on pressure, three-element drum level, spray on steam temperature —
+  AUTO, MANUAL and E-STOP, interlocks that trip the unit, and a trip that stays latched
+  until an engineer resets it once its cause has cleared.
+- **A platform around it,** as a plant has one: six Python services on MQTT, gRPC and
+  OPC UA, a historian in InfluxDB, an alarm lifecycle in PostgreSQL, a gateway with
+  sign-in, roles and an audit log nobody can edit, an operator console, Grafana dashboards
+  and Prometheus metrics.
+- **One command, one machine, no internet** once the images are built. Everything is
+  Docker Compose.
+
+It is a portfolio project: a working model of how plant software is put together, not a
+control system for a real plant. An AI layer is planned and deliberately deferred — nothing
+in the platform needs it ([status](#status-and-scope)).
+
+## Run it
+
+**You need** Git, [uv](https://docs.astral.sh/uv/) and Docker with Compose v2. uv installs
+the pinned Python 3.14 by itself; Node.js is only needed to work on the console.
 
 ```bash
-uv sync --all-packages                              # Python 3.14 environment from uv.lock
+git clone https://github.com/dimbo1324/CogniBoiler.git && cd CogniBoiler
+uv sync --all-packages                              # the Python environment, from uv.lock
 python dev_tools_scripts_runner.py dev-secrets      # .env with generated local secrets
-python dev_tools_scripts_runner.py stack up         # build and start everything, wait for health
+python dev_tools_scripts_runner.py stack up         # build, start, wait until healthy
 python dev_tools_scripts_runner.py smoke            # end-to-end check through the gateway
-python dev_tools_scripts_runner.py demo             # play the five-minute demo scenario
-python dev_tools_scripts_runner.py backup           # databases into backups/<UTC stamp>/
 ```
 
-| What | Where |
+On an empty Docker this took 4 min 34 s from `git clone` to a green `smoke`, most of it the
+first image build; later starts take seconds.
+
+| Open | Where |
 |---|---|
-| Operator console | http://localhost:8080 — sign in as a demo user; https://localhost:8443 with the self-signed certificate from `.env` |
-| API and OpenAPI docs | http://localhost:8080/docs · readiness http://localhost:8080/ready (the gateway is reached only through nginx) |
-| Grafana | http://localhost:3000 (credentials in `.env`) — the Platform dashboard shows service metrics |
-| Prometheus | http://localhost:9090 — every service's `/metrics` |
-| OPC UA | `opc.tcp://localhost:4840/cogniboiler` — anonymous read; sign in as a demo user to call methods (the password is encrypted with the server's certificate, or use the Basic256Sha256 endpoint) |
-| Console dev server | `pnpm --dir apps/web install`, then `pnpm --dir apps/web dev` → http://localhost:5173, proxied to the stack |
-| Service logs | `logs/<service>.log` in the repository — one JSON object per line, rotated at 10 MiB; `python dev_tools_scripts_runner.py stack logs <service>` follows a container's output |
+| **Operator console** | http://localhost:8080 — or https://localhost:8443 with the self-signed certificate |
+| API and its OpenAPI docs | http://localhost:8080/docs |
+| Grafana | http://localhost:3000 — dashboards Process, Efficiency and emissions, Alarms, Platform |
+| Prometheus | http://localhost:9090 |
+| OPC UA | `opc.tcp://localhost:4840/cogniboiler` — anonymous read; methods as a signed-in user |
 
-Demo users `admin`, `engineer`, `operator` and `viewer` are created on start; their passwords are the `DEMO_*_PASSWORD` values in `.env`. `dev-secrets` also writes the broker's per-service accounts, the database roles' passwords and the self-signed certificates for HTTPS and OPC UA. Nothing in `.env` is ever committed.
+**Sign in** as `viewer`, `operator`, `engineer` or `admin`. Their passwords are the
+`DEMO_*_PASSWORD` values `dev-secrets` wrote into `.env`; so are Grafana's, the broker's
+and the databases'. Nothing in `.env` is ever committed.
 
-Stop with `python dev_tools_scripts_runner.py stack down` (add `--volumes` to wipe the databases).
+Stop with `python dev_tools_scripts_runner.py stack down`. `backup` and `restore` save and
+put back both databases; the [command reference](.ai/project/14-command-reference.md)
+has every option.
 
-Back up the databases with `python dev_tools_scripts_runner.py backup`: it writes `backups/<UTC stamp>/` with a PostgreSQL dump and an InfluxDB backup, taken inside their own containers, so no password or token is ever passed on a command line. `python dev_tools_scripts_runner.py restore --list` shows what can be put back and `restore --from <stamp>` puts it back, after asking.
-
-`stack up` starts the Compose profile `full`. `--profile infra` starts only the broker and the databases (for running the services from the host), `core` adds every service and the console, and `observability` is Prometheus, Grafana and InfluxDB.
-
-**A published release, without building.** Every push to `main` and every tag `vX.Y.Z` publishes the images as `ghcr.io/dimbo1324/cogniboiler/<service>`, and a tag also gets a GitHub release; the packages are public, so no `docker login` is needed. Check out the release's tag (Compose mounts the broker, Grafana, Prometheus and nginx configuration from the repository), then:
+## The five-minute demo
 
 ```bash
-python dev_tools_scripts_runner.py dev-secrets
-COGNIBOILER_REGISTRY=ghcr.io/dimbo1324/cogniboiler COGNIBOILER_TAG=v1.0.0 python dev_tools_scripts_runner.py stack up --no-build
+python dev_tools_scripts_runner.py demo
 ```
 
-`python dev_tools_scripts_runner.py demo` plays the five-minute scenario through the gateway with the console open beside it: the unit goes to 300 MW, a feedwater pump fails, alarms are raised, the interlocks trip the unit, the operator acknowledges, the pump is repaired, the E-Stop is reset and the unit comes back on load — then the audit log shows who did what, to the second. It runs the simulation ten times faster, leaves the unit at nominal in real time, and fails if any service logged an error while it ran.
+plays the scenario below through the gateway in about three and a half minutes — at ten
+times real speed, the restart after the trip at three — while you watch the console, then
+prints the audit log and fails if any service wrote an error line. It leaves the unit where
+it found it: nominal load, no fault, real time.
 
-`python dev_tools_scripts_runner.py console-e2e` runs the console's Playwright checks against the running stack, including the five-minute demo; it installs Playwright's Chromium on first use and reads the demo passwords from `.env`. The demo check trips and resets the running unit, so do not run it while presenting.
+| | What happens | Who does it | Where to look |
+|---|---|---|---|
+| 1 | The unit runs at 250 MW in AUTO | — | Overview: the mimic, the PLC panel |
+| 2 | The load demand goes to 300 MW; the unit ramps at 30 MW/min | operator | Control → Load |
+| 3 | The feedwater pump fails | engineer | Engineer → Faults |
+| 4 | The drum level falls: a warning, then a critical alarm | — | the alarm banner, Alarms |
+| 5 | The interlock shuts the fuel and latches E-STOP | the PLC | the red E-STOP badge |
+| 6 | The operator acknowledges; the flashing and the horn stop | operator | Alarms → Acknowledge all |
+| 7 | The pump is repaired and the drum refills | engineer | Engineer → Faults → Clear |
+| 8 | The console says the cause has cleared; the engineer resets | engineer | Control → Emergency stop |
+| 9 | The unit returns to AUTO and ramps back to its load | the PLC | Overview |
+| 10 | Who did what, to the second | admin | Audit, filtered to `/api/v1/commands` |
 
----
+To play it by hand, open the console in three windows — operator, engineer, admin — and set
+the speed on the Engineer screen. Reset the trip at three times speed or slower: at ten, a
+restart can trip the unit a second time on high steam temperature (a [known
+gap](docs/architecture/overview.md#known-gaps)).
+
+![The unit tripped: E-STOP, the flashing critical alarm, the drum emptied and the fuel shut](docs/images/trip.png)
+
+## Screens
+
+| | |
+|---|---|
+| ![Overview: the live mimic of the unit, the PLC and the unit panels](docs/images/overview.png) | ![Trends: live values of the unit with recorded history and KPIs](docs/images/trends.png) |
+| **Overview** — the mimic, the PLC mode and targets, standing alarms, the unit | **Trends** — any parameter, live or over 15 min to 24 h, with KPIs for the range |
+| ![Alarms: active alarms with their state, value, limit and acknowledgement](docs/images/alarms.png) | ![Control: load, mode, manual valves, setpoints, every command confirmed first](docs/images/control.png) |
+| **Alarms** — the lifecycle, acknowledgement with a comment, history with filters | **Control** — load, mode, valves, setpoints; each command confirmed, each refusal explained |
+| ![Engineer: simulation speed, scenarios, fault injection and the log of runs](docs/images/engineer.png) | ![Audit: who did what, from where, with which outcome, to the second](docs/images/audit.png) |
+| **Engineer** — speed, scenarios, faults and the log of what was done to the plant | **Audit** — every change and every refusal, with the user, the role and the outcome |
+
+The console is dark by default — a control room is dim — and shows each screen only to the
+roles allowed to use it: a viewer watches, an operator runs the unit, an engineer also sets
+targets, resets trips and drives the simulation, an admin also reads the audit log and
+manages users. The gateway enforces the same rules on every request.
+
+## How it works
+
+```mermaid
+flowchart LR
+  browser["Browser<br/>operator console"] --> web["web<br/>nginx + React"]
+  scada["OPC UA client"] --> opc["opcua-server"]
+  web --> gw["api-gateway<br/>REST · WebSocket<br/>roles · audit"]
+  opc -- "methods, as the<br/>signed-in user" --> gw
+  gw -- "gRPC: commands" --> plc["plc-controller<br/>virtual PLC"]
+  plc -- "gRPC: valve positions" --> phy["physics-engine<br/>boiler · turbine"]
+  gw -- "gRPC: state, simulation control" --> phy
+  gw -- "gRPC: alarms" --> am["alert-manager"]
+  phy -- "telemetry" --> mq[("Mosquitto<br/>MQTT")]
+  plc -- "alarm conditions, events" --> mq
+  am -- "alarm changes" --> mq
+  mq --> hist["historian"] --> influx[("InfluxDB")]
+  mq --> am --> pg[("PostgreSQL")]
+  mq --> opc
+  mq --> gw
+  gw --> pg
+  gw -- "history, KPIs" --> influx
+  grafana["Grafana"] --> influx
+```
+
+| Service | Owns | Speaks |
+|---|---|---|
+| `physics-engine` | the plant: the only writer of process state, one step per simulated second | gRPC `PhysicsService`, MQTT telemetry |
+| `plc-controller` | control, interlocks, the E-Stop latch, alarm conditions | gRPC `PLCService`, MQTT alarms and events |
+| `alert-manager` | the alarm lifecycle: raised, acknowledged, cleared, closed | gRPC `AlarmService`, MQTT alarm changes, PostgreSQL |
+| `historian` | telemetry, KPIs, labels and events over time, retention, one-minute aggregates | MQTT in, InfluxDB out |
+| `api-gateway` | users, sessions, roles, the audit log, the one door for people | REST, WebSocket, gRPC clients |
+| `opcua-server` | an OPC UA view of the plant, the PLC and the alarms | OPC UA, MQTT in, the gateway for methods |
+| `web` | the operator console | the gateway only, through nginx |
+
+**Telemetry** goes up: every simulated second the physics engine publishes the plant on
+MQTT; the historian records it, the OPC UA server projects it, and the gateway streams it to
+the console over a WebSocket. **Commands** go down one path only: console → gateway (role
+checked, audited) → PLC (validated, interlocks applied) → plant. Nothing reaches a valve
+around the PLC: its gRPC port is not even published outside the Compose network.
+
+The rules that must never break — one owner of process state, the PLC as the only way to
+an actuator, interlocks no flag can disable, SI units and UTC milliseconds in every
+contract, an append-only audit log, no secret in the repository — are written down in
+[the invariants](docs/architecture/invariants.md) and held by tests.
+
+## Inside
+
+| Area | What is used, and for what |
+|---|---|
+| Services | Python 3.14 in one uv workspace; asyncio throughout, strict mypy |
+| Plant model | NumPy, SciPy and IAPWS-97 steam properties |
+| Contracts | Protocol Buffers and gRPC between services; MQTT (Mosquitto, a per-service account and ACL); an OpenAPI schema the console's types are generated from |
+| Gateway | FastAPI, RS256 JWT access tokens with rotated refresh tokens, Argon2id passwords, SQLAlchemy and Alembic |
+| Storage | PostgreSQL 16 (users, sessions, audit, alarms), InfluxDB 2 (time series) |
+| Industrial edge | OPC UA with asyncua: `Basic256Sha256` signed and encrypted, or anonymous read |
+| Console | React 19, TypeScript, Vite, TanStack Query, uPlot trends, Lucide icons |
+| Observability | JSON logs with a correlation id across gRPC, Prometheus metrics, Grafana dashboards |
+| Delivery | Docker Compose profiles, one image per service, GitHub Actions, images on GHCR |
+
+## Quality and security
+
+- **One quality gate** — `python dev_tools_scripts_runner.py quality-gate`, the same one CI
+  runs: ruff, strict mypy, about 1 080 service tests (no broker, database or network
+  needed), about 210 console tests, the contract checks (protobuf stubs, OpenAPI and the
+  console's types, the agents' rules), the scripts' own tests and the console build.
+- **CI starts the whole stack** on every push, runs `smoke` and 22 Playwright checks of
+  the console — the demo among them, played by three users at once — and scans every image
+  with Trivy; a separate job audits the locked dependencies.
+- **Security that is part of the design:** every mutating request needs a role and writes
+  an audit row the database will not let anyone update or delete; each service has its own
+  broker account and database role; refresh tokens rotate and a replayed one closes the
+  session; sign-in failures are throttled without telling whether the account exists;
+  names reaching a time-series query are escaped where the query is built; secrets live
+  only in `.env`, generated per machine.
+
+## Status and scope
+
+Version 1.0 is being finished: everything described above runs, and the remaining step is
+the release itself. Built and working: the plant with its scenarios and faults, the PLC, the
+alarms, the historian with retention and aggregates, the gateway, OPC UA, the console,
+Grafana and Prometheus, backups, the scripted demo, and the delivery pipeline.
+
+**Deliberately not there:**
+
+- **AI.** Anomaly detection, efficiency advice and predictive maintenance are a later stage.
+  The platform is built so it can be added without changing how the plant is controlled:
+  the scenario and fault labels a model would learn from are already recorded, and names
+  for its contracts are reserved. No service depends on it.
+- **Kubernetes.** Compose on one machine is the target of 1.0; a Helm chart is optional
+  and later.
+
+Known gaps, each with its planned fix, are listed in
+[the architecture overview](docs/architecture/overview.md#known-gaps).
 
 ## Development
 
-All routine work goes through one cross-platform script orchestrator, used the same way by people, AI agents and CI:
+Every routine job goes through one cross-platform script runner — the same for people, AI
+assistants and CI:
 
 ```bash
-python dev_tools_scripts_runner.py list             # the catalog
-python dev_tools_scripts_runner.py quality-gate     # ruff, strict mypy, all tests, contract and rule sync checks, frontend checks
-python dev_tools_scripts_runner.py format-code      # ruff + Prettier
-python dev_tools_scripts_runner.py install-hooks    # pre-commit formatting hook, once per clone
+python dev_tools_scripts_runner.py list             # the catalogue, with what each script does
+python dev_tools_scripts_runner.py quality-gate     # everything CI checks; --quick before a push
+python dev_tools_scripts_runner.py format-code      # ruff and Prettier
+python dev_tools_scripts_runner.py console-e2e      # Playwright against the running stack
+python dev_tools_scripts_runner.py readme-media     # this page's screenshots and GIF, from the stack
 python dev_tools_scripts_runner.py doctor           # what this machine has and lacks
-python dev_tools_scripts_runner.py audit-deps       # known vulnerabilities in the locked dependencies
 ```
 
-The `Makefile` offers the same commands as short aliases (`make gate`, `make up`, …).
-
----
+The console alone: `pnpm --dir apps/web install`, then `pnpm --dir apps/web dev` →
+http://localhost:5173, proxied to the stack. A service alone, with the stack's
+infrastructure: `stack up --infra-only`, then `uv run --package <service> python -m
+<package>`.
 
 ## Documentation
 
-- [Architecture overview](docs/architecture/overview.md) — what is actually built: services, contracts, storage, known gaps.
+- [Architecture overview](docs/architecture/overview.md) — what is built: services, MQTT
+  topics, storage, the console, the pipeline, known gaps.
 - [Service boundaries](docs/architecture/service-boundaries.md) — which service owns what.
-- [Invariants](docs/architecture/invariants.md) — what must never break.
-- [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md) — working rules for AI assistants contributing to the repository.
+- [Invariants](docs/architecture/invariants.md) — what must never break, and why.
+- [Command reference](.ai/project/14-command-reference.md) — ports, running a service from
+  the host, topics, platform notes.
+- [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md) — the working rules for AI assistants
+  contributing here. [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md) for
+  people.
 
----
+## License
 
-## Design Principles
-
-Several principles define the spirit of the project.
-
-### 1. Realism over toy simplification
-
-The platform aims to reflect how industrial software is actually structured.
-
-### 2. Clear boundaries between responsibilities
-
-Each service should have an understandable purpose and a controlled interface.
-
-### 3. Data should be useful, not decorative
-
-Telemetry, historical storage, and model outputs should all support meaningful analysis.
-
-### 4. AI should be grounded in system behaviour
-
-The AI layer is intended to learn from the behaviour of the simulated system rather than from disconnected synthetic randomness.
-
-### 5. Engineering clarity matters
-
-The system is meant to be understandable, inspectable, and explainable to humans.
-
-### 6. Security and observability are part of the architecture
-
-They are not “extra polish”; they are part of what makes a system realistic and trustworthy.
-
----
-
-## Long-Term Direction
-
-CogniBoiler is designed with room to grow.
-
-The broader vision includes a platform that can eventually support:
-
-- richer physical simulation;
-- more advanced control strategies;
-- stronger industrial interoperability;
-- deeper observability and diagnostics;
-- more capable AI-driven analysis;
-- clearer operational and educational interfaces.
-
-In other words, the long-term goal is not just to model one machine. It is to build a convincing software environment around how such a machine would be simulated, controlled, observed, and analysed in a modern engineering context.
-
----
-
-## Final Note
-
-CogniBoiler is a project about **systems thinking**.
-
-It connects physics, software architecture, control logic, industrial communication, historical data, security, and AI into one design.
-
-Even in its current evolving state, the project already represents a clear idea:
-
-> a digital twin should not only imitate a machine — it should also imitate the environment around that machine: its control layer, data layer, integration layer, and decision-support layer.
-
-That is what CogniBoiler is trying to build.
+[Apache License 2.0](LICENSE).
