@@ -4,3 +4,4 @@ coverage
 *.tsbuildinfo
 e2e-results
 e2e-report
+readme-results

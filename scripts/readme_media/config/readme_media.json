@@ -1,0 +1,38 @@
+{
+  "_comment": "The README's pictures. The capture runs the Playwright spec apps/web/readme/ against a running stack; the encode step writes docs/images/. Every file must stay under the repository's large-file limit (pre-commit check-added-large-files, 500 KiB): the encoder tries each attempt in order and keeps the first that fits.",
+  "url": "http://localhost:8080",
+  "web_dir": "apps/web",
+  "playwright_config": "playwright.readme.config.ts",
+  "raw_dir": "apps/web/readme-results/raw",
+  "out_dir": "docs/images",
+  "budget_kib": 450,
+  "screenshots": [
+    { "source": "overview.png", "target": "overview.png" },
+    { "source": "trip.png", "target": "trip.png" },
+    { "source": "trends.png", "target": "trends.png" },
+    { "source": "alarms.png", "target": "alarms.png" },
+    { "source": "control.png", "target": "control.png" },
+    { "source": "engineer.png", "target": "engineer.png" },
+    { "source": "audit.png", "target": "audit.png" }
+  ],
+  "screenshot_attempts": [
+    { "width": 1440, "colors": 256 },
+    { "width": 1280, "colors": 256 },
+    { "width": 1280, "colors": 128 },
+    { "width": 1120, "colors": 128 }
+  ],
+  "gif": {
+    "target": "demo.gif",
+    "manifest": "frames.json",
+    "max_frames": 40,
+    "frame_ms": 320,
+    "last_hold_ms": 3000,
+    "attempts": [
+      { "width": 960, "colors": 128 },
+      { "width": 880, "colors": 96 },
+      { "width": 800, "colors": 64 },
+      { "width": 720, "colors": 48 },
+      { "width": 640, "colors": 32 }
+    ]
+  }
+}

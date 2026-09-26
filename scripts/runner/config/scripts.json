@@ -228,6 +228,27 @@
     ]
   },
   {
+    "title": "readme-media",
+    "module": "scripts.readme_media",
+    "category": "platform",
+    "aliases": [
+      "screenshots"
+    ],
+    "cadence_ref": "on_demand",
+    "summary": {
+      "en": "Take the README's screenshots and demo GIF from a running stack.",
+      "ru": "Снять скриншоты и GIF демо для README с поднятого стека."
+    },
+    "description": {
+      "en": "Runs the Playwright spec in apps/web/readme/ against a running stack: it plays the five-minute demo at ten times real speed through the gateway, captures the main screens of the console and a frame of the operator's overview every second and a half, and leaves the unit at nominal in real time. Then it writes indexed-colour PNGs and one looping GIF into docs/images/, trying each size in its configuration until the file fits under the repository's 500 KiB limit. --skip-capture re-encodes the last capture without playing the demo again. It needs Pillow, from the project's development group, and hands itself to uv run when started by another Python. Neither console-e2e nor CI runs the spec: it records, it does not check. Do not run it during a live demo.",
+      "ru": "Запускает Playwright-сценарий из apps/web/readme/ против поднятого стека: проигрывает пятиминутное демо в десять раз быстрее через шлюз, снимает основные экраны консоли и кадр обзора оператора каждые полторы секунды, а в конце возвращает установку к номиналу в реальном времени. Затем пишет PNG с индексированной палитрой и один зацикленный GIF в docs/images/, перебирая размеры из конфигурации, пока файл не уложится в лимит репозитория 500 КиБ. --skip-capture перекодирует последнюю съёмку, не проигрывая демо снова. Нужен Pillow из группы разработки проекта; запущенный другим Python, скрипт передаёт себя в uv run. Ни console-e2e, ни CI этот сценарий не запускают: он снимает, а не проверяет. Не запускайте его во время живого демо."
+    },
+    "examples": [
+      "--url http://localhost:8080",
+      "--skip-capture"
+    ]
+  },
+  {
     "title": "generate-proto",
     "module": "scripts.generate_proto",
     "category": "platform",

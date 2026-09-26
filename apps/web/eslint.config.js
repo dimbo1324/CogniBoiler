@@ -4,7 +4,16 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", "coverage", "e2e-results", "e2e-report", "src/api/schema.gen.ts"] },
+  {
+    ignores: [
+      "dist",
+      "coverage",
+      "e2e-results",
+      "e2e-report",
+      "readme-results",
+      "src/api/schema.gen.ts",
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -20,7 +29,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["e2e/**/*.ts", "playwright.config.ts"],
+    files: ["e2e/**/*.ts", "readme/**/*.ts", "playwright.config.ts", "playwright.readme.config.ts"],
     languageOptions: {
       globals: globals.node,
     },

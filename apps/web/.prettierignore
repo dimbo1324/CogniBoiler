@@ -4,3 +4,4 @@ pnpm-lock.yaml
 src/api/schema.gen.ts
 e2e-results
 e2e-report
+readme-results
