@@ -128,26 +128,39 @@ manages users. The gateway enforces the same rules on every request.
 ## How it works
 
 ```mermaid
-flowchart LR
-  browser["Browser<br/>operator console"] --> web["web<br/>nginx + React"]
-  scada["OPC UA client"] --> opc["opcua-server"]
-  web --> gw["api-gateway<br/>REST · WebSocket<br/>roles · audit"]
-  opc -- "methods, as the<br/>signed-in user" --> gw
-  gw -- "gRPC: commands" --> plc["plc-controller<br/>virtual PLC"]
-  plc -- "gRPC: valve positions" --> phy["physics-engine<br/>boiler · turbine"]
-  gw -- "gRPC: state, simulation control" --> phy
-  gw -- "gRPC: alarms" --> am["alert-manager"]
-  phy -- "telemetry" --> mq[("Mosquitto<br/>MQTT")]
-  plc -- "alarm conditions, events" --> mq
+flowchart TB
+  console["Operator console<br/>browser, through nginx"]
+  scada["OPC UA client"]
+  gw["api-gateway<br/>roles · audit · the one door for people"]
+  opc["opcua-server"]
+  plc["plc-controller<br/>the only way to a valve"]
+  phy["physics-engine<br/>boiler · turbine"]
+  mq[("Mosquitto<br/>MQTT")]
+  am["alert-manager"]
+  hist["historian"]
+  pg[("PostgreSQL")]
+  influx[("InfluxDB")]
+
+  console <-- "REST · WebSocket" --> gw
+  scada <--> opc
+  opc -- "methods, as the user" --> gw
+  gw -- "commands" --> plc
+  plc -- "valve positions" --> phy
+  phy -- "state stream" --> gw
+  phy -- "telemetry" --> mq
+  plc -- "alarm conditions · events" --> mq
+  mq --> am
   am -- "alarm changes" --> mq
-  mq --> hist["historian"] --> influx[("InfluxDB")]
-  mq --> am --> pg[("PostgreSQL")]
+  mq --> hist
   mq --> opc
-  mq --> gw
+  mq -- "events · alarm changes" --> gw
+  am --> pg
   gw --> pg
-  gw -- "history, KPIs" --> influx
-  grafana["Grafana"] --> influx
+  hist --> influx
 ```
+
+*The main paths. The gateway also reads history and KPIs from InfluxDB and the alarm
+list from alert-manager over gRPC; Grafana reads InfluxDB and Prometheus.*
 
 | Service | Owns | Speaks |
 |---|---|---|
