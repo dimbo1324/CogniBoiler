@@ -324,4 +324,9 @@ Recorded with their planned fix in the internal roadmap:
 - an InfluxDB restart leaves a gap in the recorded history: the historian counts and drops
   the batches it cannot write (`historian_points_failed_total`) instead of buffering them;
 - sign-in throttling state lives in the single gateway process;
-- OPC UA accepts any client certificate (no trust list).
+- OPC UA accepts any client certificate (no trust list);
+- the superheater model has no metal heat capacity: at low steam flow its outlet
+  temperature jumps (below saturation on a sudden flow, to furnace gas temperature behind
+  shut valves), and a restart after an E-Stop reset at ten times real speed can trip the
+  unit a second time on high steam temperature. Restart at three times speed or slower —
+  `demo` does — and reset a latched trip before reloading a scenario.

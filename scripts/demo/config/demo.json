@@ -4,6 +4,7 @@
   "env_file": ".env",
   "log_dir": "logs",
   "speed_factor": 10.0,
+  "restart_speed_factor": 3.0,
   "scenario": "steady_state",
   "nominal_load_mw": 250.0,
   "target_load_mw": 300.0,

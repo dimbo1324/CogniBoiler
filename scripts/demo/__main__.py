@@ -393,6 +393,17 @@ def play(
         float(limits["recovery_s"]),
     )
 
+    # The restart runs slower than the rest: at ten times real speed the PLC's commands
+    # reach the plant a step late and a restart can trip again on high steam temperature
+    # (known defect Д17 of the roadmap).
+    restart_speed = min(speed, float(config["restart_speed_factor"]))
+    slowed = call(
+        base_url,
+        "POST",
+        "/api/v1/simulation/speed",
+        token=engineer,
+        payload={"speed_factor": restart_speed},
+    )
     reset = call(
         base_url,
         "POST",
@@ -402,8 +413,12 @@ def play(
     )
     demo.step(
         "the engineer resets the E-Stop",
-        reset.accepted,
-        reset.refusal if not reset.accepted else "the latch is open",
+        slowed.accepted and reset.accepted,
+        reset.refusal
+        if not reset.accepted
+        else slowed.refusal
+        if not slowed.accepted
+        else f"the latch is open; the restart runs at {restart_speed:g}×",
     )
     back_on_load = float(config["restart_load_mw"])
     demo.wait_for(

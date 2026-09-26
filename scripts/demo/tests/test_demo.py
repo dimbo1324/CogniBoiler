@@ -12,7 +12,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from scripts._toolkit.config import load_config
 from scripts.demo.__main__ import (
+    SCRIPT_DIR,
     Demo,
     Reply,
     audit_line,
@@ -190,6 +192,17 @@ class DemoNarratorTest(unittest.TestCase):
         self.assertFalse(passed)
         self.assertTrue(demo.failed)
         self.assertIn("250.0 MW", demo.rows[0][1])
+
+
+class ConfigurationTest(unittest.TestCase):
+    def test_the_restart_runs_slower_than_the_demo(self) -> None:
+        # At ten times real speed a restart can trip again (Д17); the demo slows down for
+        # it, and a demo asked to run slower still never speeds the restart up.
+        config = load_config(SCRIPT_DIR, "demo.json")
+        restart = float(config["restart_speed_factor"])
+        self.assertLessEqual(restart, 3.0)
+        self.assertLess(restart, float(config["speed_factor"]))
+        self.assertGreaterEqual(restart, 1.0)
 
 
 if __name__ == "__main__":
