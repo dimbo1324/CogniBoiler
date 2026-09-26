@@ -125,10 +125,22 @@ python dev_tools_scripts_runner.py console-e2e   # Playwright against the runnin
 
 `demo` plays the five-minute scenario of VISION §7 through the gateway at `--speed` (10 by
 default): nominal scenario, 300 MW, feedwater pump failure, warning and critical, trip,
-acknowledgement, repair, E-Stop reset, back on load, then the audit log. It sets and leaves
-the same starting state (nominal scenario, 250 MW demand, no fault, no latched trip, real
-time), so two runs in a row tell the same story, and it fails when any service wrote an
-`error` line into `logs/` while it ran.
+acknowledgement, repair, E-Stop reset, back on load, then the audit log. The restart after
+the reset runs at `restart_speed_factor` (3): at ten times real speed a restart can trip
+again on high steam temperature, known defect Д17. It sets and leaves the same starting
+state (nominal scenario, 250 MW demand, no fault, no latched trip, real time), so two runs
+in a row tell the same story, and it fails when any service wrote an `error` line into
+`logs/` while it ran.
+
+`readme-media` takes the README's pictures from a running stack: the Playwright spec in
+`apps/web/readme/` (its own `playwright.readme.config.ts`; neither `console-e2e` nor CI runs
+it) plays the same demo, captures seven screens and a frame of the operator's overview
+every 1.5 s, and leaves the unit at nominal in real time. The script then writes
+indexed-colour PNGs and `demo.gif` into `docs/images/`, trying the sizes in its
+configuration until each file fits the 500 KiB large-file limit; `--skip-capture`
+re-encodes the last capture. It needs Pillow from the development group and hands itself to
+`uv run`. A latched trip is reset before a scenario is reloaded, never after: reloading a
+hot plant behind shut valves trips it again (Д17).
 
 `console-e2e` installs Playwright's Chromium on first use (`--no-install` skips it) and starts
 the Vite dev server when no `--url` is given. Its demo check reloads the nominal scenario, runs

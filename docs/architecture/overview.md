@@ -307,7 +307,10 @@ all every 10 s in the Compose profiles `observability` and `full` (the default o
 - `python dev_tools_scripts_runner.py` is the developer-tools orchestrator: `quality-gate`,
   `format-code`, `audit-deps`, `sync-agents`, `stack`, `dev-secrets`, `smoke`, `console-e2e`,
   `generate-proto`, `generate-openapi`, `doctor`, `install-hooks`, `clean-caches`,
-  `demo`, `backup`, `restore`, `selftest`.
+  `demo`, `backup`, `restore`, `readme-media`, `selftest`. `readme-media` takes the README's
+  screenshots and GIF from a running stack with a Playwright spec of its own
+  (`apps/web/readme/`, which neither `console-e2e` nor CI runs) and writes them, each under
+  the 500 KiB large-file limit, into `docs/images/`.
 - The quality gate runs ruff, strict mypy, every service test suite, the protobuf,
   OpenAPI and `AGENTS.md` sync checks, the scripts' own tests, and the frontend checks when
   `apps/web/node_modules` exists. The service suites need no broker, database or network:

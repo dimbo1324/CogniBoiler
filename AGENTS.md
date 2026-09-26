@@ -438,8 +438,9 @@ agent or CI can call it safely.
 | `dev-secrets` | `.env` with generated secrets |
 | `smoke` | end-to-end check of a running stack; CI runs it |
 | `demo` | plays the VISION §7 scenario; fails on an `error` in `logs/` |
-| `backup` / `restore` | the stack's databases; `restore` asks before overwriting |
+| `backup` / `restore` | the databases; `restore` asks first |
 | `console-e2e` (`--url`) | Playwright checks of the console |
+| `readme-media` | README screenshots and GIF |
 | `generate-proto`, `generate-openapi` (`--check`) | gRPC stubs; OpenAPI and console types |
 | `doctor` | read-only toolchain check |
 | `install-hooks` | the pre-commit hook, once per clone |

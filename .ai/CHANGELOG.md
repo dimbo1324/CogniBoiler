@@ -6,6 +6,21 @@ History of changes to the AI assistant rule system (`.ai/`, `CLAUDE.md`, `AGENTS
 
 Format: date, what changed, why, who decided. Newest first.
 
+## 2026-09-26 — `readme-media` in the commands module, Д17 in the command reference
+
+**What changed.** `project/11-commands.md` lists `readme-media` (the README's screenshots
+and GIF, taken from a running stack); two cells of its table were shortened without
+changing a rule to stay inside the `AGENTS.md` budget, which now has 7 bytes to spare.
+`project/14-command-reference.md` describes the script, and says that `demo` restarts the
+unit at three times speed and that a latched trip is reset before a scenario is reloaded —
+both workarounds of known defect Д17.
+
+**Why.** A new routine job must be in the rules, and a workaround every presenter needs
+must be where the next session looks for commands. Factual additions, which
+`universal/08-rules-evolution.md` allows without approval.
+
+**Decided by.** Agent, as part of the owner-requested S13 step 6 of 2026-09-26.
+
 ## 2026-09-24 — The gate runs its checkers as modules, and the note that says why
 
 **What changed.** `scripts/quality_gate/config/steps.json` runs ruff, mypy and pytest as
