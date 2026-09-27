@@ -71,6 +71,7 @@ SUBSCRIPTIONS: tuple[tuple[str, int], ...] = (
     ("status/+", 1),
 )
 RECONNECT_DELAY_S: float = 5.0
+MAX_JSON_BYTES: int = 64 * 1024
 
 
 class HistorianSubscriber:
@@ -158,9 +159,11 @@ class HistorianSubscriber:
 
     @staticmethod
     def _json(raw: bytes) -> dict[str, Any] | None:
+        if len(raw) > MAX_JSON_BYTES:
+            return None
         try:
             value = json.loads(raw.decode("utf-8"))
-        except UnicodeDecodeError, json.JSONDecodeError:
+        except UnicodeDecodeError, ValueError, RecursionError:
             return None
         return value if isinstance(value, dict) else None
 
@@ -193,6 +196,16 @@ class HistorianSubscriber:
                 points = handler(raw_payload)
             except (DecodeError, ValueError) as exc:
                 logger.warning("Malformed payload on %s: %s", topic, exc)
+                points = None
+            except Exception as exc:
+                # A payload error must never reach MqttSession: it would drop the
+                # session and lose seconds of telemetry for one bad message.
+                logger.warning(
+                    "Payload on %s could not be recorded (%s: %s)",
+                    topic,
+                    type(exc).__name__,
+                    exc,
+                )
                 points = None
         else:
             if topic != TOPIC_HEARTBEAT:

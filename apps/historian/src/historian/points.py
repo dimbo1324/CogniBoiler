@@ -55,7 +55,10 @@ def _text(value: object, limit: int = _TEXT_LIMIT) -> str:
 def _finite(value: object) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
-    number = float(value)
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
     return number if math.isfinite(number) else None
 
 

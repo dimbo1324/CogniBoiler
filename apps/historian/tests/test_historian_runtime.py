@@ -286,6 +286,54 @@ class TestSubscriber:
         assert measurements == ["alarm_changes", "plc_events", "service_availability"]
         assert sub.stats == {"received": 10, "stored": 3, "skipped": 7}
 
+    @pytest.mark.parametrize("topic", ["alarms/changes", "plc/events"])
+    async def test_deeply_nested_json_is_skipped_not_raised(
+        self, topic: str, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # Escaping the handler, it tore down the MQTT session: 5 s without history.
+        sub = HistorianSubscriber(RecordingWriter())  # type: ignore[arg-type]
+        with caplog.at_level(logging.WARNING, logger="historian.subscriber"):
+            await sub._handle_message(topic, b"[" * 50_000)
+        assert sub.stats["skipped"] == 1
+        assert "MQTT error" not in caplog.text
+
+    async def test_an_oversized_json_payload_is_skipped(self) -> None:
+        store = RecordingWriter()
+        sub = HistorianSubscriber(store)  # type: ignore[arg-type]
+        huge = (
+            b'{"kind": "trip", "timestamp_ms": 1741000000000, "pad": "'
+            + b"x" * (64 * 1024)
+            + b'"}'
+        )
+        await sub._handle_message("plc/events", huge)
+        assert sub.stats["skipped"] == 1
+        assert store.lines == []
+
+    async def test_an_integer_too_large_for_a_float_does_not_escape(self) -> None:
+        store = RecordingWriter()
+        sub = HistorianSubscriber(store)  # type: ignore[arg-type]
+        alarm = {
+            "alarm": {"id": 10**400, "severity": "warning", "value": 10**400},
+            "transition": {"at_ms": 1_741_000_000_000, "to_state": "ACTIVE_UNACK"},
+        }
+        await sub._handle_message("alarms/changes", json.dumps(alarm).encode())
+        (line,) = store.lines
+        assert "alarm_id=0" in line and "value=" not in line
+
+    async def test_any_handler_failure_is_skipped_and_logged(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        sub = HistorianSubscriber(RecordingWriter())  # type: ignore[arg-type]
+
+        def broken(raw: bytes) -> None:
+            raise TypeError("unexpected shape")
+
+        monkeypatch.setitem(sub._handlers, "plc/events", broken)
+        with caplog.at_level(logging.WARNING, logger="historian.subscriber"):
+            await sub._handle_message("plc/events", b"{}")
+        assert sub.stats["skipped"] == 1
+        assert "plc/events" in caplog.text and "TypeError" in caplog.text
+
     async def test_points_are_batched_and_flushed_on_size(self) -> None:
         store = RecordingWriter()
         sub = HistorianSubscriber(store, batch_size=3, flush_interval_s=3600)  # type: ignore[arg-type]

@@ -209,6 +209,15 @@ class TestAlarmAndPlcPoints:
     ) -> None:
         assert points.build_alarm_change_point(payload) is None
 
+    def test_numbers_too_large_for_a_float_are_left_out(self) -> None:
+        point = points.build_alarm_change_point(
+            alarm_change(alarm={"id": 10**400, "value": 10**400, "threshold": 1})
+        )
+        assert point is not None
+        found = fields(point)
+        assert found["alarm_id"] == 0.0
+        assert "value" not in found and found["threshold"] == 1.0
+
     def test_missing_names_and_non_finite_numbers(self) -> None:
         point = points.build_alarm_change_point(
             alarm_change(
