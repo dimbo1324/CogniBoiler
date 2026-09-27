@@ -20,11 +20,18 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
+from cogniboiler_runtime import now_ms
+
 from alert_manager.views import AlarmView, TransitionView
 
 SUBSCRIBE_TOPIC: str = "alerts/#"
 TOPIC_SNAPSHOT: str = "alerts/snapshot"
 TOPIC_CHANGES: str = "alarms/changes"
+
+MAX_PAYLOAD_BYTES: int = 64 * 1024
+MAX_SNAPSHOT_KEYS: int = 1000
+MAX_KEY_LENGTH: int = 200
+MAX_FUTURE_SKEW_MS: int = 86_400_000
 
 SEVERITIES: frozenset[str] = frozenset({"warning", "critical"})
 REQUIRED_CONDITION_FIELDS: frozenset[str] = frozenset(
@@ -42,6 +49,10 @@ REQUIRED_CONDITION_FIELDS: frozenset[str] = frozenset(
 
 class PayloadError(ValueError):
     """A payload that is not a valid alarm message."""
+
+    def __init__(self, message: str, *, reason: str = "invalid") -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -72,11 +83,20 @@ class SnapshotReport:
     timestamp_ms: int
 
 
+def _refuse_constant(name: str) -> Any:
+    raise ValueError(f"{name} is not JSON")
+
+
 def _decode(raw: bytes) -> dict[str, Any]:
+    if len(raw) > MAX_PAYLOAD_BYTES:
+        raise PayloadError(
+            f"payload too large: {len(raw)} bytes > {MAX_PAYLOAD_BYTES}",
+            reason="too_large",
+        )
     try:
-        payload = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PayloadError(f"not JSON: {exc}") from exc
+        payload = json.loads(raw.decode("utf-8"), parse_constant=_refuse_constant)
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+        raise PayloadError(f"not JSON: {type(exc).__name__}") from exc
     if not isinstance(payload, dict):
         raise PayloadError("payload is not a JSON object")
     return payload
@@ -95,10 +115,22 @@ def _number(payload: dict[str, Any], field: str) -> float:
     value = payload.get(field)
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise PayloadError(f"{field} must be a number")
-    number = float(value)
+    try:
+        number = float(value)
+    except OverflowError as exc:
+        raise PayloadError(f"{field} must be a finite number") from exc
     if not math.isfinite(number):
         raise PayloadError(f"{field} must be finite")
     return number
+
+
+def _timestamp(payload: dict[str, Any], field: str = "timestamp_ms") -> int:
+    """UTC epoch milliseconds, from the epoch up to a day ahead of this clock."""
+    number = _number(payload, field)
+    latest = now_ms() + MAX_FUTURE_SKEW_MS
+    if not number.is_integer() or not 0 <= number <= latest:
+        raise PayloadError(f"{field} {payload.get(field)!r} is not a plausible time")
+    return int(number)
 
 
 def parse_condition(topic: str, raw: bytes) -> ConditionReport:
@@ -121,7 +153,8 @@ def parse_condition(topic: str, raw: bytes) -> ConditionReport:
         raise PayloadError(f"unknown state {state!r}")
 
     return ConditionReport(
-        key=_text(payload, "key") or f"{source}:{parameter}:{severity}",
+        key=_text(payload, "key", limit=MAX_KEY_LENGTH)
+        or f"{source}:{parameter}:{severity}",
         source_service=source,
         parameter=parameter,
         severity=severity,
@@ -133,7 +166,7 @@ def parse_condition(topic: str, raw: bytes) -> ConditionReport:
         message=_text(payload, "message", limit=2000),
         topic=topic[:128],
         active=state == "active",
-        timestamp_ms=int(_number(payload, "timestamp_ms")),
+        timestamp_ms=_timestamp(payload),
     )
 
 
@@ -143,13 +176,18 @@ def parse_snapshot(raw: bytes) -> SnapshotReport:
     keys = payload.get("active_keys")
     if not isinstance(keys, list) or not all(isinstance(key, str) for key in keys):
         raise PayloadError("active_keys must be a list of strings")
+    active_keys = frozenset(keys)
+    if len(active_keys) > MAX_SNAPSHOT_KEYS:
+        raise PayloadError(f"too many active_keys: {len(active_keys)}")
+    if any(len(key) > MAX_KEY_LENGTH for key in active_keys):
+        raise PayloadError(f"an active key is too long (> {MAX_KEY_LENGTH})")
     source = _text(payload, "source_service", limit=64)
     if not source:
         raise PayloadError("source_service must not be empty")
     return SnapshotReport(
         source_service=source,
-        active_keys=frozenset(keys),
-        timestamp_ms=int(_number(payload, "timestamp_ms")),
+        active_keys=active_keys,
+        timestamp_ms=_timestamp(payload),
     )
 
 

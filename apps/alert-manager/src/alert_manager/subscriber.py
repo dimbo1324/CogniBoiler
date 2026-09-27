@@ -27,7 +27,7 @@ from sqlalchemy.exc import (
 )
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
-from alert_manager.metrics import MESSAGES_FAILED
+from alert_manager.metrics import MESSAGES_FAILED, MESSAGES_REJECTED
 from alert_manager.payloads import (
     SUBSCRIBE_TOPIC,
     TOPIC_SNAPSHOT,
@@ -133,6 +133,7 @@ class AlertSubscriber:
                 )
         except PayloadError as exc:
             self._skipped += 1
+            MESSAGES_REJECTED.labels(exc.reason).inc()
             logger.warning("Alarm message on %s rejected: %s", topic, exc)
             return
         except SQLAlchemyError as exc:
@@ -210,6 +211,8 @@ class AlertSubscriber:
             if not isinstance(payload, bytes | bytearray):
                 self._received += 1
                 self._skipped += 1
+                MESSAGES_REJECTED.labels("not_bytes").inc()
+                logger.warning("Alarm message on %s is not bytes", message.topic)
                 continue
             await self._handle_message(str(message.topic), bytes(payload))
 

@@ -13,6 +13,11 @@ MESSAGES_FAILED = Counter(
     "alarm_messages_failed_total",
     "Condition messages the database refused for good (not an outage).",
 )
+MESSAGES_REJECTED = Counter(
+    "alarm_messages_rejected_total",
+    "Alarm messages refused as malformed, by reason.",
+    ["reason"],
+)
 SNAPSHOT_UNMATCHED_KEYS = Counter(
     "alarm_snapshot_unmatched_keys_total",
     "Keys a source snapshot lists as active with no active alarm: a lost activation.",

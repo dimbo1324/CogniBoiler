@@ -29,6 +29,7 @@ from alert_manager.processor import AlarmProcessor
 from alert_manager.publisher import AlarmChangePublisher
 from alert_manager.subscriber import AlertSubscriber
 from alert_manager.views import AlarmView, TransitionView
+from prometheus_client import REGISTRY
 from sqlalchemy.exc import (
     DataError,
     IntegrityError,
@@ -335,6 +336,13 @@ class RecordingHandler:
         self.snapshots.append(report)
 
 
+def rejected(reason: str) -> float:
+    value = REGISTRY.get_sample_value(
+        "alarm_messages_rejected_total", {"reason": reason}
+    )
+    return value or 0.0
+
+
 def delivery(topic: str, payload: object) -> SimpleNamespace:
     return SimpleNamespace(topic=topic, payload=payload)
 
@@ -478,6 +486,38 @@ class TestSubscriber:
         intake = AlertSubscriber(handler=handler)
         await intake._handle_message("alerts/critical", condition_payload())
         assert (intake.stats["failed"], handler.conditions) == (1, [])
+
+    async def test_hostile_payloads_are_rejected_and_counted_not_failed(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        handler = RecordingHandler()
+        intake = AlertSubscriber(handler=handler)
+        before = rejected("invalid")
+        with caplog.at_level(logging.WARNING, logger="alert_manager.subscriber"):
+            await intake._handle_message("alerts/critical", b"[" * 50_000)
+            await intake._handle_message(
+                "alerts/critical", condition_payload(value=10**400)
+            )
+            await intake._handle_message(
+                "alerts/critical", condition_payload(timestamp_ms=1e300)
+            )
+        assert rejected("invalid") - before == 3
+        assert (intake.stats["skipped"], intake.stats["failed"]) == (3, 0)
+        assert handler.conditions == []
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+    async def test_a_payload_that_is_not_bytes_is_counted(
+        self, broker: type[FakeBroker]
+    ) -> None:
+        broker.deliveries = [delivery("alerts/warning", "a text payload")]
+        intake = AlertSubscriber("broker", 1883, RecordingHandler())
+        before = rejected("not_bytes")
+        task = asyncio.create_task(intake.run())
+        try:
+            await until(lambda: intake.stats["received"] >= 1)
+        finally:
+            task.cancel()
+        assert rejected("not_bytes") - before == 1
 
     async def test_without_a_handler_messages_are_skipped(self) -> None:
         intake = AlertSubscriber()

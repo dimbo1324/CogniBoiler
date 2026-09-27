@@ -9,12 +9,14 @@ import pytest
 from alarm_factories import condition_payload
 from alert_manager.lifecycle import AlarmState
 from alert_manager.payloads import (
+    MAX_SNAPSHOT_KEYS,
     PayloadError,
     change_payload,
     parse_condition,
     parse_snapshot,
 )
 from alert_manager.views import AlarmView, TransitionView
+from cogniboiler_runtime import now_ms
 
 
 def alarm_view(state: AlarmState = AlarmState.ACTIVE_UNACK) -> AlarmView:
@@ -90,7 +92,7 @@ class TestConditions:
             ({"parameter": ""}, "must not be empty"),
             ({"value": "3.1"}, "value must be a number"),
             ({"value": True}, "value must be a number"),
-            ({"threshold": float("inf")}, "threshold must be finite"),
+            ({"threshold": float("inf")}, "not JSON"),
             ({"message": 12}, "message must be a string"),
         ],
     )
@@ -115,12 +117,72 @@ class TestConditions:
     def test_text_fields_and_the_topic_are_bounded(self) -> None:
         report = parse_condition(
             "alerts/" + "t" * 300,
-            condition_payload(message="m" * 5000, parameter="p" * 300, unit="u" * 40),
+            condition_payload(
+                message="m" * 5000,
+                parameter="p" * 300,
+                unit="u" * 40,
+                key="k" * 300,
+                source_service="s" * 100,
+                direction="d" * 20,
+                action="a" * 50,
+            ),
         )
         assert len(report.message) == 2000
         assert len(report.parameter) == 128
         assert len(report.unit) == 16
         assert len(report.topic) == 128
+        assert len(report.key) == 200
+        assert len(report.source_service) == 64
+        assert len(report.direction) == 8
+        assert len(report.action) == 32
+
+    @pytest.mark.parametrize(
+        ("raw", "problem"),
+        [
+            (b"[" * 50_000, "not JSON"),
+            (b'{"value": NaN}', "not JSON"),
+            (b'{"value": -Infinity}', "not JSON"),
+            (b"{" + b" " * (64 * 1024) + b"}", "too large"),
+        ],
+        ids=["deep", "nan", "infinity", "oversized"],
+    )
+    def test_hostile_bytes_are_a_payload_error(self, raw: bytes, problem: str) -> None:
+        with pytest.raises(PayloadError, match=problem):
+            parse_condition("alerts/critical", raw)
+        with pytest.raises(PayloadError, match=problem):
+            parse_snapshot(raw)
+
+    def test_a_float_literal_beyond_the_range_is_not_finite(self) -> None:
+        raw = condition_payload().replace(b'"threshold": 3.5', b'"threshold": 1e999')
+        with pytest.raises(PayloadError, match="threshold must be finite"):
+            parse_condition("alerts/critical", raw)
+
+    def test_an_integer_too_large_for_a_float_is_a_payload_error(self) -> None:
+        with pytest.raises(PayloadError, match="value must be a finite number"):
+            parse_condition("alerts/critical", condition_payload(value=10**400))
+
+    @pytest.mark.parametrize(
+        "timestamp_ms",
+        [-5, 1e300, 10**400, 1_700_000_000_000.5, "soon", None],
+    )
+    def test_an_implausible_timestamp_is_rejected(self, timestamp_ms: object) -> None:
+        with pytest.raises(PayloadError, match="timestamp_ms"):
+            parse_condition(
+                "alerts/critical", condition_payload(timestamp_ms=timestamp_ms)
+            )
+
+    def test_a_timestamp_from_the_future_is_rejected(self) -> None:
+        tomorrow_and_more = now_ms() + 2 * 86_400_000
+        with pytest.raises(PayloadError, match="timestamp_ms"):
+            parse_condition(
+                "alerts/critical", condition_payload(timestamp_ms=tomorrow_and_more)
+            )
+
+    def test_an_integral_float_timestamp_is_accepted(self) -> None:
+        report = parse_condition(
+            "alerts/critical", condition_payload(timestamp_ms=1_700_000_000_000.0)
+        )
+        assert report.timestamp_ms == 1_700_000_000_000
 
     def test_an_integer_value_is_accepted_as_a_number(self) -> None:
         report = parse_condition("alerts/critical", condition_payload(value=3))
@@ -140,9 +202,24 @@ class TestSnapshots:
         assert report.active_keys == frozenset({"a", "b"})
         assert (report.source_service, report.timestamp_ms) == ("plc-controller", 5)
 
+    def test_the_number_and_length_of_keys_are_bounded(self) -> None:
+        def raw(keys: list[str]) -> bytes:
+            return json.dumps(
+                {"source_service": "plc", "active_keys": keys, "timestamp_ms": 5}
+            ).encode()
+
+        assert len(parse_snapshot(raw(["k"] * 5000)).active_keys) == 1
+        many = [f"k{n}" for n in range(MAX_SNAPSHOT_KEYS)]
+        assert len(parse_snapshot(raw(many)).active_keys) == MAX_SNAPSHOT_KEYS
+        with pytest.raises(PayloadError, match="too many"):
+            parse_snapshot(raw([*many, "one more"]))
+        with pytest.raises(PayloadError, match="too long"):
+            parse_snapshot(raw(["k" * 201]))
+
     @pytest.mark.parametrize(
         ("payload", "problem"),
         [
+            ({"source_service": "plc", "active_keys": [], "timestamp_ms": -1}, "time"),
             ({"source_service": "plc", "active_keys": "a", "timestamp_ms": 1}, "list"),
             ({"source_service": "plc", "active_keys": [1], "timestamp_ms": 1}, "list"),
             ({"source_service": "", "active_keys": [], "timestamp_ms": 1}, "empty"),
