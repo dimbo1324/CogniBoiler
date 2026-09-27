@@ -101,6 +101,11 @@ def _plant_holds(reported: ValveSet, command: CommandSnapshot) -> bool:
     return all(abs(held - sent) <= COMMAND_TOLERANCE for held, sent in pairs)
 
 
+def _refuse(reason: str) -> ValidationResult:
+    logger.info("Refused: %s", reason)
+    return ValidationResult(accepted=False, reason=reason)
+
+
 def _warn_if_tripped(m: ProcessMeasurements) -> None:
     """The latch lives in memory only: say so when the PLC starts on a tripped unit."""
     if m.commands.fuel <= 0.0 and m.steam_flow_kg_s < ON_LINE_STEAM_FLOW_KG_S:
@@ -234,6 +239,12 @@ class PLCService:
         }
 
     @property
+    def publisher_health(self) -> tuple[int, bool, int]:
+        """Messages lost to a full queue, broker connected, broker failures."""
+        publisher = self._publisher
+        return publisher.dropped, publisher.connected, publisher.failures
+
+    @property
     def plant_link_up(self) -> bool:
         """True while the plant's state stream is open and delivering."""
         return self._link_up
@@ -277,7 +288,7 @@ class PLCService:
         if refusal.accepted:
             refusal = check_operator(operator)
         if not refusal.accepted:
-            return refusal
+            return _refuse(refusal.reason)
         self._setpoints = Setpoints(
             pressure_pa=pressure_pa,
             water_level_m=water_level_m,
@@ -309,7 +320,7 @@ class PLCService:
         if refusal.accepted:
             refusal = check_operator(operator)
         if not refusal.accepted:
-            return refusal
+            return _refuse(refusal.reason)
         previous = self._load_demand_w
         self._load_demand_w = load_w
         self._publisher.publish_event(
@@ -334,7 +345,7 @@ class PLCService:
         self._commands_received += 1
         result = check_valves(fuel_valve, feedwater_valve, steam_valve, spray_valve)
         if not result.accepted:
-            self._commands_rejected += 1
+            return self._reject(result.reason)
         return result
 
     def latest_command(self) -> CommandSnapshot:
@@ -358,8 +369,19 @@ class PLCService:
         if not result.accepted:
             return result
         if int(source) not in EXTERNAL_COMMAND_SOURCES:
-            return self._reject(
-                f"command source {pb2.CommandSource.Name(source)} is reserved for the PLC"
+            # A caller claiming the PID or SAFETY source tries to pass for the PLC.
+            logger.warning(
+                "Command from %r claims source %s, which is reserved for the PLC",
+                operator_id,
+                pb2.CommandSource.Name(source),
+            )
+            self._commands_rejected += 1
+            return ValidationResult(
+                accepted=False,
+                reason=(
+                    f"command source {pb2.CommandSource.Name(source)} "
+                    "is reserved for the PLC"
+                ),
             )
         operator = operator_id.strip()
         attributed = check_operator(operator)
@@ -451,7 +473,7 @@ class PLCService:
         operator = operator_id.strip()
         attributed = check_operator(operator)
         if not attributed.accepted:
-            return attributed
+            return _refuse(attributed.reason)
         async with self._lock:
             if not self._interlock.emergency_stop.is_active:
                 return ValidationResult(
@@ -466,7 +488,7 @@ class PLCService:
                         {"blockers": blockers},
                     )
                 )
-                return self._reject("Reset refused: " + "; ".join(blockers))
+                return _refuse("Reset refused: " + "; ".join(blockers))
 
             cause = self._trip_cause
             self._interlock.reset(operator_id=operator)
@@ -766,8 +788,9 @@ class PLCService:
     # ─── Helpers ────────────────────────────────────────────────────────────
 
     def _reject(self, reason: str) -> ValidationResult:
+        """Refuse a command or mode change; it counts as a rejected command."""
         self._commands_rejected += 1
-        return ValidationResult(accepted=False, reason=reason)
+        return _refuse(reason)
 
     def _current_spray_command(self) -> float:
         measurements = self._latest_measurements

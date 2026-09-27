@@ -150,6 +150,7 @@ class RecordingPublisher:
         self.alarms: list[Any] = []
         self.dropped = 0
         self.connected = False
+        self.failures = 0
 
     def publish_event(self, event: Any) -> None:
         self.events.append(event)

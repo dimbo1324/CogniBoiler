@@ -46,7 +46,7 @@ class PlcCollector(Collector):
                 "commands_forwarded",
                 "Commands sent to the plant.",
             ),
-            ("plc_warnings", "warnings", "Interlock warnings raised."),
+            ("plc_warnings", "warnings", "Scans that raised an interlock warning."),
             ("plc_trips", "trips", "Interlock trips."),
             ("plc_scan_failures", "scan_failures", "Scans a fault of the PLC broke."),
             (
@@ -71,6 +71,24 @@ class PlcCollector(Collector):
         for value in _MODES:
             mode.add_metric([value], 1.0 if value == current else 0.0)
         yield mode
+
+        dropped, connected, failures = self._service.publisher_health
+        lost = CounterMetricFamily(
+            "plc_publish_dropped", "Alarm and event messages lost to a full queue."
+        )
+        lost.add_metric([], float(dropped))
+        yield lost
+        broker_failures = CounterMetricFamily(
+            "plc_mqtt_connection_failures",
+            "Broker connections that failed or dropped.",
+        )
+        broker_failures.add_metric([], float(failures))
+        yield broker_failures
+        broker = GaugeMetricFamily(
+            "plc_mqtt_connected", "1 while the broker connection is up."
+        )
+        broker.add_metric([], 1.0 if connected else 0.0)
+        yield broker
 
         link = GaugeMetricFamily(
             "plc_plant_link_up", "1 while the plant's state stream is delivering."

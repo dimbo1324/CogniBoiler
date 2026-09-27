@@ -168,6 +168,16 @@ class PlcPublisher:
         """Messages lost to a full queue."""
         return self._dropped
 
+    @property
+    def connected(self) -> bool:
+        """True while the broker connection is up."""
+        return self._session.connected
+
+    @property
+    def failures(self) -> int:
+        """Broker connections that failed or dropped."""
+        return self._session.failures
+
     # ─── Publishing API (non-blocking) ───────────────────────────────────────
 
     def publish_alarm(self, transition: AlarmTransition) -> None:
