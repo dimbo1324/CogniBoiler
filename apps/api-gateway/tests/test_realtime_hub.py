@@ -21,6 +21,7 @@ from gateway_fakes import (
     plc_status,
     system_state,
 )
+from prometheus_client import REGISTRY
 
 
 def frames(subscriber: Subscriber) -> list[dict[str, Any]]:
@@ -42,10 +43,16 @@ class TestSubscriber:
         assert all(subscriber.telemetry_due(1.0) for _ in range(5))
 
     async def test_a_full_queue_drops_the_incoming_telemetry(self) -> None:
+        dropped_before = REGISTRY.get_sample_value(
+            "gateway_websocket_dropped_frames_total"
+        )
         subscriber = Subscriber(queue_size=2, max_rate_hz=10.0)
         for frame in ("a", "b", "c"):
             subscriber.offer_frame(frame)
         assert subscriber.dropped_frames == 1
+        assert REGISTRY.get_sample_value("gateway_websocket_dropped_frames_total") == (
+            (dropped_before or 0.0) + 1
+        )
         assert [subscriber.queue.get_nowait() for _ in range(2)] == ["a", "b"]
         assert subscriber.overflowed is False
 

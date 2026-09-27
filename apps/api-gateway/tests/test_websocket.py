@@ -7,6 +7,7 @@ SQLite file opened per session instead of the in-memory database of the HTTP tes
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import AsyncGenerator, Iterator
 from dataclasses import dataclass
@@ -25,6 +26,7 @@ from api_gateway.realtime.hub import Channel, RealtimeHub
 from api_gateway.routers import websocket as ws_router
 from fastapi import FastAPI
 from gateway_fakes import seed_accounts
+from prometheus_client import REGISTRY
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -132,6 +134,17 @@ def leave(live: Live, connection: Any) -> None:
     assert live.hub.subscriber_count == 0
 
 
+def closes(code: int) -> float:
+    return (
+        REGISTRY.get_sample_value("gateway_websocket_closes_total", {"code": str(code)})
+        or 0.0
+    )
+
+
+def errors(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    return [record for record in caplog.records if record.levelno >= logging.ERROR]
+
+
 def close_code(connection: Any) -> tuple[int, str]:
     """Read until the server closes; the code and reason it closed with."""
     while True:
@@ -173,9 +186,48 @@ class TestAuthentication:
             connection.send_text("hello")
             assert close_code(connection) == (4401, "ws.bad_request")
 
+    def test_a_binary_first_frame_is_refused_and_audited(
+        self, live: Live, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with live.client.websocket_connect("/ws") as connection:
+            connection.send_bytes(b"\x00")
+            assert close_code(connection) == (4401, "ws.bad_request")
+        (row,) = live.audit()
+        assert row.outcome == "refused: ws.bad_request"
+        assert errors(caplog) == []
+
+    @pytest.mark.parametrize(
+        "text",
+        ['{"type": "auth", "access_token": NaN}', "[" * 5000 + "]" * 5000],
+        ids=["nan", "deep-nesting"],
+    )
+    def test_a_first_frame_json_cannot_hold_is_refused(
+        self, live: Live, caplog: pytest.LogCaptureFixture, text: str
+    ) -> None:
+        with live.client.websocket_connect("/ws") as connection:
+            connection.send_text(text)
+            assert close_code(connection) == (4401, "ws.bad_request")
+        assert errors(caplog) == []
+
+    def test_a_disconnect_before_auth_is_quiet(
+        self, live: Live, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with live.client.websocket_connect("/ws") as connection:
+            connection.close(1000)
+        deadline = time.monotonic() + 5.0
+        while live.hub.subscriber_count and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert errors(caplog) == []
+        assert live.audit() == []
+
     def test_an_oversized_frame_is_refused(self, live: Live) -> None:
         with live.client.websocket_connect("/ws") as connection:
             connection.send_text('{"type": "auth", "pad": "' + "x" * 9000 + '"}')
+            assert close_code(connection) == (4401, "ws.bad_request")
+
+    def test_the_frame_limit_counts_bytes_not_characters(self, live: Live) -> None:
+        with live.client.websocket_connect("/ws") as connection:
+            connection.send_text('{"type": "auth", "pad": "' + "\u00e9" * 4500 + '"}')
             assert close_code(connection) == (4401, "ws.bad_request")
 
     def test_no_first_frame_in_time_is_refused(
@@ -244,6 +296,44 @@ class TestSession:
             code, _ = close_code(connection)
         assert code == 4400
 
+    def test_a_binary_frame_after_auth_closes_with_4400(
+        self, live: Live, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with live.client.websocket_connect("/ws") as connection:
+            authenticate(connection, live.sessions["viewer1"].access)
+            connection.send_bytes(b"\x00\x01")
+            assert close_code(connection) == (4400, "frames must be JSON text")
+        assert errors(caplog) == []
+
+    def test_connections_beyond_the_cap_are_turned_away(
+        self, live: Live, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "ws_max_connections", 1)
+        with live.client.websocket_connect("/ws") as first:
+            authenticate(first, live.sessions["viewer1"].access)
+            with live.client.websocket_connect("/ws") as second:
+                second.send_json(
+                    {"type": "auth", "access_token": live.sessions["operator1"].access}
+                )
+                assert close_code(second) == (1013, "too many connections")
+            leave(live, first)
+
+    def test_an_internal_failure_closes_1011_and_is_logged(
+        self,
+        live: Live,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        async def broken(self: object) -> None:
+            raise RuntimeError("defect")
+
+        monkeypatch.setattr(ws_router._Connection, "guard", broken)
+        with live.client.websocket_connect("/ws") as connection:
+            authenticate(connection, live.sessions["viewer1"].access)
+            assert close_code(connection) == (1011, "internal error")
+        (record,) = errors(caplog)
+        assert record.exc_info is not None
+
     def test_a_frame_that_is_not_an_object_closes_with_4400(self, live: Live) -> None:
         with live.client.websocket_connect("/ws") as connection:
             authenticate(connection, live.sessions["viewer1"].access)
@@ -311,7 +401,10 @@ class TestGuard:
             code, _ = close_code(connection)
         assert code == 4401
 
-    def test_a_client_that_cannot_keep_up_is_told_to_reload(self, live: Live) -> None:
+    def test_a_client_that_cannot_keep_up_is_told_to_reload(
+        self, live: Live, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        closed_before = closes(1013)
         with live.client.websocket_connect("/ws") as connection:
             authenticate(connection, live.sessions["viewer1"].access)
             connection.send_json({"type": "subscribe", "channels": ["plc"]})
@@ -336,6 +429,18 @@ class TestGuard:
             "code": 1013,
             "reason": "client too slow; reload state",
         }
+        deadline = time.monotonic() + 5.0
+        while live.hub.subscriber_count and time.monotonic() < deadline:
+            time.sleep(0.01)
+        (warning,) = [
+            record
+            for record in caplog.records
+            if record.name == ws_router.logger.name
+            and record.levelno == logging.WARNING
+        ]
+        assert "1013" in warning.getMessage()
+        assert "viewer1" in warning.getMessage()
+        assert closes(1013) == closed_before + 1
 
     def test_the_subscriber_leaves_the_hub_on_disconnect(self, live: Live) -> None:
         with live.client.websocket_connect("/ws") as connection:

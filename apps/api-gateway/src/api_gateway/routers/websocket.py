@@ -16,20 +16,22 @@ Protocol (JSON text frames):
 
 The token goes in the first frame, not the URL, so it never lands in access logs. The
 connection is closed with 4401 when the token expires without being renewed, when the
-session is closed or the account blocked (checked every 30 s), and with 1013 when the
-client cannot keep up with PLC events or alarm changes. Telemetry is sent at most at the
-requested rate, capped by the server.
+session is closed or the account blocked (checked every 30 s), with 4400 for a frame that
+is not a JSON object in a text frame of at most 8 KiB, and with 1013 when the client
+cannot keep up with PLC events or alarm changes or the gateway already serves
+`ws_max_connections` clients. Telemetry is sent at most at the requested rate, capped by
+the server. Every close other than 1000 is logged with its code and counted.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 from contextlib import suppress
 from typing import Any
 
+from cogniboiler_runtime import decode_json_object
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
@@ -42,6 +44,7 @@ from api_gateway.auth.identity import (
 from api_gateway.config import settings
 from api_gateway.dependencies import session_scope
 from api_gateway.models.user import AuditLog
+from api_gateway.observability import WEBSOCKET_CLOSES
 from api_gateway.realtime.hub import Channel, RealtimeHub, Subscriber, encode
 
 logger = logging.getLogger(__name__)
@@ -99,18 +102,33 @@ def _channels(value: object) -> set[Channel]:
 
 
 async def _receive_json(websocket: WebSocket) -> dict[str, Any]:
-    text = await websocket.receive_text()
-    if len(text) > MAX_CLIENT_FRAME_BYTES:
+    frame = await websocket.receive()
+    if frame["type"] == "websocket.disconnect":
+        raise WebSocketDisconnect(frame.get("code", 1000), frame.get("reason"))
+    text = frame.get("text")
+    if not isinstance(text, str):
+        raise _CloseConnectionError(CLOSE_BAD_REQUEST, "frames must be JSON text")
+    if len(text.encode("utf-8")) > MAX_CLIENT_FRAME_BYTES:
         raise _CloseConnectionError(CLOSE_BAD_REQUEST, "frame too large")
-    try:
-        message = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise _CloseConnectionError(
-            CLOSE_BAD_REQUEST, "frames must be JSON objects"
-        ) from exc
-    if not isinstance(message, dict):
+    message = decode_json_object(text)
+    if message is None:
         raise _CloseConnectionError(CLOSE_BAD_REQUEST, "frames must be JSON objects")
     return message
+
+
+def _log_close(username: str, code: int, reason: str, dropped_frames: int) -> None:
+    WEBSOCKET_CLOSES.labels(str(code)).inc()
+    if code == 1000:
+        return
+    level = logging.WARNING if code == CLOSE_TRY_AGAIN_LATER else logging.INFO
+    logger.log(
+        level,
+        "WebSocket of %s closed with %d (%s); %d telemetry frames dropped",
+        username,
+        code,
+        reason,
+        dropped_frames,
+    )
 
 
 class _Connection:
@@ -215,6 +233,7 @@ async def realtime(websocket: WebSocket) -> None:
     hub: RealtimeHub | None = getattr(websocket.app.state, "realtime_hub", None)
     await websocket.accept()
     if hub is None:
+        WEBSOCKET_CLOSES.labels(str(CLOSE_TRY_AGAIN_LATER)).inc()
         await websocket.close(code=CLOSE_TRY_AGAIN_LATER, reason="realtime unavailable")
         return
 
@@ -237,8 +256,17 @@ async def realtime(websocket: WebSocket) -> None:
         else:
             code = "ws.auth_timeout"
         await _audit_refusal(websocket, code, started)
+        WEBSOCKET_CLOSES.labels(str(CLOSE_UNAUTHORIZED)).inc()
         with suppress(RuntimeError, WebSocketDisconnect):
             await websocket.close(code=CLOSE_UNAUTHORIZED, reason=code)
+        return
+
+    if hub.subscriber_count >= settings.ws_max_connections:
+        _log_close(user.username, CLOSE_TRY_AGAIN_LATER, "too many connections", 0)
+        with suppress(RuntimeError, WebSocketDisconnect):
+            await websocket.close(
+                code=CLOSE_TRY_AGAIN_LATER, reason="too many connections"
+            )
         return
 
     subscriber = hub.register()
@@ -276,6 +304,7 @@ async def realtime(websocket: WebSocket) -> None:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         hub.unregister(subscriber)
+        _log_close(user.username, close_code, close_reason, subscriber.dropped_frames)
         if (
             websocket.application_state is WebSocketState.CONNECTED
             and websocket.client_state is WebSocketState.CONNECTED

@@ -55,6 +55,16 @@ REFRESH_REJECTIONS = Counter(
     "Refused token refreshes, by problem code (auth.refresh_reused: a replayed token).",
     ["code"],
 )
+WEBSOCKET_CLOSES = Counter(
+    "gateway_websocket_closes",
+    "Ended WebSocket connections, by close code (1013: too slow or too many; 4401: "
+    "refused or signed out; 1011: a gateway defect).",
+    ["code"],
+)
+WEBSOCKET_DROPPED_FRAMES = Counter(
+    "gateway_websocket_dropped_frames",
+    "Telemetry frames dropped because a client's send queue was full.",
+)
 
 _KNOWN_METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
 

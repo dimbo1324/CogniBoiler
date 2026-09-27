@@ -97,6 +97,8 @@ class Settings(BaseSettings):
     ws_max_rate_hz: float = 10.0
     ws_plc_status_interval_s: float = 1.0
     ws_send_queue_size: int = 256
+    # Authenticated connections at once, all users together; one more is closed 1013.
+    ws_max_connections: int = Field(default=200, ge=1)
 
     # Readiness probe
     ready_check_timeout_s: float = 2.0

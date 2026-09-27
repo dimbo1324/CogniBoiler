@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from api_gateway.observability import WEBSOCKET_DROPPED_FRAMES
+
 
 class Channel(StrEnum):
     TELEMETRY = "telemetry"
@@ -68,6 +70,7 @@ class Subscriber:
             self.queue.put_nowait(frame)
         except asyncio.QueueFull:
             self.dropped_frames += 1
+            WEBSOCKET_DROPPED_FRAMES.inc()
 
     def offer_event(self, frame: str) -> None:
         """Queue an event; on overflow mark the subscriber for disconnection."""
