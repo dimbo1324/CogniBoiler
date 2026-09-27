@@ -16,6 +16,7 @@ import cogniboiler_pb2 as pb2
 import grpc
 import pytest
 from plc_controller.client import PhysicsClientConfig
+from plc_controller.measurements import ProcessMeasurements
 from plc_controller.service import PLCService, RuntimeMode
 from plc_fakes import FakePhysics, plc, rpc_error, state
 
@@ -177,3 +178,72 @@ class TestEmergencyStopThePlantNeverGot:
         # An E-Stop can wait for a scan's command to the plant (the PLC's lock) and
         # then send its own: both must fit in one gateway call.
         assert 2 * PhysicsClientConfig().timeout_s < GATEWAY_PLC_DEADLINE_S
+
+
+class TestScanLoop:
+    async def test_a_bug_in_the_scan_is_an_error_with_its_traceback_once(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        physics = FakePhysics()
+        broken = True
+        original = ProcessMeasurements.from_proto
+
+        def from_proto(message: pb2.SystemStateMsg) -> ProcessMeasurements:
+            if broken:
+                raise RuntimeError("scan bug")
+            return original(message)
+
+        monkeypatch.setattr(ProcessMeasurements, "from_proto", from_proto)
+        with caplog.at_level(logging.INFO, logger="plc_controller"):
+            async with scanning(physics) as svc:
+                for step in (0, 1, 2):
+                    await physics.feed.put(state(step=step))
+                async with asyncio.timeout(5.0):
+                    while svc.stats["scan_failures"] < 3:
+                        await asyncio.sleep(0.001)
+                assert await svc.physics_status() == "degraded"
+                broken = False
+                await physics.feed.put(state(step=3))
+                await scans(svc, 1)
+                # The stream itself was healthy all along: it is never reopened.
+                assert physics.streams_opened == 1
+        errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert len(errors) == 1
+        assert "PLC scan failed" in errors[0].getMessage()
+        assert errors[0].exc_info is not None
+        assert "scan stream failed" not in caplog.text
+
+    async def test_two_stream_failures_log_one_warning_and_one_recovery(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        physics = FakePhysics()
+        with caplog.at_level(logging.INFO, logger="plc_controller.service"):
+            async with scanning(physics) as svc:
+                await physics.feed.put(rpc_error())
+                await physics.feed.put(ConnectionError("still down"))
+                await physics.feed.put(state(step=0))
+                await scans(svc, 1)
+        assert physics.streams_opened == 3
+        assert caplog.text.count("PLC scan stream failed") == 1
+        assert caplog.text.count("PLC scan stream restored") == 1
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+    async def test_a_failed_command_does_not_drop_a_healthy_stream(self) -> None:
+        physics = FakePhysics()
+        physics.fail_with = rpc_error()
+        async with scanning(physics) as svc:
+            for step in (0, 1, 2):
+                await physics.feed.put(state(step=step))
+            await scans(svc, 3)
+            assert physics.streams_opened == 1
+            assert svc.stats["forward_failures"] >= 1
+
+    async def test_the_stream_is_closed_when_the_plc_stops_mid_scan(self) -> None:
+        physics = FakePhysics()
+        physics.hold_commands = asyncio.Event()
+        async with scanning(physics):
+            await physics.feed.put(state(step=0))
+            await physics.feed.put(state(step=1))
+            async with asyncio.timeout(5.0):
+                await physics.command_waiting.wait()
+        assert physics.streams_closed == 1

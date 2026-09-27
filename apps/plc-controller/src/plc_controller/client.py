@@ -4,7 +4,7 @@ Async gRPC client for the PhysicsService.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 
 import cogniboiler_pb2 as pb2
@@ -69,7 +69,7 @@ class PhysicsClient:
             timeout=self.config.timeout_s,
         )
 
-    async def stream_system_state(self) -> AsyncIterator[pb2.SystemStateMsg]:
+    async def stream_system_state(self) -> AsyncGenerator[pb2.SystemStateMsg]:
         """Every plant state the PhysicsService publishes, as it is published."""
         call = self._connected_stub().StreamSystemState(
             pb2.StreamRequest(interval_s=0.0)

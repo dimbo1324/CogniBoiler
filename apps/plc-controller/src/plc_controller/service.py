@@ -14,6 +14,7 @@ is active any more; the reset hands the unit back to AUTO without a bump.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import math
 import time
@@ -162,6 +163,8 @@ class PLCService:
         self._stream_failing = False
         self._forward_failing = False
         self._forward_failures = 0
+        self._scan_failures = 0
+        self._faults_logged: set[type[Exception]] = set()
         self._holding_non_finite = False
 
     # ─── Lifecycle ──────────────────────────────────────────────────────────
@@ -209,6 +212,8 @@ class PLCService:
             "warnings": self._interlock.warning_count,
             "trips": self._interlock.trip_count,
             "scans": self._scans_completed,
+            "scan_failures": self._scan_failures,
+            "forward_failures": self._forward_failures,
         }
 
     @property
@@ -474,29 +479,56 @@ class PLCService:
             # A new stream may reach a restarted plant, whose valves are not ours.
             self._last_sent_key = None
             try:
-                async for state in self._physics.stream_system_state():
-                    started = time.perf_counter()
-                    await self.process_state(state)
-                    SCAN_SECONDS.observe(time.perf_counter() - started)
-                    self._scans_completed += 1
-                    self._last_scanned_step = state.simulation.step_count
-                    if self._stream_failing:
-                        logger.info("PLC scan stream restored")
-                    self._stream_failing = False
-                    self._task_error = ""
+                stream = self._physics.stream_system_state()
+                async with contextlib.aclosing(stream) as states:
+                    async for state in states:
+                        await self._scan(state)
                 raise ConnectionError("physics state stream ended")
-            except asyncio.CancelledError:
-                raise
+            except LINK_ERRORS as exc:
+                self._stream_failed(link_error(exc))
             except Exception as exc:
-                self._task_error = str(exc) or type(exc).__name__
-                if not self._stream_failing:
-                    logger.warning(
-                        "PLC scan stream failed: %s — retrying every %.2fs",
-                        self._task_error,
-                        self._retry_delay_s,
-                    )
-                self._stream_failing = True
-                await asyncio.sleep(self._retry_delay_s)
+                self._stream_failed(type(exc).__name__)
+                self._log_fault_once("PLC scan stream broke", exc)
+            await asyncio.sleep(self._retry_delay_s)
+
+    async def _scan(self, state: pb2.SystemStateMsg) -> None:
+        """One scan; a fault in it is logged and the stream carries on."""
+        started = time.perf_counter()
+        try:
+            await self.process_state(state)
+        except Exception as exc:
+            self._scan_failures += 1
+            self._task_error = f"scan failed: {type(exc).__name__}"
+            self._log_fault_once(
+                f"PLC scan failed on plant step {state.simulation.step_count}", exc
+            )
+            return
+        SCAN_SECONDS.observe(time.perf_counter() - started)
+        self._scans_completed += 1
+        self._last_scanned_step = state.simulation.step_count
+        if self._stream_failing:
+            logger.info("PLC scan stream restored")
+        self._stream_failing = False
+        self._task_error = ""
+
+    def _stream_failed(self, reason: str) -> None:
+        self._task_error = reason
+        if not self._stream_failing:
+            logger.warning(
+                "PLC scan stream failed: %s — retrying every %.2fs",
+                reason,
+                self._retry_delay_s,
+            )
+        self._stream_failing = True
+
+    def _log_fault_once(self, message: str, exc: Exception) -> None:
+        """A fault of the PLC itself: an error with its traceback, once per kind."""
+        kind = type(exc)
+        if kind in self._faults_logged:
+            logger.debug("%s: %s (logged before)", message, kind.__name__)
+            return
+        self._faults_logged.add(kind)
+        logger.error("%s", message, exc_info=exc)
 
     async def process_state(self, state: pb2.SystemStateMsg) -> None:
         """One PLC scan for one published plant state."""
