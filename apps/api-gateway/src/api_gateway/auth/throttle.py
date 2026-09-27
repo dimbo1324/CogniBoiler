@@ -5,6 +5,11 @@ Failed sign-ins are counted in a sliding window per account name and per client
 address. The account name is counted whether or not such an account exists, so the
 throttle answers the same for a real user and an invented one.
 
+An attempt is charged as a failure the moment it is let through, before the slow
+password check decides it; a success then clears the account and takes the attempt's
+charge off the address. Checking first and counting after the check would let a burst of
+parallel attempts all find the counters empty.
+
 State lives in the gateway process: the stack runs one gateway worker. Several workers
 or replicas would each count separately and need a shared store.
 """
@@ -73,6 +78,31 @@ class _FailureLog:
     def clear(self, key: str) -> None:
         self._failures.pop(key, None)
 
+    def discard(self, key: str, when: float) -> None:
+        times = self._failures.get(key)
+        if times is None:
+            return
+        try:
+            times.remove(when)
+        except ValueError:
+            return
+        if not times:
+            del self._failures[key]
+
+
+@dataclass(frozen=True, slots=True)
+class Attempt:
+    """One sign-in attempt; when it was let through, it is charged at `charged_at`."""
+
+    account_key: str
+    client: str
+    retry_after_s: int
+    charged_at: float | None
+
+    @property
+    def allowed(self) -> bool:
+        return self.charged_at is not None
+
 
 class LoginThrottle:
     """Refuses sign-in attempts after too many recent failures."""
@@ -95,17 +125,39 @@ class LoginThrottle:
 
     def retry_after_s(self, username: str, client: str) -> int:
         """Whole seconds until another attempt is allowed; 0 when it is allowed now."""
-        now = self._clock()
+        return self._wait(self._account_key(username), client, self._clock())
+
+    def _wait(self, account_key: str, client: str, now: float) -> int:
         wait = max(
-            self._accounts.retry_after_s(self._account_key(username), now),
+            self._accounts.retry_after_s(account_key, now),
             self._clients.retry_after_s(client, now),
         )
         return math.ceil(wait) if wait > 0 else 0
 
-    def record_failure(self, username: str, client: str) -> None:
-        now = self._clock()
-        self._accounts.record(self._account_key(username), now)
-        self._clients.record(client, now)
+    def begin_attempt(self, username: str, client: str) -> Attempt:
+        """
+        Let an attempt through and charge it as a failure, or refuse it uncharged.
 
-    def record_success(self, username: str) -> None:
-        self._accounts.clear(self._account_key(username))
+        The check and the charge are one step with no await between them, so parallel
+        attempts are counted in the order they arrive.
+        """
+        now = self._clock()
+        account_key = self._account_key(username)
+        wait = self._wait(account_key, client, now)
+        if wait:
+            return Attempt(account_key, client, wait, None)
+        self._accounts.record(account_key, now)
+        self._clients.record(client, now)
+        return Attempt(account_key, client, 0, now)
+
+    def record_success(self, attempt: Attempt) -> None:
+        """The account proved its password: forget its failures and this charge."""
+        self._accounts.clear(attempt.account_key)
+        self.release(attempt)
+
+    def release(self, attempt: Attempt) -> None:
+        """Take back the charge of an attempt that turned out not to be a failure."""
+        if attempt.charged_at is None:
+            return
+        self._accounts.discard(attempt.account_key, attempt.charged_at)
+        self._clients.discard(attempt.client, attempt.charged_at)

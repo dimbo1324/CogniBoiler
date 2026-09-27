@@ -37,7 +37,7 @@ from api_gateway.auth.sessions import (
     rotate_session,
     session_id_of,
 )
-from api_gateway.auth.throttle import LoginThrottle
+from api_gateway.auth.throttle import Attempt, LoginThrottle
 from api_gateway.config import settings
 from api_gateway.dependencies import DbSession
 from api_gateway.problems import ProblemError
@@ -66,6 +66,22 @@ def _invalid_credentials() -> ProblemError:
 
 def _throttle(request: Request) -> LoginThrottle:
     return request.app.state.login_throttle  # type: ignore[no-any-return]
+
+
+def _begin_attempt(
+    request: Request, username: str, client_ip: str, refusal: str
+) -> Attempt:
+    """Charge an attempt to the throttle, or refuse it with 429 and Retry-After."""
+    attempt = _throttle(request).begin_attempt(username, client_ip)
+    if not attempt.allowed:
+        set_audit_outcome(request, "refused: too many failed attempts")
+        raise ProblemError(
+            429,
+            "auth.too_many_attempts",
+            refusal,
+            headers={"Retry-After": str(attempt.retry_after_s)},
+        )
+    return attempt
 
 
 def _client(request: Request) -> ClientInfo:
@@ -135,27 +151,22 @@ async def login(
     """
     client = _client(request)
     set_audit_detail(request, f"username={body.username}")
-    throttle = _throttle(request)
-    retry_after = throttle.retry_after_s(body.username, client.ip)
-    if retry_after:
-        set_audit_outcome(request, "refused: too many failed attempts")
-        raise ProblemError(
-            429,
-            "auth.too_many_attempts",
-            "Too many failed sign-in attempts. Try again later.",
-            headers={"Retry-After": str(retry_after)},
-        )
+    attempt = _begin_attempt(
+        request,
+        body.username,
+        client.ip,
+        "Too many failed sign-in attempts. Try again later.",
+    )
 
     account = await load_account(db, username=body.username)
     password_ok = await verify_password_async(
         body.password, account.hashed_password if account else _DUMMY_HASH
     )
     if account is None or not password_ok or not account.can_sign_in:
-        throttle.record_failure(body.username, client.ip)
         set_audit_outcome(request, "refused: invalid credentials")
         raise _invalid_credentials()
 
-    throttle.record_success(body.username)
+    _throttle(request).record_success(attempt)
     tokens = await open_session(db, account, client)
     _set_refresh_cookie(response, tokens)
     _signed_in(request, tokens, "signed in")
@@ -275,25 +286,19 @@ async def change_password(
     """
     client = _client(request)
     throttle = _throttle(request)
-    retry_after = throttle.retry_after_s(user.username, client.ip)
-    if retry_after:
-        set_audit_outcome(request, "refused: too many failed attempts")
-        raise ProblemError(
-            429,
-            "auth.too_many_attempts",
-            "Too many failed attempts. Try again later.",
-            headers={"Retry-After": str(retry_after)},
-        )
+    attempt = _begin_attempt(
+        request, user.username, client.ip, "Too many failed attempts. Try again later."
+    )
     try:
         account = await change_own_password(
             db, user, body.current_password, body.new_password
         )
     except ProblemError as exc:
-        if exc.code == "auth.password_mismatch":
-            throttle.record_failure(user.username, client.ip)
+        if exc.code != "auth.password_mismatch":
+            throttle.release(attempt)
         set_audit_outcome(request, f"refused: {exc.code}")
         raise
-    throttle.record_success(user.username)
+    throttle.record_success(attempt)
     tokens = await open_session(db, account, client)
     _set_refresh_cookie(response, tokens)
     _signed_in(request, tokens, "password changed, sessions closed")

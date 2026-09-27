@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     login_max_failures_per_account: int = 5
     login_max_failures_per_client: int = 20
     login_failure_window_s: float = 900.0
+    # Argon2 runs allowed at once (64 MiB each); further sign-ins wait their turn.
+    login_max_concurrent_hashes: int = 4
 
     # Database
     database_url: str = (

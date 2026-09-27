@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator
 
 import pytest
@@ -250,6 +251,41 @@ class TestThrottle:
             for _ in range(3)
         ]
         assert statuses == [401, 401, 429]
+
+    async def test_a_parallel_burst_gets_no_more_checks_than_the_limit(
+        self, app: FastAPI, client: AsyncClient
+    ) -> None:
+        tight_throttle(app, failures=2)
+        answers = await asyncio.gather(
+            *(
+                client.post(
+                    "/auth/login",
+                    json={"username": "viewer1", "password": f"guess-guess-{index}"},
+                )
+                for index in range(10)
+            )
+        )
+        statuses = sorted(answer.status_code for answer in answers)
+        assert statuses == [401] * 2 + [429] * 8
+
+    async def test_a_parallel_burst_of_right_passwords_is_not_throttled(
+        self, app: FastAPI, client: AsyncClient
+    ) -> None:
+        tight_throttle(app, failures=2)
+        answers = await asyncio.gather(
+            *(
+                client.post(
+                    "/auth/login",
+                    json={"username": "viewer1", "password": "viewer_password"},
+                )
+                for _ in range(2)
+            )
+        )
+        assert [answer.status_code for answer in answers] == [200, 200]
+        again = await client.post(
+            "/auth/login", json={"username": "viewer1", "password": "viewer_password"}
+        )
+        assert again.status_code == 200
 
     async def test_a_success_clears_the_account_failures(
         self, app: FastAPI, client: AsyncClient

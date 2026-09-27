@@ -7,14 +7,17 @@ Rules that protect the installation from locking itself out:
 Any change to a role, the active flag or a password closes the user's sessions, so the
 change takes effect immediately rather than when tokens expire.
 
-Argon2 hashing is deliberately slow; it runs in a worker thread so the event loop keeps
-serving telemetry.
+Argon2 hashing is deliberately slow and memory-hard (64 MiB a run); it runs in a worker
+thread so the event loop keeps serving telemetry, and at most
+`login_max_concurrent_hashes` runs at once, so a burst of sign-ins queues instead of
+exhausting memory.
 """
 
 from __future__ import annotations
 
 import asyncio
 import time
+import weakref
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
@@ -23,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api_gateway.auth.identity import Account, CurrentUser, effective_role, load_account
 from api_gateway.auth.password import hash_password, verify_password
 from api_gateway.auth.sessions import open_session_counts, revoke_user_sessions
+from api_gateway.config import settings
 from api_gateway.models.user import Role, User, UserRole
 from api_gateway.problems import ProblemError
 from api_gateway.schemas.users import (
@@ -37,12 +41,31 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
+_hash_slots: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, tuple[int, asyncio.Semaphore]
+] = weakref.WeakKeyDictionary()
+
+
+def _hashing_slots() -> asyncio.Semaphore:
+    # One semaphore per event loop: an asyncio primitive must not be shared between
+    # loops, and the test suite runs each test in a loop of its own.
+    loop = asyncio.get_running_loop()
+    limit = settings.login_max_concurrent_hashes
+    cached = _hash_slots.get(loop)
+    if cached is None or cached[0] != limit:
+        cached = (limit, asyncio.Semaphore(limit))
+        _hash_slots[loop] = cached
+    return cached[1]
+
+
 async def hash_password_async(plain: str) -> str:
-    return await asyncio.to_thread(hash_password, plain)
+    async with _hashing_slots():
+        return await asyncio.to_thread(hash_password, plain)
 
 
 async def verify_password_async(plain: str, hashed: str) -> bool:
-    return await asyncio.to_thread(verify_password, plain, hashed)
+    async with _hashing_slots():
+        return await asyncio.to_thread(verify_password, plain, hashed)
 
 
 def check_password_policy(username: str, password: str) -> None:
