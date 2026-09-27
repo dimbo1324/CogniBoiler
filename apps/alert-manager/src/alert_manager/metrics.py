@@ -11,5 +11,9 @@ TRANSITIONS = Counter(
 )
 MESSAGES_FAILED = Counter(
     "alarm_messages_failed_total",
-    "Condition messages that could not be stored after retries.",
+    "Condition messages the database refused for good (not an outage).",
+)
+SNAPSHOT_UNMATCHED_KEYS = Counter(
+    "alarm_snapshot_unmatched_keys_total",
+    "Keys a source snapshot lists as active with no active alarm: a lost activation.",
 )

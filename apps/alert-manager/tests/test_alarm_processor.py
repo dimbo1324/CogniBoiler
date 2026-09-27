@@ -22,6 +22,7 @@ from alert_manager.processor import (
     AlarmProcessor,
     AlarmQuery,
 )
+from prometheus_client import REGISTRY
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -319,6 +320,45 @@ class TestSnapshots:
         await processor.handle_snapshot(snapshot(timestamp_ms=5_000))
         await asyncio.sleep(0.1)
         assert (await only_alarm(processor)).state is S.ACTIVE_UNACK
+
+    async def test_a_listed_key_without_an_active_alarm_is_reported_once(
+        self, processor: AlarmProcessor, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # A lost activation is not raised again from the snapshot (it carries only
+        # keys), but it must be visible.
+        lost = condition("pressure_pa", direction="high").key
+        await processor.handle_condition(condition("water_level_m"))
+        kept = condition("water_level_m").key
+        before = unmatched_count()
+        with caplog.at_level(logging.WARNING, logger="alert_manager.processor"):
+            await processor.handle_snapshot(snapshot(kept, lost, timestamp_ms=5_000))
+            await processor.handle_snapshot(snapshot(kept, lost, timestamp_ms=6_000))
+        assert unmatched_count() - before == 1
+        assert caplog.text.count(lost) == 1
+        assert kept not in caplog.text
+
+    async def test_a_lost_activation_is_reported_again_after_it_ended(
+        self, processor: AlarmProcessor
+    ) -> None:
+        lost = condition("pressure_pa", direction="high").key
+        before = unmatched_count()
+        await processor.handle_snapshot(snapshot(lost, timestamp_ms=5_000))
+        await processor.handle_snapshot(snapshot(timestamp_ms=6_000))
+        await processor.handle_snapshot(snapshot(lost, timestamp_ms=7_000))
+        assert unmatched_count() - before == 2
+
+    async def test_an_alarm_raised_after_the_snapshot_still_matches_its_key(
+        self, processor: AlarmProcessor
+    ) -> None:
+        report = condition(timestamp_ms=9_000)
+        await processor.handle_condition(report)
+        before = unmatched_count()
+        await processor.handle_snapshot(snapshot(report.key, timestamp_ms=5_000))
+        assert unmatched_count() == before
+
+
+def unmatched_count() -> float:
+    return REGISTRY.get_sample_value("alarm_snapshot_unmatched_keys_total") or 0.0
 
 
 class TestQueries:

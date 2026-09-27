@@ -29,7 +29,12 @@ from alert_manager.processor import AlarmProcessor
 from alert_manager.publisher import AlarmChangePublisher
 from alert_manager.subscriber import AlertSubscriber
 from alert_manager.views import AlarmView, TransitionView
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import (
+    DataError,
+    IntegrityError,
+    InterfaceError,
+    OperationalError,
+)
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 
@@ -373,6 +378,10 @@ class TestSubscriber:
         assert broker.subscriptions[0] == ("alerts/#", 1)
         assert broker.connections[0]["clean_session"] is False
         assert broker.connections[0]["identifier"] == "alert-manager"
+        assert (
+            broker.connections[0]["max_queued_incoming_messages"]
+            == subscriber.INCOMING_QUEUE_LIMIT
+        )
 
     def test_a_subscriber_that_never_connected_is_not_connected(self) -> None:
         # What the container healthcheck reads before the first session opens.
@@ -392,24 +401,77 @@ class TestSubscriber:
             with pytest.raises(asyncio.CancelledError):
                 await task
 
-    async def test_a_database_hiccup_is_retried(self) -> None:
+    async def test_a_database_hiccup_is_retried(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(subscriber, "STORE_RETRY_DELAY_S", 0.0)
         handler = RecordingHandler(failures=2)
         intake = AlertSubscriber(handler=handler)
         await intake._handle_message("alerts/critical", condition_payload())
         assert len(handler.conditions) == 1
         assert intake.stats["processed"] == 1
 
-    async def test_a_message_is_given_up_after_the_retries(
+    async def test_a_long_database_outage_keeps_the_message(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
+        # Paho acknowledges a QoS 1 message on receipt: a message given up is gone for
+        # good, and the PLC snapshot never raises a lost activation again.
         monkeypatch.setattr(subscriber, "STORE_RETRY_DELAY_S", 0.0)
         handler = RecordingHandler(failures=5)
         intake = AlertSubscriber(handler=handler)
+        with caplog.at_level(logging.DEBUG, logger="alert_manager.subscriber"):
+            await intake._handle_message("alerts/critical", condition_payload())
+        assert len(handler.conditions) == 1
+        assert intake.stats["failed"] == 0
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "database unavailable" in warnings[0].getMessage()
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert "stored again after 6 attempts" in caplog.text
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            ConnectionRefusedError("connect call failed"),
+            TimeoutError(),
+            InterfaceError("SELECT", {}, Exception("connection closed")),
+        ],
+    )
+    async def test_transient_errors_are_retried(
+        self, monkeypatch: pytest.MonkeyPatch, error: Exception
+    ) -> None:
+        monkeypatch.setattr(subscriber, "STORE_RETRY_DELAY_S", 0.0)
+        handler = RecordingHandler(failures=2, error=error)
+        intake = AlertSubscriber(handler=handler)
+        await intake._handle_message("alerts/critical", condition_payload())
+        assert len(handler.conditions) == 1
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            IntegrityError("INSERT", {}, Exception("duplicate key")),
+            DataError("INSERT", {}, Exception("value out of range")),
+        ],
+    )
+    async def test_a_permanent_database_error_is_not_retried(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+        error: Exception,
+    ) -> None:
+        monkeypatch.setattr(subscriber, "STORE_RETRY_DELAY_S", 0.0)
+        handler = RecordingHandler(failures=1, error=error)
+        intake = AlertSubscriber(handler=handler)
         with caplog.at_level(logging.WARNING, logger="alert_manager.subscriber"):
             await intake._handle_message("alerts/critical", condition_payload())
-        assert intake.stats["failed"] == 1
-        assert caplog.text.count("attempt") == 2
-        assert "could not be processed" in caplog.text
+        assert (intake.stats["failed"], handler.conditions) == (1, [])
+        assert "could not be stored" in caplog.text
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+    def test_the_retry_delay_backs_off_to_a_cap(self) -> None:
+        delays = [subscriber.store_retry_delay_s(n) for n in range(1, 9)]
+        assert delays == [1.0, 2.0, 4.0, 8.0, 16.0, 30.0, 30.0, 30.0]
+        assert subscriber.store_retry_delay_s(10_000) == 30.0
 
     async def test_an_unexpected_error_is_not_retried(self) -> None:
         handler = RecordingHandler(failures=1, error=RuntimeError("bug"))

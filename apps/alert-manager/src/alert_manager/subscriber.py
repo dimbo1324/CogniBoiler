@@ -3,7 +3,10 @@ MQTT subscriber that feeds alarm conditions and snapshots to the alarm processor
 
 The broker session is persistent (a fixed client id, clean_session off), so condition
 messages published with QoS 1 while the alert manager restarts are delivered when it is
-back. A database hiccup is retried a few times before a message is given up.
+back. The broker acknowledges a QoS 1 message as soon as the client has it, so a message
+given up here is lost for good: a database outage is waited out with the message kept and
+the intake blocked, which also keeps the order. Only an error the database will repeat for
+the same message gives it up.
 """
 
 from __future__ import annotations
@@ -16,7 +19,13 @@ from typing import Protocol
 from aiomqtt import Client
 from cogniboiler_observability import MQTT_RECEIVED
 from cogniboiler_runtime import MqttSession
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import (
+    DBAPIError,
+    InterfaceError,
+    OperationalError,
+    SQLAlchemyError,
+)
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from alert_manager.metrics import MESSAGES_FAILED
 from alert_manager.payloads import (
@@ -32,8 +41,26 @@ from alert_manager.payloads import (
 logger = logging.getLogger(__name__)
 
 RECONNECT_DELAY_S: float = 5.0
-STORE_ATTEMPTS: int = 3
 STORE_RETRY_DELAY_S: float = 1.0
+STORE_RETRY_MAX_DELAY_S: float = 30.0
+INCOMING_QUEUE_LIMIT: int = 10_000
+
+
+def store_retry_delay_s(attempt: int) -> float:
+    """The wait after a failed attempt: doubling from the first delay, capped."""
+    exponent = min(max(attempt - 1, 0), 32)
+    return min(STORE_RETRY_DELAY_S * 2.0**exponent, STORE_RETRY_MAX_DELAY_S)
+
+
+def is_transient(exc: BaseException) -> bool:
+    """A failure of the database connection rather than of this message.
+
+    asyncpg raises connection refusals and command timeouts as they are, not wrapped
+    in a SQLAlchemy error, hence OSError (TimeoutError is one).
+    """
+    if isinstance(exc, OperationalError | InterfaceError | PoolTimeoutError | OSError):
+        return True
+    return isinstance(exc, DBAPIError) and exc.connection_invalidated
 
 
 class MessageHandler(Protocol):
@@ -108,6 +135,13 @@ class AlertSubscriber:
             self._skipped += 1
             logger.warning("Alarm message on %s rejected: %s", topic, exc)
             return
+        except SQLAlchemyError as exc:
+            self._failed += 1
+            MESSAGES_FAILED.inc()
+            logger.warning(
+                "Alarm message on %s could not be stored and is dropped: %s", topic, exc
+            )
+            return
         except Exception:
             self._failed += 1
             MESSAGES_FAILED.inc()
@@ -119,21 +153,33 @@ class AlertSubscriber:
     async def _with_retries(
         topic: str, operation: Callable[[], Awaitable[None]]
     ) -> None:
-        for attempt in range(1, STORE_ATTEMPTS + 1):
+        attempt = 0
+        while True:
+            attempt += 1
             try:
                 await operation()
-                return
-            except SQLAlchemyError as exc:
-                if attempt == STORE_ATTEMPTS:
+            except Exception as exc:
+                if not is_transient(exc):
                     raise
-                logger.warning(
-                    "Storing alarm message from %s failed (attempt %d/%d): %s",
+                delay = store_retry_delay_s(attempt)
+                log = logger.warning if attempt == 1 else logger.debug
+                log(
+                    "Alarm intake paused, database unavailable (%s: %s); "
+                    "the message from %s is kept, retrying in %.0f s",
+                    type(exc).__name__,
+                    exc,
+                    topic,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                continue
+            if attempt > 1:
+                logger.info(
+                    "Alarm message from %s stored again after %d attempts",
                     topic,
                     attempt,
-                    STORE_ATTEMPTS,
-                    exc,
                 )
-                await asyncio.sleep(STORE_RETRY_DELAY_S)
+            return
 
     def _open_client(self) -> Client:
         return Client(
@@ -143,6 +189,7 @@ class AlertSubscriber:
             username=self._username,
             password=self._password,
             clean_session=False,
+            max_queued_incoming_messages=INCOMING_QUEUE_LIMIT,
         )
 
     async def _consume(self, client: Client) -> None:

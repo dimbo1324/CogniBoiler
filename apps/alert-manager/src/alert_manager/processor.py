@@ -28,7 +28,7 @@ from alert_manager.lifecycle import (
     after_condition_active,
     after_condition_cleared,
 )
-from alert_manager.metrics import TRANSITIONS
+from alert_manager.metrics import SNAPSHOT_UNMATCHED_KEYS, TRANSITIONS
 from alert_manager.models import AlarmEvent, AlarmTransition
 from alert_manager.payloads import ConditionReport, SnapshotReport
 from alert_manager.views import AlarmView, TransitionView
@@ -84,6 +84,7 @@ class AlarmProcessor:
         self._clear_hold_s = clear_hold_s
         self._lock = asyncio.Lock()
         self._pending_clears: dict[str, asyncio.Task[None]] = {}
+        self._unmatched_keys: dict[str, frozenset[str]] = {}
 
     async def close(self) -> None:
         """Cancel clears still waiting out their hold time."""
@@ -116,18 +117,24 @@ class AlarmProcessor:
         await self._activate(report)
 
     async def handle_snapshot(self, report: SnapshotReport) -> None:
-        """Clear active alarms of a source that no longer reports their condition."""
+        """Clear active alarms of a source that no longer reports their condition.
+
+        A key the source lists with no active alarm here means its activation was lost;
+        the snapshot carries no details to raise it from, so it is only reported.
+        """
         async with self._sessions() as session:
             rows = (
                 await session.scalars(
                     select(AlarmEvent).where(
                         AlarmEvent.source_service == report.source_service,
                         AlarmEvent.state.in_(_ACTIVE),
-                        AlarmEvent.raised_at_ms <= report.timestamp_ms,
                     )
                 )
             ).all()
+        self._report_unmatched(report, frozenset(row.key for row in rows))
         for row in rows:
+            if row.raised_at_ms > report.timestamp_ms:
+                continue
             if row.key in report.active_keys or row.key in self._pending_clears:
                 continue
             logger.info(
@@ -138,6 +145,21 @@ class AlarmProcessor:
             self._schedule_clear(
                 row.key, row.value, report.timestamp_ms, report.source_service
             )
+
+    def _report_unmatched(
+        self, report: SnapshotReport, active_keys: frozenset[str]
+    ) -> None:
+        unmatched = report.active_keys - active_keys
+        known = self._unmatched_keys.get(report.source_service, frozenset())
+        for key in sorted(unmatched - known):
+            SNAPSHOT_UNMATCHED_KEYS.inc()
+            logger.warning(
+                "Snapshot of %s lists %s as active, but no active alarm exists: "
+                "its activation was lost",
+                report.source_service,
+                key,
+            )
+        self._unmatched_keys[report.source_service] = unmatched
 
     # ─── Acknowledgement ─────────────────────────────────────────────────────
 
