@@ -74,6 +74,7 @@ COMMAND_TOLERANCE: float = 1.0e-4
 # Failures of the plant link, as opposed to faults of the PLC itself.
 LINK_ERRORS: tuple[type[Exception], ...] = (grpc.aio.AioRpcError, ConnectionError)
 PLANT_DID_NOT_ACKNOWLEDGE: str = "plant did not acknowledge the command"
+NO_PLANT_STATE: str = "no plant state received yet"
 ESTOP_UNSENT: str = (
     "E-Stop latched; the plant has not yet acknowledged the trip command"
 )
@@ -348,10 +349,11 @@ class PLCService:
                     "Emergency stop is active. Reset required before commands."
                 )
             measurements = self._latest_measurements
-            if (
-                fuel_valve > 0.0
-                and measurements is not None
-                and not self._interlock.fuel_permitted(measurements.water_level_m)
+            if measurements is None:
+                # Without a plant state the permissives cannot be judged.
+                return self._reject(NO_PLANT_STATE)
+            if fuel_valve > 0.0 and not self._interlock.fuel_permitted(
+                measurements.water_level_m
             ):
                 return self._reject(
                     f"Fuel not permitted: drum level at or below "
@@ -659,7 +661,7 @@ class PLCService:
     def _reset_blockers(self) -> list[str]:
         """Why a reset would be refused now; empty means the cause has cleared."""
         if self._latest_measurements is None:
-            return ["no plant state received yet"]
+            return [NO_PLANT_STATE]
         cause = self._trip_cause.parameter if self._trip_cause is not None else ""
         return blocking_conditions(self._alarms.active(), cause)
 

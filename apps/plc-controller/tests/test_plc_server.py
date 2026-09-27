@@ -162,6 +162,11 @@ class TestPLCGrpc:
         await self.server.start()
         self.channel = grpc.aio.insecure_channel(f"localhost:{port}")
         self.stub = pb2_grpc.PLCServiceStub(self.channel)
+        # The PLC takes commands only once it has seen the plant (its first scan).
+        deadline = time.monotonic() + 5.0
+        while self.plc_service.last_scanned_step < 0:
+            assert time.monotonic() < deadline, "PLC never scanned the plant"
+            await asyncio.sleep(0.001)
         yield
         await self.plc_service.close()
         await self.channel.close()

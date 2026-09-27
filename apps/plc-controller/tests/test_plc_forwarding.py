@@ -314,3 +314,19 @@ class TestPlantLink:
         assert options["grpc.keepalive_time_ms"] > 300_000
         assert options["grpc.keepalive_timeout_ms"] > 0
         assert options["grpc.keepalive_permit_without_calls"] == 0
+
+
+class TestBeforeThePlantIsSeen:
+    async def test_a_command_before_the_first_plant_state_is_refused(self) -> None:
+        svc, physics = plc()
+        result = await operator_command(svc, fuel=0.5)
+        assert not result.accepted
+        assert "no plant state received yet" in result.reason
+        assert physics.commands == []
+        assert svc.mode is RuntimeMode.AUTO
+
+    async def test_after_the_first_plant_state_it_is_accepted(self) -> None:
+        svc, physics = plc()
+        await svc.process_state(state(step=0))
+        assert (await operator_command(svc, fuel=0.5)).accepted
+        assert len(physics.commands) == 1
