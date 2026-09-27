@@ -13,8 +13,10 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parents[4] / "shared" / "generated"))
 
+import grpc.aio
 from cogniboiler_observability import configure_logging, start_metrics_server
 from cogniboiler_runtime import LivenessFile
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from alert_manager.db import create_engine, missing_tables, session_factory
 from alert_manager.grpc_server import DEFAULT_PORT, AlarmServicer, start_server
@@ -87,11 +89,29 @@ async def main(args: argparse.Namespace) -> int:
     try:
         await asyncio.gather(*tasks)
     finally:
+        await _shut_down(server, processor, publisher, engine)
+    return 0
+
+
+async def _shut_down(
+    server: grpc.aio.Server,
+    processor: AlarmProcessor,
+    publisher: AlarmChangePublisher,
+    engine: AsyncEngine,
+) -> None:
+    """Stop in dependency order; a failing step does not skip the ones after it.
+
+    The server goes first so in-flight acknowledgements finish and queue their
+    changes, which the publisher then drains before the database is released.
+    """
+    try:
         await server.stop(grace=5)
         await processor.close()
-        await publisher.aclose()
-        await engine.dispose()
-    return 0
+    finally:
+        try:
+            await publisher.aclose()
+        finally:
+            await engine.dispose()
 
 
 if __name__ == "__main__":

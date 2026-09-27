@@ -253,6 +253,8 @@ class FakeBroker:
     """aiomqtt.Client stand-in shared by the publisher and subscriber tests."""
 
     up = True
+    fail_at: int | None = None
+    publish_calls = 0
     connections: list[dict[str, Any]] = []
     published: list[tuple[str, bytes, int]] = []
     subscriptions: list[tuple[str, int]] = []
@@ -270,6 +272,9 @@ class FakeBroker:
         return None
 
     async def publish(self, topic: str, payload: bytes, qos: int) -> None:
+        FakeBroker.publish_calls += 1
+        if FakeBroker.publish_calls == FakeBroker.fail_at:
+            raise MqttError("connection lost while publishing")
         FakeBroker.published.append((topic, payload, qos))
 
     async def subscribe(self, topic: str, qos: int) -> None:
@@ -288,6 +293,8 @@ class FakeBroker:
 @pytest.fixture
 def broker(monkeypatch: pytest.MonkeyPatch) -> type[FakeBroker]:
     FakeBroker.up = True
+    FakeBroker.fail_at = None
+    FakeBroker.publish_calls = 0
     FakeBroker.connections = []
     FakeBroker.published = []
     FakeBroker.subscriptions = []
@@ -365,6 +372,47 @@ class TestPublisher:
 
     async def test_closing_an_unstarted_publisher_is_harmless(self) -> None:
         await AlarmChangePublisher("broker", 1883).aclose()
+
+    async def test_a_change_made_just_before_closing_is_still_published(
+        self, broker: type[FakeBroker]
+    ) -> None:
+        # Committed to PostgreSQL already: dropping it would leave a permanent gap
+        # in the historian's alarm history.
+        sender = AlarmChangePublisher("broker", 1883)
+        sender.start()
+        await until(lambda: sender.connected)
+        sender.alarm_changed(*change(1))
+        sender.alarm_changed(*change(2))
+        await sender.aclose()
+        ids = [json.loads(payload)["alarm"]["id"] for _, payload, _ in broker.published]
+        assert ids == [1, 2]
+
+    async def test_closing_without_a_broker_says_what_is_lost(
+        self, broker: type[FakeBroker], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        broker.up = False
+        sender = AlarmChangePublisher("broker", 1883)
+        sender.start()
+        sender.alarm_changed(*change(1))
+        await until(lambda: len(broker.connections) >= 1)
+        with caplog.at_level(logging.WARNING, logger="alert_manager.publisher"):
+            await sender.aclose()
+        assert "1 alarm changes unpublished" in caplog.text
+        assert broker.published == []
+
+    async def test_a_publish_failing_mid_drain_is_resent_first(
+        self, broker: type[FakeBroker]
+    ) -> None:
+        broker.fail_at = 2
+        sender = AlarmChangePublisher("broker", 1883)
+        for alarm_id in (1, 2, 3):
+            sender.alarm_changed(*change(alarm_id))
+        sender.start()
+        await until(lambda: len(broker.published) == 3)
+        await sender.aclose()
+        ids = [json.loads(payload)["alarm"]["id"] for _, payload, _ in broker.published]
+        assert ids == [1, 2, 3]
+        assert len(broker.connections) == 2
 
 
 class RecordingHandler:
@@ -750,6 +798,66 @@ class TestEntryPoint:
         ]
         assert "intake ran" in events
         assert events[-2:] == ["server stopped 5", "publisher closed"]
+
+    async def test_a_failing_cleanup_step_does_not_skip_the_others(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        url = f"sqlite+aiosqlite:///{(tmp_path / 'alarms.db').as_posix()}"
+        engine = create_async_engine(url)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        await engine.dispose()
+        disposed: list[str] = []
+
+        class Engine:
+            def __init__(self) -> None:
+                self._real = create_async_engine(url)
+
+            def __getattr__(self, name: str) -> Any:
+                return getattr(self._real, name)
+
+            async def dispose(self) -> None:
+                disposed.append("engine")
+                await self._real.dispose()
+
+        events: list[str] = []
+
+        class Publisher:
+            def __init__(self, *_: Any, **__: Any) -> None:
+                return None
+
+            def start(self) -> None:
+                return None
+
+            async def aclose(self) -> None:
+                events.append("publisher closed")
+
+        class Intake:
+            connected = True
+            healthy = True
+
+            def __init__(self, *_: Any, **__: Any) -> None:
+                return None
+
+            async def run(self) -> None:
+                return None
+
+        class Server:
+            async def stop(self, grace: float) -> None:
+                raise RuntimeError("stop failed")
+
+        async def start(servicer: AlarmServicer, port: int) -> Server:
+            return Server()
+
+        monkeypatch.setattr(entry, "create_engine", Engine)
+        monkeypatch.setattr(entry, "start_metrics_server", lambda port, host: None)
+        monkeypatch.setattr(entry, "AlarmChangePublisher", Publisher)
+        monkeypatch.setattr(entry, "AlertSubscriber", Intake)
+        monkeypatch.setattr(entry, "start_server", start)
+        with pytest.raises(RuntimeError, match="stop failed"):
+            await entry.main(self._args())
+        assert events == ["publisher closed"]
+        assert disposed == ["engine"]
 
     def test_the_command_line_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("sys.argv", ["alert_manager"])

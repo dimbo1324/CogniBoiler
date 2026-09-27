@@ -3,7 +3,9 @@ Publishes alarm changes to alarms/changes over one persistent MQTT connection.
 
 Changes queue while the broker is away and go out in order once it is back. The queue is
 bounded, so a long outage costs the oldest changes, never unbounded memory; a consumer
-that needs the full picture reads it from AlarmService.
+that needs the full picture reads it from AlarmService. Closing gives a connected
+publisher a bounded moment to send what is still queued: those changes are already
+committed, and the historian has no other way to learn them.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 QUEUE_LIMIT: int = 1000
 RECONNECT_DELAY_S: float = 5.0
+CLOSE_DRAIN_TIMEOUT_S: float = 2.0
 
 
 class AlarmChangePublisher:
@@ -44,6 +47,8 @@ class AlarmChangePublisher:
         self._client_id = client_id
         self._queue: deque[bytes] = deque()
         self._wakeup = asyncio.Event()
+        self._idle = asyncio.Event()
+        self._idle.set()
         self._task: asyncio.Task[None] | None = None
         self._dropped = 0
         self._session: MqttSession[Client] = MqttSession(
@@ -62,16 +67,32 @@ class AlarmChangePublisher:
                     "Alarm change queue full: %d changes dropped so far", self._dropped
                 )
         self._queue.append(change_payload(alarm, transition))
+        self._idle.clear()
         self._wakeup.set()
+
+    @property
+    def connected(self) -> bool:
+        return self._session.connected
 
     def start(self) -> None:
         if self._task is None or self._task.done():
             self._task = asyncio.create_task(self._run(), name="alarm-change-publisher")
 
     async def aclose(self) -> None:
+        """Send what is queued while the broker is there, within a bound; then stop."""
         task = self._task
         if task is None:
             return
+        if self._queue and self._session.connected:
+            try:
+                await asyncio.wait_for(self._idle.wait(), CLOSE_DRAIN_TIMEOUT_S)
+            except TimeoutError:
+                pass
+        if self._queue:
+            logger.warning(
+                "Alarm change publisher closed with %d alarm changes unpublished",
+                len(self._queue),
+            )
         task.cancel()
         try:
             await task
@@ -100,6 +121,7 @@ class AlarmChangePublisher:
                 await client.publish(TOPIC_CHANGES, self._queue[0], qos=1)
                 MQTT_PUBLISHED.labels(TOPIC_CHANGES).inc()
                 self._queue.popleft()
+            self._idle.set()
             self._wakeup.clear()
             if not self._queue:
                 await self._wakeup.wait()
