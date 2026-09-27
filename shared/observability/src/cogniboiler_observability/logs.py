@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
-from collections.abc import MutableMapping
+from collections.abc import Mapping, MutableMapping
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,11 @@ _QUIET_LOGGERS = ("asyncua", "httpx", "httpcore", "aiosqlite")
 
 DEFAULT_FILE_MAX_BYTES = 10 * 1024 * 1024
 DEFAULT_FILE_BACKUPS = 5
+
+SENSITIVE_KEY = re.compile(
+    r"password|passwd|secret|token|authorization|cookie|api_?key", re.IGNORECASE
+)
+REDACTED = "***"
 
 
 class ServiceLogFile(RotatingFileHandler):
@@ -49,12 +55,58 @@ def _stamp(service: str) -> Any:
     return add_context
 
 
-def _formatter(shared: list[Any], renderer: Any) -> logging.Formatter:
+def _masked(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            key: REDACTED
+            if isinstance(key, str) and SENSITIVE_KEY.search(key)
+            else _masked(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list | tuple):
+        return [_masked(item) for item in value]
+    return value
+
+
+def redact_sensitive(
+    _: Any, __: str, event: MutableMapping[str, Any]
+) -> MutableMapping[str, Any]:
+    """Mask the value of every key that names a password, token, secret or cookie."""
+    for key, value in event.items():
+        if SENSITIVE_KEY.search(key):
+            event[key] = REDACTED
+        elif isinstance(value, Mapping | list | tuple):
+            event[key] = _masked(value)
+    return event
+
+
+_CONTROL_ESCAPES = {
+    code: f"\\x{code:02x}"
+    for code in (*range(0x00, 0x20), *range(0x7F, 0xA0))
+    if code != ord("\t")
+} | {ord("\n"): "\\n", ord("\r"): "\\r"}
+
+
+def escape_control_characters(
+    _: Any, __: str, event: MutableMapping[str, Any]
+) -> MutableMapping[str, Any]:
+    """Escape control characters in string values, so one record stays one line."""
+    for key, value in event.items():
+        # The traceback's own line breaks are what makes it readable; its text is
+        # built by the interpreter, not taken from a caller.
+        if key != "exception" and isinstance(value, str):
+            event[key] = value.translate(_CONTROL_ESCAPES)
+    return event
+
+
+def _formatter(shared: list[Any], renderer: Any, *, console: bool) -> logging.Formatter:
+    escape = [escape_control_characters] if console else []
     return structlog.stdlib.ProcessorFormatter(
         foreign_pre_chain=shared,
         processors=[
             structlog.stdlib.ProcessorFormatter.remove_processors_meta,
             structlog.processors.format_exc_info,
+            *escape,
             renderer,
         ],
     )
@@ -100,15 +152,15 @@ def configure_logging(
         structlog.stdlib.add_logger_name,
         structlog.processors.TimeStamper(fmt="iso", utc=True, key="timestamp"),
         _stamp(service),
+        redact_sensitive,
     ]
+    console = fmt_name == "console"
     json_renderer = structlog.processors.JSONRenderer(ensure_ascii=False)
     renderer: Any = (
-        structlog.dev.ConsoleRenderer(colors=False)
-        if fmt_name == "console"
-        else json_renderer
+        structlog.dev.ConsoleRenderer(colors=False) if console else json_renderer
     )
     handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(_formatter(shared, renderer))
+    handler.setFormatter(_formatter(shared, renderer, console=console))
     handlers: list[logging.Handler] = [handler]
 
     file_problem: OSError | None = None
@@ -118,7 +170,7 @@ def configure_logging(
         except OSError as error:
             file_problem = error
         else:
-            log_file.setFormatter(_formatter(shared, json_renderer))
+            log_file.setFormatter(_formatter(shared, json_renderer, console=False))
             handlers.append(log_file)
 
     root = logging.getLogger()

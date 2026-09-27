@@ -11,6 +11,7 @@ from collections.abc import Iterator
 import grpc
 import grpc.aio
 import pytest
+import structlog
 from cogniboiler_observability import (
     ServerObservability,
     accepted_correlation_id,
@@ -163,3 +164,101 @@ async def test_the_correlation_id_travels_in_grpc_metadata() -> None:
         )
         == 1.0
     )
+
+
+@pytest.fixture
+def console_logs(monkeypatch: pytest.MonkeyPatch) -> Iterator[io.StringIO]:
+    root = logging.getLogger()
+    handlers, level = root.handlers[:], root.level
+    stream = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", stream)
+    configure_logging("test-service", level="INFO", fmt="console")
+    yield stream
+    root.handlers[:] = handlers
+    root.setLevel(level)
+
+
+class TestRedaction:
+    def test_a_sensitive_key_is_masked_in_the_json_line(
+        self, captured_logs: io.StringIO
+    ) -> None:
+        structlog.get_logger("api_gateway.auth").info(
+            "login attempt",
+            username="operator",
+            password="hunter2",
+            refresh_token="abc.def",
+            Authorization="Bearer xyz",
+            session_cookie="c=1",
+            api_key="k-123",
+            client_secret="s3",
+        )
+        [line] = _lines(captured_logs)
+        assert line["username"] == "operator"
+        for key in (
+            "password",
+            "refresh_token",
+            "Authorization",
+            "session_cookie",
+            "api_key",
+            "client_secret",
+        ):
+            assert line[key] == "***", key
+        for secret in ("hunter2", "abc.def", "xyz", "c=1", "k-123", "s3"):
+            assert secret not in captured_logs.getvalue()
+
+    def test_a_sensitive_key_inside_a_nested_value_is_masked(
+        self, captured_logs: io.StringIO
+    ) -> None:
+        structlog.get_logger("x").info(
+            "request", headers={"Authorization": "Bearer xyz", "Accept": "json"}
+        )
+        [line] = _lines(captured_logs)
+        assert line["headers"] == {"Authorization": "***", "Accept": "json"}
+
+    def test_the_standard_fields_are_left_alone(
+        self, captured_logs: io.StringIO
+    ) -> None:
+        with correlation_scope("abc-123"):
+            logging.getLogger("x").info("token refreshed")
+        [line] = _lines(captured_logs)
+        assert line["event"] == "token refreshed"
+        assert line["correlation_id"] == "abc-123"
+
+    def test_the_console_is_masked_too(self, console_logs: io.StringIO) -> None:
+        structlog.get_logger("x").info("login", password="hunter2")
+        assert "hunter2" not in console_logs.getvalue()
+
+
+class TestConsoleEscaping:
+    def test_a_newline_in_a_value_cannot_forge_a_second_line(
+        self, console_logs: io.StringIO
+    ) -> None:
+        logging.getLogger("x").info(
+            "login by %s", "bob\n2026-09-27 [info] admin logged in\r"
+        )
+        lines = console_logs.getvalue().splitlines()
+        assert len(lines) == 1
+        assert "bob\\n2026-09-27 [info] admin logged in\\r" in lines[0]
+
+    def test_terminal_control_sequences_are_escaped(
+        self, console_logs: io.StringIO
+    ) -> None:
+        structlog.get_logger("x").info("comment", text="\x1b[2Jcleared\x00")
+        output = console_logs.getvalue()
+        assert "\x1b" not in output
+        assert "\x00" not in output
+        assert "\\x1b[2Jcleared\\x00" in output
+
+    def test_readable_text_is_left_as_it_is(self, console_logs: io.StringIO) -> None:
+        logging.getLogger("physics").info("speed 10×, 140 bar\tnominal")
+        assert "speed 10×, 140 bar\tnominal" in console_logs.getvalue()
+
+    def test_a_traceback_keeps_its_lines(self, console_logs: io.StringIO) -> None:
+        try:
+            raise ValueError("boom")
+        except ValueError:
+            logging.getLogger("x").exception("failed")
+        output = console_logs.getvalue()
+        assert "Traceback" in output
+        assert "ValueError: boom" in output
+        assert len(output.splitlines()) > 2
