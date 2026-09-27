@@ -19,20 +19,22 @@ Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 
 ## 1. Preparation
 
-[ ] Owner decision recorded in the decision log; the Д17 checklist closure carried over
-[ ] Work packages, file zones and briefs defined for every wave
++ Owner decision recorded in the decision log; the Д17 checklist closure carried over
++ Work packages, file zones and briefs defined for every wave
 
 ## 2. Wave A — foundations and the High findings
 
-[ ] A1 shared: MQTT session, shutdown on SIGTERM, queued publisher, outage log, JSON and
++ A1 shared: MQTT session, shutdown on SIGTERM, queued publisher, outage log, JSON and
     finite-number helpers, clock, logging (SHR, DUP-01/02/06/08/10 as shared helpers)
-[ ] A2 plc-controller: fail-safe inputs, trip re-send, command failures, safety tests
++ A2 plc-controller: fail-safe inputs, trip re-send, command failures, safety tests
     (PLC, TST-01/02/03/07/08/11, ARCH-05/13)
-[ ] A3 api-gateway auth: credentials in the audit, throttle race, keys, seeding, grants
++ A3 api-gateway auth: credentials in the audit, throttle race, keys, seeding, grants
     migration, metrics, route inventory (GW-AUTH, TST-04/05, SHR-02, ALM-08 migration)
-[ ] A4 alert-manager and historian: alarm intake through a DB outage, payload hardening,
++ A4 alert-manager and historian: alarm intake through a DB outage, payload hardening,
     timeouts (ALM, HIST)
-[ ] Wave A merged; full gate green; merged into local `main`
++ Wave A merged; full gate green; merged into local `main` — live stack: migrations 0005
+  and 0006 applied on PostgreSQL, grants checked, `smoke` 13/13, `demo` 15/15 with clean logs
+  (a first `demo` run failed only because the PC slept 20:10:29–20:15:14 -03:00)
 
 ## 3. Wave B — the remaining services and the console
 
