@@ -17,7 +17,6 @@ and the setup is retried.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -44,14 +43,34 @@ class StoragePolicy:
     aggregate_retention_days: int = 90
 
 
+_FLUX_ESCAPES: dict[str, str] = {
+    "\\": "\\\\",
+    '"': '\\"',
+    "\n": "\\n",
+    "\r": "\\r",
+    "\t": "\\t",
+}
+
+
 def flux_string(value: str) -> str:
     """A Flux string literal, quoted and escaped.
 
     The bucket and organisation names come from the environment, so a name with a
-    quote in it would otherwise end the literal and break — or change — the task
-    this service installs into InfluxDB.
+    quote in it would otherwise end the literal, and `${...}` would be evaluated as
+    an expression, inside the task this service installs into InfluxDB. Flux knows
+    only the escapes below; any other control character is refused.
     """
-    return json.dumps(value, ensure_ascii=False)
+    parts: list[str] = []
+    for index, char in enumerate(value):
+        if char in _FLUX_ESCAPES:
+            parts.append(_FLUX_ESCAPES[char])
+        elif char == "$" and value[index + 1 : index + 2] == "{":
+            parts.append("\\$")
+        elif ord(char) < 0x20 or ord(char) == 0x7F:
+            raise ValueError(f"control character {char!r} in a Flux string")
+        else:
+            parts.append(char)
+    return '"' + "".join(parts) + '"'
 
 
 def downsample_flux(policy: StoragePolicy) -> str:

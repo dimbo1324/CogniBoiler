@@ -138,6 +138,39 @@ class TestStoragePolicy:
         assert "yield(name:" not in skeleton
         assert skeleton.count("from(bucket:") == 1
 
+    @pytest.mark.parametrize(
+        ("value", "literal"),
+        [
+            ("sensors", '"sensors"'),
+            ('a"b', '"a\\"b"'),
+            ("a\\b", '"a\\\\b"'),
+            ("a${r}", '"a\\${r}"'),
+            ("cost $5", '"cost $5"'),
+            ("a\nb\rc\td", '"a\\nb\\rc\\td"'),
+            ("Kraftwerk Süd", '"Kraftwerk Süd"'),
+        ],
+    )
+    def test_a_flux_literal_escapes_what_flux_would_read(
+        self, value: str, literal: str
+    ) -> None:
+        assert flux_string(value) == literal
+
+    @pytest.mark.parametrize("value", ["a\x01b", "a\x00", "a\x7f", "a\x1bb"])
+    def test_other_control_characters_are_refused(self, value: str) -> None:
+        # Flux has no \uXXXX escape: json.dumps output broke the task.
+        with pytest.raises(ValueError, match="control character"):
+            flux_string(value)
+
+    def test_an_interpolation_in_a_bucket_name_stays_text(self) -> None:
+        # ${...} inside a Flux string literal is evaluated as an expression.
+        flux = downsample_flux(
+            StoragePolicy(
+                org="cogniboiler", raw_bucket="a${r}", aggregate_bucket="sensors_1m"
+            )
+        )
+        assert 'from(bucket: "a\\${r}")' in flux
+        assert '"a${' not in flux
+
     def test_missing_buckets_and_task_are_created(
         self, influx: type[FakeInflux]
     ) -> None:
