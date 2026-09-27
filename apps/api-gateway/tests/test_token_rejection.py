@@ -7,10 +7,12 @@ would fail here too.
 from __future__ import annotations
 
 import base64
+import configparser
 import hashlib
 import hmac
 import json
 import time
+from pathlib import Path
 from typing import Any
 
 import jwt
@@ -31,6 +33,7 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 from pydantic import ValidationError
 from sqlalchemy import delete
+from sqlalchemy.engine import make_url
 
 
 def _b64(data: bytes) -> str:
@@ -336,3 +339,27 @@ class TestSettingsArePinned:
         defaults = Settings(_env_file=None)
         assert 1 <= defaults.jwt_access_token_expire_minutes <= 60
         assert 0 <= defaults.refresh_reuse_grace_s <= 30
+
+
+class TestNoWorkingDefaults:
+    def test_the_database_default_carries_no_credentials(self) -> None:
+        url = make_url(Settings(_env_file=None).database_url)
+        assert url.password is None
+        assert url.username is None
+
+    def test_no_browser_origin_is_trusted_by_default(self) -> None:
+        assert Settings(_env_file=None).cors_allowed_origins == []
+
+    def test_an_origin_can_still_be_configured(self) -> None:
+        configured = Settings(
+            _env_file=None, cors_allowed_origins=["http://127.0.0.1:5173"]
+        )
+        assert configured.cors_allowed_origins == ["http://127.0.0.1:5173"]
+
+    def test_alembic_ini_holds_no_database_url_that_could_connect(self) -> None:
+        ini = Path(__file__).resolve().parents[1] / "alembic.ini"
+        parser = configparser.ConfigParser()
+        parser.read(ini, encoding="utf-8")
+        url = parser.get("alembic", "sqlalchemy.url")
+        assert "@" not in url
+        assert "set-DATABASE_URL" in url

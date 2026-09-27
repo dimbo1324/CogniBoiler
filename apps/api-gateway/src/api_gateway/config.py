@@ -36,12 +36,10 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     debug: bool = False
 
-    # Browser origins allowed to call the API cross-origin. The console is served from
-    # the gateway's own origin (Vite proxy, nginx), so this is only for development tools.
-    cors_allowed_origins: list[str] = [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ]
+    # Browser origins allowed to call the API cross-origin, with credentials. The console
+    # is served from the gateway's own origin (Vite proxy, nginx), so none is needed;
+    # set CORS_ALLOWED_ORIGINS only for a development tool that runs elsewhere.
+    cors_allowed_origins: list[str] = []
 
     # JWT: the private key signs, the public key verifies; no other algorithm.
     jwt_algorithm: Literal["RS256"] = "RS256"
@@ -64,10 +62,9 @@ class Settings(BaseSettings):
     # Argon2 runs allowed at once (64 MiB each); further sign-ins wait their turn.
     login_max_concurrent_hashes: int = Field(default=4, ge=1)
 
-    # Database
-    database_url: str = (
-        "postgresql+asyncpg://cogniboiler:cogniboiler@localhost:5432/cogniboiler"
-    )
+    # Database: DATABASE_URL carries the account and its password; the default names no
+    # account, so a gateway started without it cannot sign in anywhere by accident.
+    database_url: str = "postgresql+asyncpg://localhost:5432/cogniboiler"
     auto_init_db: bool = False
 
     # Demo users seeded by AUTO_INIT_DB; an empty password skips that user.
