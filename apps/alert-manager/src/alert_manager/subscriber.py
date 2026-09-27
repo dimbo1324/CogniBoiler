@@ -19,7 +19,7 @@ from typing import Protocol
 
 from aiomqtt import Client
 from cogniboiler_observability import MQTT_RECEIVED
-from cogniboiler_runtime import MqttSession
+from cogniboiler_runtime import MqttSession, subscribe_all
 from sqlalchemy.exc import (
     DBAPIError,
     InterfaceError,
@@ -45,6 +45,7 @@ RECONNECT_DELAY_S: float = 5.0
 STORE_RETRY_DELAY_S: float = 1.0
 STORE_RETRY_MAX_DELAY_S: float = 30.0
 INCOMING_QUEUE_LIMIT: int = 10_000
+SUBSCRIPTIONS: tuple[tuple[str, int], ...] = ((SUBSCRIBE_TOPIC, 1),)
 STALL_LIMIT_S: float = 60.0
 
 
@@ -90,10 +91,6 @@ class AlertSubscriber:
         self._password = password
         self._handler = handler
         self._client_id = client_id
-        self._received = 0
-        self._processed = 0
-        self._skipped = 0
-        self._failed = 0
         self._busy_since: float | None = None
         self._session: MqttSession[Client] = MqttSession(
             self._open_client,
@@ -118,21 +115,10 @@ class AlertSubscriber:
         """Connected, and not stuck behind a database that stopped answering."""
         return self.connected and not self.stalled
 
-    @property
-    def stats(self) -> dict[str, int]:
-        return {
-            "received": self._received,
-            "processed": self._processed,
-            "skipped": self._skipped,
-            "failed": self._failed,
-        }
-
     async def _handle_message(self, topic: str, raw_payload: bytes) -> None:
-        self._received += 1
         MQTT_RECEIVED.labels(topic).inc()
         handler = self._handler
         if handler is None:
-            self._skipped += 1
             return
         self._busy_since = time.monotonic()
         try:
@@ -155,23 +141,19 @@ class AlertSubscriber:
                     topic, lambda: handler.handle_condition(report)
                 )
         except PayloadError as exc:
-            self._skipped += 1
             MESSAGES_REJECTED.labels(exc.reason).inc()
             logger.warning("Alarm message on %s rejected: %s", topic, exc)
             return
         except SQLAlchemyError as exc:
-            self._failed += 1
             MESSAGES_FAILED.inc()
             logger.warning(
                 "Alarm message on %s could not be stored and is dropped: %s", topic, exc
             )
             return
         except Exception:
-            self._failed += 1
             MESSAGES_FAILED.inc()
             logger.exception("Alarm message on %s could not be processed", topic)
             return
-        self._processed += 1
 
     @staticmethod
     async def _with_retries(
@@ -222,7 +204,7 @@ class AlertSubscriber:
         The session is persistent and the subscription is QoS 1, so conditions published
         while the alert manager was away are delivered once it is back.
         """
-        await client.subscribe(SUBSCRIBE_TOPIC, qos=1)
+        await subscribe_all(client, SUBSCRIPTIONS)
         logger.info(
             "AlertManager subscribed to %s on %s:%d",
             SUBSCRIBE_TOPIC,
@@ -232,8 +214,7 @@ class AlertSubscriber:
         async for message in client.messages:
             payload = message.payload
             if not isinstance(payload, bytes | bytearray):
-                self._received += 1
-                self._skipped += 1
+                MQTT_RECEIVED.labels(str(message.topic)).inc()
                 MESSAGES_REJECTED.labels("not_bytes").inc()
                 logger.warning("Alarm message on %s is not bytes", message.topic)
                 continue

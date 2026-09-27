@@ -282,8 +282,10 @@ class FakeBroker:
 
     @property
     def messages(self) -> AsyncIterator[SimpleNamespace]:
+        pending, FakeBroker.deliveries = FakeBroker.deliveries, []
+
         async def deliver() -> AsyncIterator[SimpleNamespace]:
-            for message in FakeBroker.deliveries:
+            for message in pending:
                 yield message
             raise MqttError("connection lost")
 
@@ -432,6 +434,25 @@ class RecordingHandler:
         self.snapshots.append(report)
 
 
+def counts() -> dict[str, float]:
+    def sample(name: str, labels: dict[str, str] | None = None) -> float:
+        return REGISTRY.get_sample_value(name, labels) or 0.0
+
+    return {
+        "received": sum(
+            sample("mqtt_messages_received_total", {"topic": topic})
+            for topic in ("alerts/critical", "alerts/warning", "alerts/snapshot")
+        ),
+        "invalid": rejected("invalid"),
+        "not_bytes": rejected("not_bytes"),
+        "failed": sample("alarm_messages_failed_total"),
+    }
+
+
+def delta(before: dict[str, float]) -> dict[str, float]:
+    return {name: value - before[name] for name, value in counts().items()}
+
+
 def rejected(reason: str) -> float:
     value = REGISTRY.get_sample_value(
         "alarm_messages_rejected_total", {"reason": reason}
@@ -466,17 +487,18 @@ class TestSubscriber:
         intake = AlertSubscriber(
             "broker", 1883, handler, username="alert-manager", password="pw"
         )
+        before = counts()
         task = asyncio.create_task(intake.run())
         try:
-            await until(lambda: intake.stats["received"] >= 4)
+            await until(lambda: counts()["not_bytes"] > before["not_bytes"])
         finally:
             task.cancel()
         assert len(handler.conditions) == 1
         assert len(handler.snapshots) == 1
-        assert intake.stats == {
+        assert delta(before) == {
             "received": 4,
-            "processed": 2,
-            "skipped": 2,
+            "invalid": 1,
+            "not_bytes": 1,
             "failed": 0,
         }
         assert broker.subscriptions[0] == ("alerts/#", 1)
@@ -539,7 +561,6 @@ class TestSubscriber:
         intake = AlertSubscriber(handler=handler)
         await intake._handle_message("alerts/critical", condition_payload())
         assert len(handler.conditions) == 1
-        assert intake.stats["processed"] == 1
 
     async def test_a_long_database_outage_keeps_the_message(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -549,10 +570,11 @@ class TestSubscriber:
         monkeypatch.setattr(subscriber, "STORE_RETRY_DELAY_S", 0.0)
         handler = RecordingHandler(failures=5)
         intake = AlertSubscriber(handler=handler)
+        before = counts()
         with caplog.at_level(logging.DEBUG, logger="alert_manager.subscriber"):
             await intake._handle_message("alerts/critical", condition_payload())
         assert len(handler.conditions) == 1
-        assert intake.stats["failed"] == 0
+        assert delta(before)["failed"] == 0
         warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert len(warnings) == 1
         assert "database unavailable" in warnings[0].getMessage()
@@ -592,9 +614,10 @@ class TestSubscriber:
         monkeypatch.setattr(subscriber, "STORE_RETRY_DELAY_S", 0.0)
         handler = RecordingHandler(failures=1, error=error)
         intake = AlertSubscriber(handler=handler)
+        before = counts()
         with caplog.at_level(logging.WARNING, logger="alert_manager.subscriber"):
             await intake._handle_message("alerts/critical", condition_payload())
-        assert (intake.stats["failed"], handler.conditions) == (1, [])
+        assert (delta(before)["failed"], handler.conditions) == (1, [])
         assert "could not be stored" in caplog.text
         assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
@@ -606,15 +629,16 @@ class TestSubscriber:
     async def test_an_unexpected_error_is_not_retried(self) -> None:
         handler = RecordingHandler(failures=1, error=RuntimeError("bug"))
         intake = AlertSubscriber(handler=handler)
+        before = counts()
         await intake._handle_message("alerts/critical", condition_payload())
-        assert (intake.stats["failed"], handler.conditions) == (1, [])
+        assert (delta(before)["failed"], handler.conditions) == (1, [])
 
     async def test_hostile_payloads_are_rejected_and_counted_not_failed(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         handler = RecordingHandler()
         intake = AlertSubscriber(handler=handler)
-        before = rejected("invalid")
+        before = counts()
         with caplog.at_level(logging.WARNING, logger="alert_manager.subscriber"):
             await intake._handle_message("alerts/critical", b"[" * 50_000)
             await intake._handle_message(
@@ -623,8 +647,7 @@ class TestSubscriber:
             await intake._handle_message(
                 "alerts/critical", condition_payload(timestamp_ms=1e300)
             )
-        assert rejected("invalid") - before == 3
-        assert (intake.stats["skipped"], intake.stats["failed"]) == (3, 0)
+        assert (delta(before)["invalid"], delta(before)["failed"]) == (3, 0)
         assert handler.conditions == []
         assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
@@ -636,15 +659,21 @@ class TestSubscriber:
         before = rejected("not_bytes")
         task = asyncio.create_task(intake.run())
         try:
-            await until(lambda: intake.stats["received"] >= 1)
+            await until(lambda: rejected("not_bytes") > before)
         finally:
             task.cancel()
         assert rejected("not_bytes") - before == 1
 
     async def test_without_a_handler_messages_are_skipped(self) -> None:
         intake = AlertSubscriber()
+        before = counts()
         await intake._handle_message("alerts/critical", condition_payload())
-        assert intake.stats["skipped"] == 1
+        assert delta(before) == {
+            "received": 1,
+            "invalid": 0,
+            "not_bytes": 0,
+            "failed": 0,
+        }
 
     async def test_end_to_end_into_the_processor(
         self, processor: AlarmProcessor, recorder: Recorder
