@@ -9,12 +9,14 @@ import pytest
 from api_gateway import accounts
 from api_gateway.auth.identity import CurrentUser, load_account
 from api_gateway.dependencies import get_db
-from api_gateway.models.user import Role
+from api_gateway.models.user import Role, User
 from api_gateway.problems import ProblemError
 from api_gateway.schemas.users import UserUpdateRequest
 from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import delete
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 NEW_PASSWORD = "Harbour-Lantern-42"
@@ -354,6 +356,59 @@ class TestRoleAndBlocking:
         )
         assert response.status_code == 200
         assert response.json()["role"] == "viewer"
+
+
+class TestRaces:
+    """Checks made before a write must still hold when two admins act at once.
+
+    Real concurrency is enforced only by PostgreSQL (row locks) and by the unique index;
+    these tests pin the parts that make that enforcement possible.
+    """
+
+    async def test_the_database_refuses_a_name_differing_only_in_case(
+        self, app: FastAPI
+    ) -> None:
+        async with database(app) as db:
+            db.add(User(username="OPERATOR1", hashed_password="x", created_at_ms=1))
+            with pytest.raises(IntegrityError):
+                await db.commit()
+
+    async def test_a_name_differing_in_more_than_case_is_accepted(
+        self, app: FastAPI
+    ) -> None:
+        async with database(app) as db:
+            db.add(User(username="operator2", hashed_password="x", created_at_ms=1))
+            await db.commit()
+
+    async def test_a_creation_that_loses_the_race_is_a_conflict(
+        self,
+        app: FastAPI,
+        client: AsyncClient,
+        admin_tokens: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        real_hash = accounts.hash_password_async
+
+        async def rival_first(plain: str) -> str:
+            # Another admin creates "Anna" after this request checked the name.
+            async with database(app) as rival:
+                rival.add(User(username="Anna", hashed_password="x", created_at_ms=1))
+                await rival.commit()
+            return await real_hash(plain)
+
+        monkeypatch.setattr(accounts, "hash_password_async", rival_first)
+        response = await client.post(
+            "/api/v1/users",
+            json={"username": "anna", "password": NEW_PASSWORD, "role": "viewer"},
+            headers=bearer(admin_tokens),
+        )
+        assert response.status_code == 409
+        assert response.json()["code"] == "users.username_taken"
+
+    def test_the_admin_count_locks_the_rows_it_counts(self) -> None:
+        statement = accounts.active_admins_statement()
+        compiled = str(statement.compile(dialect=postgresql.dialect()))
+        assert "FOR UPDATE OF users" in compiled
 
 
 class TestPasswordsAndSessions:

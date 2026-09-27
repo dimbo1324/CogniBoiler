@@ -22,10 +22,12 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -90,6 +92,11 @@ class User(Base):
 
     def __repr__(self) -> str:
         return f"<User id={self.id} username={self.username!r}>"
+
+
+# Names are unique ignoring case (revision 0006): the check before an insert alone would
+# let two concurrent creations of "Anna" and "anna" through.
+Index("ix_users_username_lower", func.lower(User.username), unique=True)
 
 
 # ─── roles ────────────────────────────────────────────────────────────────────

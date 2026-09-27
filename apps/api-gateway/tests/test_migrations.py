@@ -52,6 +52,11 @@ AUDIT_ROW = (
     "timestamp_ms, ip_address) VALUES ('POST', '/auth/login', 401, 3, 1, '10.0.0.1')"
 )
 
+USER_ROW = (
+    "INSERT INTO users (username, hashed_password, is_active, created_at_ms) "
+    "VALUES (?, 'x', 1, 1)"
+)
+
 
 class TestTheChain:
     def test_it_has_one_head(self) -> None:
@@ -89,6 +94,27 @@ class TestTheChain:
             db.execute(AUDIT_ROW)
             with pytest.raises(sqlite3.DatabaseError, match="append-only"):
                 db.execute("DELETE FROM audit_log")
+
+
+class TestCaseInsensitiveUsernames:
+    def test_names_differing_only_in_case_are_refused(
+        self, alembic_config: Config
+    ) -> None:
+        command.upgrade(alembic_config, "head")
+        with connect(alembic_config) as db:
+            db.execute(USER_ROW, ("Anna",))
+            db.execute(USER_ROW, ("anna.b",))
+            with pytest.raises(sqlite3.IntegrityError):
+                db.execute(USER_ROW, ("anna",))
+
+    def test_the_downgrade_removes_only_that_rule(self, alembic_config: Config) -> None:
+        command.upgrade(alembic_config, "head")
+        command.downgrade(alembic_config, "0005")
+        with connect(alembic_config) as db:
+            db.execute(USER_ROW, ("Anna",))
+            db.execute(USER_ROW, ("anna",))
+            with pytest.raises(sqlite3.IntegrityError):
+                db.execute(USER_ROW, ("anna",))
 
 
 class TestApplicationGrants:

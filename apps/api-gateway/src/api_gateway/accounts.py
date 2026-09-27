@@ -19,7 +19,7 @@ import asyncio
 import time
 import weakref
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import Select, delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -101,14 +101,25 @@ async def _account_or_404(db: AsyncSession, user_id: int) -> Account:
     return account
 
 
-async def _active_admin_count(db: AsyncSession) -> int:
-    count = await db.scalar(
-        select(func.count(func.distinct(User.id)))
+def active_admins_statement() -> Select[tuple[int]]:
+    """
+    The active administrators, locked until the transaction ends.
+
+    Two admins demoting each other at once would otherwise both count two admins and
+    both commit, leaving none; with the lock the second waits and counts one. PostgreSQL
+    enforces it; SQLite has no row locks and ignores the clause.
+    """
+    return (
+        select(User.id)
         .join(UserRole, UserRole.user_id == User.id)
         .join(Role, Role.id == UserRole.role_id)
         .where(User.is_active.is_(True), Role.name == "admin")
+        .with_for_update(of=User)
     )
-    return int(count or 0)
+
+
+async def _active_admin_count(db: AsyncSession) -> int:
+    return len(set((await db.scalars(active_admins_statement())).all()))
 
 
 def _response(account: Account, open_sessions: int) -> UserResponse:
