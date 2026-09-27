@@ -352,23 +352,6 @@ class TestSources:
         crashed = next(r for r in errors if "source-crashes" in r.getMessage())
         assert crashed.exc_info is not None
 
-    @pytest.mark.parametrize(
-        ("payload", "expected"),
-        [
-            (b'{"alarm_id": 7}', {"alarm_id": 7}),
-            (bytearray(b'{"a": 1}'), {"a": 1}),
-            (b"[1, 2]", None),
-            (b"not json", None),
-            (b"\xff\xfe", None),
-            ("text", None),
-            (None, None),
-        ],
-    )
-    def test_only_json_objects_are_forwarded(
-        self, payload: object, expected: dict[str, Any] | None
-    ) -> None:
-        assert sources._json_object(payload) == expected
-
 
 class FakeMqttClient:
     """aiomqtt.Client stand-in: the messages it delivers, then a lost connection."""
@@ -426,6 +409,49 @@ class TestMqttEvents:
         assert alarm_change["data"] == {"alarm_id": 7}
         assert subscriber.queue.empty()
         assert FakeMqttClient.subscribed == ["plc/events", "alarms/changes"]
+
+    @pytest.mark.parametrize(
+        ("payload", "expected"),
+        [
+            (b'{"alarm_id": 7}', [{"alarm_id": 7}]),
+            (bytearray(b'{"a": 1}'), [{"a": 1}]),
+            (b"[1, 2]", []),
+            (b"not json", []),
+            (b"\xff\xfe", []),
+            (b'{"value": NaN}', []),
+            (b'{"value": -Infinity}', []),
+            (b'{"value": 1e999}', []),
+            pytest.param(b"[" * 100_000 + b"]" * 100_000, [], id="deep-nesting"),
+            ("text", []),
+            (None, []),
+        ],
+    )
+    async def test_only_json_objects_are_forwarded(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        payload: object,
+        expected: list[dict[str, Any]],
+    ) -> None:
+        FakeMqttClient.deliveries = [
+            ("alarms/changes", payload),  # type: ignore[list-item]
+            ("plc/events", b'{"end": true}'),
+        ]
+        FakeMqttClient.connections = 0
+        monkeypatch.setattr(sources, "Client", FakeMqttClient)
+        monkeypatch.setattr(sources, "RECONNECT_DELAY_S", 60.0)
+        hub = RealtimeHub(queue_size=8, max_rate_hz=10.0)
+        subscriber = hub.register()
+        hub.subscribe(subscriber, {Channel.PLC, Channel.ALARMS})
+        task = asyncio.create_task(sources.run_mqtt_events(hub, "broker", 1883))
+        forwarded: list[dict[str, Any]] = []
+        try:
+            while (frame := await first_frame(subscriber))["channel"] == "alarms":
+                forwarded.append(frame["data"])
+        finally:
+            task.cancel()
+        assert forwarded == expected
+        assert frame["data"] == {"end": True}
+        assert FakeMqttClient.connections == 1
 
     async def test_a_lost_broker_is_retried(
         self, monkeypatch: pytest.MonkeyPatch

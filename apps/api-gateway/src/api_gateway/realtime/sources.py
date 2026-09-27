@@ -15,15 +15,18 @@ which the source starts over. Only cancellation ends a source.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from collections.abc import Callable
-from typing import Any
 from uuid import uuid4
 
 import grpc
 from aiomqtt import Client
-from cogniboiler_runtime import MqttSession, OutageLog, subscribe_all
+from cogniboiler_runtime import (
+    MqttSession,
+    OutageLog,
+    decode_json_object,
+    subscribe_all,
+)
 from pydantic import BaseModel
 
 from api_gateway.clients import PhysicsGatewayClient, PLCGatewayClient
@@ -144,16 +147,6 @@ async def run_plc_status(
         await asyncio.sleep(interval_s)
 
 
-def _json_object(payload: bytes | bytearray | Any) -> dict[str, Any] | None:
-    if not isinstance(payload, bytes | bytearray):
-        return None
-    try:
-        value = json.loads(payload)
-    except UnicodeDecodeError, json.JSONDecodeError:
-        return None
-    return value if isinstance(value, dict) else None
-
-
 async def run_mqtt_events(
     hub: RealtimeHub,
     host: str,
@@ -163,8 +156,8 @@ async def run_mqtt_events(
 ) -> None:
     """Forward the two JSON topics the console listens to, across broker outages.
 
-    The gateway is a reader here: a payload that is not a JSON object is dropped with a
-    debug line, never passed on to the browser as-is.
+    The gateway is a reader here: a payload that is not a JSON object with finite
+    numbers is dropped with a debug line, never passed on to the browser as-is.
     """
     routes: dict[str, tuple[Channel, str]] = {
         TOPIC_PLC_EVENTS: (Channel.PLC, "event"),
@@ -184,7 +177,7 @@ async def run_mqtt_events(
         await subscribe_all(client, [(topic, EVENT_QOS) for topic in routes])
         async for message in client.messages:
             route = routes.get(str(message.topic))
-            payload = _json_object(message.payload)
+            payload = decode_json_object(message.payload)
             if route is None or payload is None:
                 logger.debug("Ignored MQTT message on %s", message.topic)
                 continue
