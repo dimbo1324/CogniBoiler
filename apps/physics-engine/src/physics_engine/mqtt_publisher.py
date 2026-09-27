@@ -9,7 +9,8 @@ Topic tree:
     sensors/plant            ← PlantStatusMsg: emissions, condenser, wear, faults,
                                instrument qualities, simulation status
     sensors/system/heartbeat ← UTF-8 epoch-ms string
-    status/physics-engine    ← retained "online" / "offline" (MQTT will)
+    status/physics-engine    ← retained "online" / "offline" (said on a clean stop,
+                               the MQTT will otherwise)
 
 Protocol Buffers (not JSON) are used for:
   - ~3× smaller payload vs equivalent JSON
@@ -22,6 +23,7 @@ can tolerate occasional loss; throughput matters more.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -52,6 +54,9 @@ logger = logging.getLogger(__name__)
 
 MQTT_ERRORS: tuple[type[BaseException], ...] = (AioMqttError,)
 RECONNECT_DELAY_S: float = 5.0
+# A clean stop disconnects politely, and the broker then drops the will: "offline" has to
+# be said explicitly, but a link that is already gone must not hold the shutdown up.
+OFFLINE_ANNOUNCE_TIMEOUT_S: float = 2.0
 
 # ─── Topic constants ──────────────────────────────────────────────────────────
 
@@ -233,10 +238,23 @@ class MQTTPublisher:
         async def mirror(client: Client) -> None:
             nonlocal last_sequence
             await self.publish_availability(client, "online")
-            while True:
-                last_sequence, snapshot = await runtime.wait_for_update(last_sequence)
-                await self.publish_snapshot(
-                    client, snapshot, runtime.simulation_status()
-                )
+            try:
+                while True:
+                    last_sequence, snapshot = await runtime.wait_for_update(
+                        last_sequence
+                    )
+                    await self.publish_snapshot(
+                        client, snapshot, runtime.simulation_status()
+                    )
+            except asyncio.CancelledError, RuntimeUnavailableError:
+                await self._announce_offline(client)
+                raise
 
         await session.run(mirror, fatal=(RuntimeUnavailableError,))
+
+    async def _announce_offline(self, client: Client) -> None:
+        try:
+            async with asyncio.timeout(OFFLINE_ANNOUNCE_TIMEOUT_S):
+                await self.publish_availability(client, "offline")
+        except (TimeoutError, AioMqttError) as exc:
+            logger.debug("Physics mirror could not announce offline: %s", exc)

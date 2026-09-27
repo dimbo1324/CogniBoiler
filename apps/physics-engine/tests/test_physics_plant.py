@@ -320,6 +320,38 @@ class TestMirror:
             await runtime.stop()
             await asyncio.wait_for(mirror, timeout=5.0)
         assert "MQTT session stopped: physics runtime stopped" in caplog.text
+        assert FakeBroker.published[-1] == (TOPIC_AVAILABILITY, "offline", 1, True)
+
+    async def test_a_cancelled_mirror_says_offline_before_it_disconnects(
+        self,
+    ) -> None:
+        runtime = PhysicsRuntime(PhysicsRuntimeConfig(start_paused=True))
+        await runtime.start()
+        publisher = MQTTPublisher(MQTTConfig())
+        mirror = asyncio.create_task(publisher.mirror_runtime(runtime))
+        try:
+            await until(lambda: len(FakeBroker.published) >= 5)
+            mirror.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await mirror
+        finally:
+            await runtime.stop()
+        assert FakeBroker.published[-1] == (TOPIC_AVAILABILITY, "offline", 1, True)
+
+    async def test_a_link_that_is_already_gone_does_not_stop_the_shutdown(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        runtime = PhysicsRuntime(PhysicsRuntimeConfig(start_paused=True))
+        await runtime.start()
+        publisher = MQTTPublisher(MQTTConfig())
+        mirror = asyncio.create_task(publisher.mirror_runtime(runtime))
+        await until(lambda: len(FakeBroker.published) >= 5)
+        FakeBroker.drop_after_publishes = 0
+        with caplog.at_level(logging.DEBUG, logger="physics_engine.mqtt_publisher"):
+            await runtime.stop()
+            await asyncio.wait_for(mirror, timeout=5.0)
+        assert FakeBroker.published[-1][0] != TOPIC_AVAILABILITY
+        assert "could not announce offline" in caplog.text
 
 
 class TestEntryPoint:
