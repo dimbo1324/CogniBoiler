@@ -16,38 +16,43 @@ Publishing `main` was not asked for in this task.
 
 Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 
+**Closed without work on 2026-09-26:** the owner switched this session to a security and
+code-quality audit before any code was written. Д17 stays open in the roadmap and the decision
+log (Q8: fix before 1.0); this plan can be restored from commit `ada0fc4`.
+
 ## 1. Preparation
 
-[ ] Q8 recorded as decided in the decision log
-[ ] The defect reproduced in lockstep with a command delay: restart and steady load
++ Q8 recorded as decided in the decision log
+- The defect reproduced in lockstep with a command delay: restart and steady load —
+  investigated (the fourth finding is in the decision log), no reproduction committed
 
 ## 2. Plant model (physics-engine)
 
-[ ] Superheater tube metal as a state with its heat capacity: gas heats the metal, the
+- Superheater tube metal as a state with its heat capacity: gas heats the metal, the
     metal heats the steam; the outlet stays between saturation and the metal temperature
-[ ] Main steam temperature measured where the trip and the spray loop assume it — after
+- Main steam temperature measured where the trip and the spray loop assume it — after
     the attemperator, before the governing valve
-[ ] Operating points and scenario initial states start with the metal in equilibrium;
+- Operating points and scenario initial states start with the metal in equilibrium;
     nominal readings stay put
-[ ] Tests for the new physics: energy balance, bounds, the time constant, no jump behind
+- Tests for the new physics: energy balance, bounds, the time constant, no jump behind
     shut valves
 
 ## 3. Control (plc-controller)
 
-[ ] Inner loops (fuel flow, feedwater flow, steam temperature) retuned to hold with one
+- Inner loops (fuel flow, feedwater flow, steam temperature) retuned to hold with one
     and two steps of command delay, with the physical reasoning in the commit body
-[ ] A restart test under a command delay, and a steady-load test under delay
+- A restart test under a command delay, and a steady-load test under delay
 
 ## 4. Workaround removed
 
-[ ] `demo` and the README recording restart at full demo speed again
-[ ] The live stack: `demo` at 10× plays green with clean logs
+- `demo` and the README recording restart at full demo speed again
+- The live stack: `demo` at 10× plays green with clean logs
 
 ## 5. Completion
 
-[ ] State documents: Д17 closed in the roadmap, the known gap removed from the overview,
+- State documents: Д17 closed in the roadmap, the known gap removed from the overview,
     the command reference and README without the 3× note
-[ ] Full gate green; CI on the pushed branch
-[ ] Checklist filled honestly; report in Russian
-[ ] Merged into `main` fast-forward, branch deleted locally and on `origin`; `main` not
+- Full gate green; CI on the pushed branch
+- Checklist filled honestly; report in Russian
+- Merged into `main` fast-forward, branch deleted locally and on `origin`; `main` not
     pushed without the owner's word
