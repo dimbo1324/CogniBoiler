@@ -6,19 +6,25 @@ import argparse
 import asyncio
 import os
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[4] / "shared" / "generated"))
 
 from cogniboiler_observability import configure_logging
 
-from plc_controller.server import DEFAULT_PORT, serve
+from plc_controller.server import DEFAULT_HOST, DEFAULT_PORT, serve
 
 DEFAULT_METRICS_PORT = 9102
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="CogniBoiler PLC Controller")
+    parser.add_argument(
+        "--host",
+        default=DEFAULT_HOST,
+        help="interface for the gRPC server; 0.0.0.0 only inside a private network",
+    )
     parser.add_argument(
         "--port", type=int, default=DEFAULT_PORT, help="gRPC listen port"
     )
@@ -38,14 +44,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--metrics-host", default="127.0.0.1", help="interface for /metrics"
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-if __name__ == "__main__":
+def main(argv: Sequence[str] | None = None) -> None:
     configure_logging("plc-controller")
-    args = parse_args()
+    args = parse_args(argv)
     asyncio.run(
         serve(
+            host=args.host,
             port=args.port,
             physics_target=args.physics_target,
             mqtt_host=args.mqtt_host,
@@ -58,3 +65,7 @@ if __name__ == "__main__":
         # aiomqtt needs add_reader(), which the Windows proactor loop does not have.
         loop_factory=asyncio.SelectorEventLoop if sys.platform == "win32" else None,
     )
+
+
+if __name__ == "__main__":
+    main()

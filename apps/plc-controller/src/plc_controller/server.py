@@ -25,6 +25,9 @@ from plc_controller.service import PLCService, RuntimeMode
 logger = logging.getLogger(__name__)
 
 DEFAULT_PORT: int = 50051
+# PLCService takes valve commands and E-Stop resets from whoever reaches it, so by
+# default it listens on this machine only; the Compose network passes 0.0.0.0.
+DEFAULT_HOST: str = "127.0.0.1"
 
 _MODES: dict[int, RuntimeMode] = {
     int(pb2.ControlMode.AUTO): RuntimeMode.AUTO,
@@ -171,9 +174,17 @@ class PLCServicer(pb2_grpc.PLCServiceServicer):  # type: ignore[misc]
             await asyncio.sleep(interval)
 
 
+def listen_address(host: str, port: int) -> str:
+    """`host:port` for gRPC, with an IPv6 host in brackets."""
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    return f"{host}:{port}"
+
+
 async def serve(
     port: int = DEFAULT_PORT,
     *,
+    host: str = DEFAULT_HOST,
     physics_target: str = "localhost:50052",
     mqtt_host: str = "localhost",
     mqtt_port: int = 1883,
@@ -195,7 +206,7 @@ async def serve(
     start_metrics_server(metrics_port, metrics_host)
     server = grpc.aio.server(interceptors=[ServerObservability()])
     pb2_grpc.add_PLCServiceServicer_to_server(PLCServicer(service), server)
-    listen_addr = f"[::]:{port}"
+    listen_addr = listen_address(host, port)
     server.add_insecure_port(listen_addr)
     await server.start()
     logger.info("PLC gRPC server listening on %s", listen_addr)
