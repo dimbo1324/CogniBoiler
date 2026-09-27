@@ -1,58 +1,66 @@
-# Task: fix known defect Д17 before 1.0 — the superheater at low flow and the restart
+# Task: fix the project by the audit — the whole plan, in waves, by parallel agents
 
-Owner decision of 2026-09-26 on Q8: fix Д17 before 1.0. The defect, from the roadmap: the
-superheater has no metal heat capacity, so at low steam flow its outlet jumps (below
-saturation on a sudden flow, to furnace gas temperature behind shut valves), and a restart
-after an E-Stop reset at ten times real speed trips the unit again on high main steam
-temperature. Investigation on 2026-09-26 added a fourth finding: with the PLC's commands
-reaching the plant one step late, the unit trips even at a steady 250 MW — the inner flow
-and temperature loops have no margin for delay.
+Owner instruction of 2026-09-27: fix everything `docs/__arch__/AUDIT.md` found (224 findings),
+with no new features and no new business logic, by several agents working in parallel, without
+commit trouble. Findings marked "owner decision" in the audit get only their safe part
+(decision log, 2026-09-27). Each wave is merged into the local `main` fast-forward after a green
+full gate; `main` is not pushed.
 
-Acceptance: the demo scenario of VISION §7 plays at 10× without the 3× restart workaround;
-a test restarts the unit under a PLC command delay and passes; the nominal operating points
-stay where they were; the full gate is green.
+Synchronisation: one git worktree and one `fix/audit-…` branch per work package, disjoint file
+zones, shared files changed only by the lead; the lead rebases a finished branch onto
+`chore/audit-remediation`, runs the full gate in its worktree and merges it fast-forward, one
+at a time.
 
-Publishing `main` was not asked for in this task.
+Acceptance: every finding is fixed, or marked with an honest reason (owner decision, out of
+scope, not reproducible); each fix that changes behaviour has a test that failed before it;
+no test weakened; the full gate green after every wave; state documents updated.
 
 Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 
-**Closed without work on 2026-09-26:** the owner switched this session to a security and
-code-quality audit before any code was written. Д17 stays open in the roadmap and the decision
-log (Q8: fix before 1.0); this plan can be restored from commit `ada0fc4`.
-
 ## 1. Preparation
 
-+ Q8 recorded as decided in the decision log
-- The defect reproduced in lockstep with a command delay: restart and steady load —
-  investigated (the fourth finding is in the decision log), no reproduction committed
+[ ] Owner decision recorded in the decision log; the Д17 checklist closure carried over
+[ ] Work packages, file zones and briefs defined for every wave
 
-## 2. Plant model (physics-engine)
+## 2. Wave A — foundations and the High findings
 
-- Superheater tube metal as a state with its heat capacity: gas heats the metal, the
-    metal heats the steam; the outlet stays between saturation and the metal temperature
-- Main steam temperature measured where the trip and the spray loop assume it — after
-    the attemperator, before the governing valve
-- Operating points and scenario initial states start with the metal in equilibrium;
-    nominal readings stay put
-- Tests for the new physics: energy balance, bounds, the time constant, no jump behind
-    shut valves
+[ ] A1 shared: MQTT session, shutdown on SIGTERM, queued publisher, outage log, JSON and
+    finite-number helpers, clock, logging (SHR, DUP-01/02/06/08/10 as shared helpers)
+[ ] A2 plc-controller: fail-safe inputs, trip re-send, command failures, safety tests
+    (PLC, TST-01/02/03/07/08/11, ARCH-05/13)
+[ ] A3 api-gateway auth: credentials in the audit, throttle race, keys, seeding, grants
+    migration, metrics, route inventory (GW-AUTH, TST-04/05, SHR-02, ALM-08 migration)
+[ ] A4 alert-manager and historian: alarm intake through a DB outage, payload hardening,
+    timeouts (ALM, HIST)
+[ ] Wave A merged; full gate green; merged into local `main`
 
-## 3. Control (plc-controller)
+## 3. Wave B — the remaining services and the console
 
-- Inner loops (fuel flow, feedwater flow, steam temperature) retuned to hold with one
-    and two steps of command delay, with the physical reasoning in the commit body
-- A restart test under a command delay, and a steady-load test under delay
+[ ] B1 api-gateway operational API and realtime (GW-API, TST-12/13/14, DUP-04)
+[ ] B2 physics-engine (PHY, TST-09/17/19/26)
+[ ] B3 opcua-server (OPC, TST-06, ARCH-07)
+[ ] B4 web console (WEB, TST-18/24)
+[ ] Wave B merged; full gate green; merged into local `main`
 
-## 4. Workaround removed
+## 4. Wave C — platform, scripts, shared helpers adopted
 
-- `demo` and the README recording restart at full demo speed again
-- The live stack: `demo` at 10× plays green with clean logs
+[ ] C1 platform: Compose network segmentation, InfluxDB tokens, container hardening,
+    nginx, Mosquitto, Grafana, CI and supply chain (PLAT, ARCH-01 safe part, ARCH-06/12)
+[ ] C2 developer scripts, coverage floor, audit-table check in smoke (SCR, TST-15/16/25/27,
+    ARCH-03)
+[ ] C3 plc-controller, alert-manager, historian adopt the shared helpers (DUP-02/03/05/09,
+    ARCH-08, HIST-08, ALM-06)
+[ ] Wave C merged; full gate green; merged into local `main`
 
-## 5. Completion
+## 5. Wave D — tests of the invariants and test hygiene
 
-- State documents: Д17 closed in the roadmap, the known gap removed from the overview,
-    the command reference and README without the 3× note
-- Full gate green; CI on the pushed branch
-- Checklist filled honestly; report in Russian
-- Merged into `main` fast-forward, branch deleted locally and on `origin`; `main` not
-    pushed without the owner's word
+[ ] D1 invariant tests and contract models (ARCH-02/04/11), test hygiene (TST-10/20-23)
+[ ] Wave D merged; full gate green; merged into local `main`
+
+## 6. Completion
+
+[ ] State documents: overview, invariants proposals for the owner, roadmap progress note,
+    rule modules corrected where stale
+[ ] Live stack: `stack up`, `smoke`, `demo` green with clean logs
+[ ] Every finding accounted for in a closing table; checklist filled; report in Russian
+[ ] Worktrees and merged `fix/audit-…` branches removed; `main` not pushed
