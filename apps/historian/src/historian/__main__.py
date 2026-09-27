@@ -28,7 +28,7 @@ from cogniboiler_runtime import LivenessFile
 from historian.stats import STATS_INTERVAL_S, report_stats
 from historian.storage import StoragePolicy, ensure_storage
 from historian.subscriber import HistorianSubscriber
-from historian.writer import InfluxWriter
+from historian.writer import DEFAULT_TIMEOUT_MS, InfluxWriter
 
 logger = logging.getLogger("historian")
 DEFAULT_METRICS_PORT = 9103
@@ -42,6 +42,7 @@ async def main(args: argparse.Namespace, influx_token: str) -> None:
         token=influx_token,
         org=args.influx_org,
         bucket=args.influx_bucket,
+        timeout_ms=int(args.influx_timeout_s * 1000),
     )
     subscriber = HistorianSubscriber(
         writer=writer,
@@ -97,6 +98,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--influx-url", default="http://localhost:8086")
     parser.add_argument("--influx-org", default="cogniboiler")
     parser.add_argument("--influx-bucket", default="sensors")
+    parser.add_argument(
+        "--influx-timeout-s",
+        type=float,
+        default=DEFAULT_TIMEOUT_MS / 1000,
+        help="how long one InfluxDB write may take",
+    )
     parser.add_argument(
         "--aggregate-bucket",
         default="sensors_1m",

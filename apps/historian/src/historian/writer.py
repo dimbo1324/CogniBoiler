@@ -64,6 +64,7 @@ _QUALITY_TAG: dict[int, str] = {
 
 _NOT_FIELDS: frozenset[str] = frozenset({"timestamp_ms", "quality"})
 
+DEFAULT_TIMEOUT_MS: int = 10_000
 MIN_PLAUSIBLE_MS: int = 946_684_800_000  # 2000-01-01T00:00:00Z
 MAX_FUTURE_SKEW_MS: int = 86_400_000
 
@@ -97,11 +98,11 @@ def new_point(measurement: str) -> PointLike:
     return cast(PointLike, _Point(measurement))  # type: ignore[no-untyped-call]
 
 
-def _new_client(url: str, token: str, org: str) -> InfluxDBClientLike:
+def _new_client(url: str, token: str, org: str, timeout_ms: int) -> InfluxDBClientLike:
     """Create an InfluxDB client while containing the untyped constructor."""
     return cast(
         InfluxDBClientLike,
-        _InfluxDBClient(url=url, token=token, org=org),
+        _InfluxDBClient(url=url, token=token, org=org, timeout=timeout_ms),
     )
 
 
@@ -211,10 +212,14 @@ class InfluxWriter:
         token: str,
         org: str,
         bucket: str,
+        *,
+        timeout_ms: int = DEFAULT_TIMEOUT_MS,
     ) -> None:
         self._bucket = bucket
         self._org = org
-        self._client: InfluxDBClientLike = _new_client(url=url, token=token, org=org)
+        self._client: InfluxDBClientLike = _new_client(
+            url=url, token=token, org=org, timeout_ms=timeout_ms
+        )
         self._write_api = self._client.write_api(write_options=SYNCHRONOUS)
         self._written: int = 0
         self._errors: int = 0

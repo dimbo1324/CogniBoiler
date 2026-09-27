@@ -72,6 +72,7 @@ SUBSCRIPTIONS: tuple[tuple[str, int], ...] = (
 )
 RECONNECT_DELAY_S: float = 5.0
 MAX_JSON_BYTES: int = 64 * 1024
+INCOMING_QUEUE_LIMIT: int = 10_000
 
 
 class HistorianSubscriber:
@@ -104,6 +105,7 @@ class HistorianSubscriber:
         self._client_id = client_id
         self._batch_size = max(batch_size, 1)
         self._buffer: list[PointLike] = []
+        self._flush_lock = asyncio.Lock()
         self._flush_interval_s = max(flush_interval_s, 0.1)
         self._last_flush_at = time.monotonic()
         self._labels = RunLabels()
@@ -231,13 +233,18 @@ class HistorianSubscriber:
             return
 
     async def _flush(self) -> None:
-        """Flush the current batch to InfluxDB without blocking the event loop."""
-        if not self._buffer:
-            return
-        batch = list(self._buffer)
-        self._buffer.clear()
-        self._last_flush_at = time.monotonic()
-        self._stored += await asyncio.to_thread(self._writer.write_points, batch)
+        """Flush the current batch to InfluxDB without blocking the event loop.
+
+        One flush at a time: the periodic flush and a full batch would otherwise
+        write concurrently, and out of order.
+        """
+        async with self._flush_lock:
+            if not self._buffer:
+                return
+            batch = list(self._buffer)
+            self._buffer.clear()
+            self._last_flush_at = time.monotonic()
+            self._stored += await asyncio.to_thread(self._writer.write_points, batch)
 
     async def flush_periodically(self) -> None:
         """Flush a partial batch when messages stop, e.g. while the plant is paused."""
@@ -254,6 +261,7 @@ class HistorianSubscriber:
             username=self._username,
             password=self._password,
             clean_session=False if self._client_id else None,
+            max_queued_incoming_messages=INCOMING_QUEUE_LIMIT,
         )
 
     async def _consume(self, client: Client) -> None:

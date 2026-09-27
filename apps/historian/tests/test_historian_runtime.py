@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import logging
+import threading
 from collections.abc import AsyncIterator
 from pathlib import Path
 from types import SimpleNamespace
@@ -398,6 +399,38 @@ class TestSubscriber:
             task.cancel()
         assert sub.stats["stored"] == 1
 
+    async def test_flushes_run_one_at_a_time_and_in_order(self) -> None:
+        # flush_periodically and _store_point can both flush; two writes at once
+        # raced the writer's counters and could reorder batches.
+        release = threading.Event()
+        entered = threading.Event()
+
+        class SlowWriter(RecordingWriter):
+            def write_points(self, points: list[Any]) -> int:
+                if not self.batches:
+                    entered.set()
+                    release.wait(5.0)
+                return super().write_points(points)
+
+        store = SlowWriter()
+        sub = HistorianSubscriber(store, batch_size=50, flush_interval_s=3600)  # type: ignore[arg-type]
+        await sub._handle_message("status/physics-engine", b"online")
+        first = asyncio.create_task(sub._flush())
+        await asyncio.to_thread(entered.wait, 5.0)
+        await sub._handle_message("status/plc-controller", b"online")
+        second = asyncio.create_task(sub._flush())
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert not second.done()
+        assert len(store.batches) == 0
+        release.set()
+        await asyncio.gather(first, second)
+        assert [line.split(" ")[0] for line in store.lines] == [
+            "service_availability,service=physics-engine",
+            "service_availability,service=plc-controller",
+        ]
+        assert sub.stats["stored"] == 2
+
     async def test_an_overdue_flush_happens_on_the_next_point(self) -> None:
         store = RecordingWriter()
         sub = HistorianSubscriber(store, batch_size=50, flush_interval_s=0.1)  # type: ignore[arg-type]
@@ -479,6 +512,9 @@ class TestSubscriberSession:
         ]
         options = broker.connections[0]
         assert (options["clean_session"], options["identifier"]) == (False, "historian")
+        assert (
+            options["max_queued_incoming_messages"] == subscriber.INCOMING_QUEUE_LIMIT
+        )
         assert (options["username"], options["password"]) == ("historian", "pw")
         assert len(store.lines) == 1
         assert sub.stats["skipped"] == 1
@@ -529,6 +565,7 @@ class TestEntryPoint:
         assert (args.client_id, args.aggregate_bucket) == ("historian", "sensors_1m")
         assert (args.batch_size, args.metrics_port) == (50, 9103)
         assert (args.raw_retention_days, args.aggregate_retention_days) == (7, 90)
+        assert args.influx_timeout_s == 10.0
 
     async def test_it_wires_the_writer_subscriber_policy_and_stats(
         self,
@@ -580,6 +617,7 @@ class TestEntryPoint:
                 with pytest.raises(asyncio.CancelledError):
                     await task
         assert made["writer"]["bucket"] == "sensors"
+        assert made["writer"]["timeout_ms"] == 10_000
         assert made["subscriber"]["mqtt_password"] == "broker-pass"
         assert made["subscriber"]["client_id"] == "historian"
         assert made["policy"].aggregate_bucket == "sensors_1m"
@@ -615,6 +653,7 @@ class TestEntryPoint:
             influx_url="http://influx:8086",
             influx_org="cogniboiler",
             influx_bucket="sensors",
+            influx_timeout_s=10.0,
             aggregate_bucket="",
             raw_retention_days=7,
             aggregate_retention_days=90,

@@ -382,6 +382,7 @@ class FakeInfluxClient:
     def __init__(self) -> None:
         self.api = FakeWriteApi()
         self.closed = False
+        self.timeout_ms = 0
 
     def write_api(self, *, write_options: object) -> FakeWriteApi:
         return self.api
@@ -393,7 +394,12 @@ class FakeInfluxClient:
 @pytest.fixture
 def influx(monkeypatch: pytest.MonkeyPatch) -> FakeInfluxClient:
     client = FakeInfluxClient()
-    monkeypatch.setattr(writer, "_new_client", lambda url, token, org: client)
+
+    def new_client(url: str, token: str, org: str, timeout_ms: int) -> Any:
+        client.timeout_ms = timeout_ms
+        return client
+
+    monkeypatch.setattr(writer, "_new_client", new_client)
     return client
 
 
@@ -420,6 +426,13 @@ class TestWriter:
             assert store.write_points([new_point("b"), new_point("c")]) == 0
         assert (store.written, store.errors) == (0, 3)
         assert "InfluxDB write" in caplog.text
+
+    def test_the_client_has_an_explicit_timeout(self, influx: FakeInfluxClient) -> None:
+        # A slow InfluxDB holds the flush, and with it the consume loop.
+        InfluxWriter("http://influx:8086", "t", "org", "sensors")
+        assert influx.timeout_ms == writer.DEFAULT_TIMEOUT_MS
+        InfluxWriter("http://influx:8086", "t", "org", "sensors", timeout_ms=2_500)
+        assert influx.timeout_ms == 2_500
 
     def test_an_outage_is_one_warning_and_one_recovery_line(
         self, influx: FakeInfluxClient, caplog: pytest.LogCaptureFixture
