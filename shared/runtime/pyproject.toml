@@ -1,7 +1,7 @@
 [project]
 name = "cogniboiler-runtime"
 version = "0.1.0"
-description = "Shared service runtime for CogniBoiler: the MQTT session loop and the liveness file"
+description = "Shared service runtime for CogniBoiler: the MQTT session and publish queue, the liveness file, payload decoding and the service lifecycle"
 requires-python = ">=3.14"
 dependencies = []
 
