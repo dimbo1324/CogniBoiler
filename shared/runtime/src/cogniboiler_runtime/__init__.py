@@ -31,6 +31,11 @@ from cogniboiler_runtime.payloads import (
     decode_json_object,
     finite_number,
 )
+from cogniboiler_runtime.service import (
+    STOP_SIGNALS,
+    run_service,
+    run_until_signalled,
+)
 
 __all__ = [
     "DEFAULT_BROKER_ERRORS",
@@ -43,6 +48,7 @@ __all__ = [
     "MILLISECONDS_PER_SECOND",
     "NANOSECONDS_PER_MILLISECOND",
     "SECONDS_PER_DAY",
+    "STOP_SIGNALS",
     "LivenessFile",
     "MqttSession",
     "OutageLog",
@@ -51,5 +57,7 @@ __all__ = [
     "is_fresh",
     "now_ms",
     "reconnect_jitter",
+    "run_service",
+    "run_until_signalled",
     "subscribe_all",
 ]
