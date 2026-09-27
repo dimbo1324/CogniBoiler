@@ -8,8 +8,8 @@ The schema itself comes only from the Alembic chain (the `migrate` job in Compos
 from __future__ import annotations
 
 import logging
-import time
 
+from cogniboiler_runtime import now_ms
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -78,29 +78,29 @@ async def _ensure_default_user(
     username: str,
     password: str,
 ) -> None:
-    """Create a default user and role assignment if it is missing."""
+    """
+    Create a missing demo user with its role, or give a role to one that has none.
+
+    A demo user that has any role keeps it: an administrator may have demoted it, and a
+    restart must not quietly undo that.
+    """
     user = await session.scalar(select(User).where(User.username == username))
     if user is None:
         user = User(
             username=username,
             hashed_password=hash_password(password),
             is_active=True,
-            created_at_ms=int(time.time() * 1000),
+            created_at_ms=now_ms(),
         )
         session.add(user)
         await session.flush()
-
-    assignment = await session.scalar(
-        select(UserRole).where(
-            UserRole.user_id == user.id,
-            UserRole.role_id == role.id,
+    else:
+        any_role = await session.scalar(
+            select(UserRole.id).where(UserRole.user_id == user.id).limit(1)
         )
-    )
-    if assignment is None:
-        session.add(
-            UserRole(
-                user_id=user.id,
-                role_id=role.id,
-                granted_at_ms=int(time.time() * 1000),
-            )
+        if any_role is not None:
+            return
+        logger.warning(
+            "Demo user %r had no role; gave it the %r role", username, role.name
         )
+    session.add(UserRole(user_id=user.id, role_id=role.id, granted_at_ms=now_ms()))

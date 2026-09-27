@@ -20,7 +20,7 @@ from gateway_fakes import (
     FakePhysicsClient,
     FakePLCClient,
 )
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 DEMO_PASSWORDS = {
@@ -109,8 +109,10 @@ class TestSeeding:
         assert "admin" not in await roles_by_user(seeded_database)
         assert "Demo user 'admin' not seeded" in caplog.text
 
-    async def test_a_missing_role_assignment_is_restored(
-        self, seeded_database: async_sessionmaker[AsyncSession]
+    async def test_a_user_with_no_role_gets_its_demo_role_back(
+        self,
+        seeded_database: async_sessionmaker[AsyncSession],
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         await db_init.seed_roles_and_demo_users()
         async with seeded_database() as db:
@@ -121,8 +123,26 @@ class TestSeeding:
             )
             await db.delete(assignment)
             await db.commit()
-        await db_init.seed_roles_and_demo_users()
+        with caplog.at_level(logging.WARNING, logger="api_gateway.db_init"):
+            await db_init.seed_roles_and_demo_users()
         assert (await roles_by_user(seeded_database))["engineer"] == "engineer"
+        assert "'engineer'" in caplog.text
+
+    async def test_a_demoted_demo_user_keeps_the_role_an_admin_gave_it(
+        self, seeded_database: async_sessionmaker[AsyncSession]
+    ) -> None:
+        await db_init.seed_roles_and_demo_users()
+        async with seeded_database() as db:
+            engineer = await db.scalar(select(User).where(User.username == "engineer"))
+            viewer_role = await db.scalar(select(Role).where(Role.name == "viewer"))
+            assert engineer is not None and viewer_role is not None
+            await db.execute(delete(UserRole).where(UserRole.user_id == engineer.id))
+            db.add(
+                UserRole(user_id=engineer.id, role_id=viewer_role.id, granted_at_ms=1)
+            )
+            await db.commit()
+        await db_init.seed_roles_and_demo_users()
+        assert (await roles_by_user(seeded_database))["engineer"] == "viewer"
 
 
 class TestLifespan:
