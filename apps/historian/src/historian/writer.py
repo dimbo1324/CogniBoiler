@@ -16,7 +16,9 @@ Data model (one Point per MQTT message, multiple fields, SI units):
         time:   TurbineStateMsg.timestamp_ms -> nanoseconds
 
 The scenario tag is the scenario of the latest plant status; it is omitted until the
-first plant status arrives. Plant status, KPIs and events are built in historian.points.
+first plant status arrives. A message time outside the plausible window (from 2000 to a
+day ahead of this clock) is replaced by the receive time: InfluxDB refuses a line it
+cannot place, and with it the whole batch. Plant status, KPIs and events are built in historian.points.
 
 Writing one multi-field Point per message (vs one Point per field)
 gives atomic writes and faster range queries.
@@ -30,6 +32,7 @@ import time
 from typing import Protocol, cast
 
 import cogniboiler_pb2 as pb
+from cogniboiler_runtime import now_ms
 from google.protobuf.message import Message
 from influxdb_client.client.influxdb_client import InfluxDBClient as _InfluxDBClient
 from influxdb_client.client.write.point import Point as _Point
@@ -59,6 +62,9 @@ _QUALITY_TAG: dict[int, str] = {
 }
 
 _NOT_FIELDS: frozenset[str] = frozenset({"timestamp_ms", "quality"})
+
+MIN_PLAUSIBLE_MS: int = 946_684_800_000  # 2000-01-01T00:00:00Z
+MAX_FUTURE_SKEW_MS: int = 86_400_000
 
 
 class PointLike(Protocol):
@@ -100,6 +106,15 @@ def _new_client(url: str, token: str, org: str) -> InfluxDBClientLike:
 
 def timestamp_ns(timestamp_ms: int) -> int:
     return timestamp_ms * 1_000_000
+
+
+def plausible_timestamp_ms(value: object) -> int | None:
+    """UTC epoch milliseconds between 2000 and a day ahead of this clock, else None."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    if MIN_PLAUSIBLE_MS <= value <= now_ms() + MAX_FUTURE_SKEW_MS:
+        return value
+    return None
 
 
 def add_numeric_fields(
@@ -150,7 +165,11 @@ def build_boiler_point(
     if scenario:
         point = point.tag("scenario", scenario)
     point = add_numeric_fields(point, msg)
-    return point.time(timestamp_ns(msg.timestamp_ms), WritePrecision.NS)
+    return point.time(_telemetry_time_ns(msg.timestamp_ms), WritePrecision.NS)
+
+
+def _telemetry_time_ns(timestamp_ms: int) -> int:
+    return timestamp_ns(plausible_timestamp_ms(timestamp_ms) or now_ms())
 
 
 def build_turbine_point(
@@ -161,7 +180,7 @@ def build_turbine_point(
     if scenario:
         point = point.tag("scenario", scenario)
     point = add_numeric_fields(point, msg)
-    return point.time(timestamp_ns(msg.timestamp_ms), WritePrecision.NS)
+    return point.time(_telemetry_time_ns(msg.timestamp_ms), WritePrecision.NS)
 
 
 # ─── Writer ───────────────────────────────────────────────────────────────────

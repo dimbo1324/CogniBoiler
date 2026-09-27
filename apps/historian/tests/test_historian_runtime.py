@@ -297,13 +297,15 @@ class TestSubscriber:
     async def test_json_events_availability_and_rejections(self) -> None:
         store = RecordingWriter()
         sub = HistorianSubscriber(store)  # type: ignore[arg-type]
+        at_ms = 1_741_000_000_000
         alarm = {
             "alarm": {"id": 1, "severity": "warning", "parameter": "p", "message": "m"},
-            "transition": {"at_ms": 5, "to_state": "ACTIVE_UNACK", "actor": "plc"},
+            "transition": {"at_ms": at_ms, "to_state": "ACTIVE_UNACK", "actor": "plc"},
         }
+        trip = {"kind": "trip", "timestamp_ms": at_ms}
         messages = [
             ("alarms/changes", json.dumps(alarm).encode()),
-            ("plc/events", json.dumps({"kind": "trip", "timestamp_ms": 5}).encode()),
+            ("plc/events", json.dumps(trip).encode()),
             ("status/plc-controller", b"offline"),
             ("alarms/changes", b"{not json"),
             ("alarms/changes", b"[]"),

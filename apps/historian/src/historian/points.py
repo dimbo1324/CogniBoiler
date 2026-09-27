@@ -29,7 +29,13 @@ import cogniboiler_pb2 as pb
 from cogniboiler_runtime import now_ms
 from influxdb_client.domain.write_precision import WritePrecision
 
-from historian.writer import PointLike, add_numeric_fields, new_point, timestamp_ns
+from historian.writer import (
+    PointLike,
+    add_numeric_fields,
+    new_point,
+    plausible_timestamp_ms,
+    timestamp_ns,
+)
 
 MEASUREMENT_PLANT: str = "plant_status"
 MEASUREMENT_SIMULATION_EVENTS: str = "simulation_events"
@@ -62,8 +68,12 @@ def _finite(value: object) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def _status_time_ms(msg: pb.PlantStatusMsg) -> int:
+    return plausible_timestamp_ms(msg.timestamp_ms) or now_ms()
+
+
 def build_plant_point(msg: pb.PlantStatusMsg) -> PointLike:
-    timestamp_ms = msg.timestamp_ms or now_ms()
+    timestamp_ms = _status_time_ms(msg)
     scenario = msg.simulation.scenario
     point = new_point(MEASUREMENT_PLANT)
     if scenario:
@@ -119,7 +129,7 @@ class RunLabels:
         self._faults: dict[str, str] = {}
 
     def update(self, msg: pb.PlantStatusMsg) -> list[SimulationEvent]:
-        timestamp_ms = msg.timestamp_ms or now_ms()
+        timestamp_ms = _status_time_ms(msg)
         scenario = msg.simulation.scenario or None
         run_id = int(msg.simulation.run_id)
         faults = {fault.fault_id: fault.label for fault in msg.active_faults}
@@ -181,13 +191,14 @@ def build_simulation_event_point(event: SimulationEvent) -> PointLike:
 
 
 def build_alarm_change_point(payload: Mapping[str, Any]) -> PointLike | None:
-    """An alarms/changes message; None if it lacks the alarm or its transition."""
+    """An alarms/changes message; None without the alarm, its transition or a
+    plausible time."""
     alarm = payload.get("alarm")
     transition = payload.get("transition")
     if not isinstance(alarm, Mapping) or not isinstance(transition, Mapping):
         return None
-    at_ms = transition.get("at_ms")
-    if isinstance(at_ms, bool) or not isinstance(at_ms, int):
+    at_ms = plausible_timestamp_ms(transition.get("at_ms"))
+    if at_ms is None:
         return None
     to_state = _text(transition.get("to_state"), 16)
     point = (
@@ -211,12 +222,10 @@ def build_alarm_change_point(payload: Mapping[str, Any]) -> PointLike | None:
 
 
 def build_plc_event_point(payload: Mapping[str, Any]) -> PointLike | None:
-    """A plc/events message; None if it has no kind or timestamp."""
+    """A plc/events message; None without a kind or a plausible time."""
     kind = payload.get("kind")
-    timestamp_ms = payload.get("timestamp_ms")
-    if not isinstance(kind, str) or isinstance(timestamp_ms, bool):
-        return None
-    if not isinstance(timestamp_ms, int):
+    timestamp_ms = plausible_timestamp_ms(payload.get("timestamp_ms"))
+    if not isinstance(kind, str) or timestamp_ms is None:
         return None
     operator = _text(payload.get("operator_id"), 128)
     detail = json.dumps(payload.get("detail") or {}, sort_keys=True)[:_TEXT_LIMIT]

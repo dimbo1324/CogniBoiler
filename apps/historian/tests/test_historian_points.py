@@ -8,11 +8,13 @@ from typing import Any
 
 import cogniboiler_pb2 as pb
 import pytest
+from cogniboiler_runtime import now_ms
 from historian import points, writer
 from historian.points import RunLabels
 from historian.writer import InfluxWriter, add_numeric_fields, new_point
 
 TS_MS = 1_741_000_000_000
+DAY_MS = 86_400_000
 
 
 def line(point: Any) -> str:
@@ -106,6 +108,54 @@ class TestPlantPoint:
         monkeypatch.setattr(points, "now_ms", lambda: 5_000)
         point = points.build_plant_point(plant_status(timestamp_ms=0))
         assert line(point).endswith(" 5000000000")
+
+    @pytest.mark.parametrize("timestamp_ms", [0, 1_000, 10**16, "far future"], ids=str)
+    def test_an_implausible_status_time_is_stamped_now(
+        self, monkeypatch: pytest.MonkeyPatch, timestamp_ms: int | str
+    ) -> None:
+        value = now_ms() + 2 * DAY_MS if timestamp_ms == "far future" else timestamp_ms
+        monkeypatch.setattr(points, "now_ms", lambda: TS_MS)
+        point = points.build_plant_point(plant_status(timestamp_ms=value))
+        assert line(point).endswith(f" {TS_MS * 1_000_000}")
+
+
+class TestTelemetryTime:
+    @pytest.mark.parametrize("timestamp_ms", [0, 1, 10**16], ids=str)
+    def test_boiler_and_turbine_follow_the_plant_status_rule(
+        self, monkeypatch: pytest.MonkeyPatch, timestamp_ms: int
+    ) -> None:
+        # One rule for protobuf telemetry: a time InfluxDB cannot place (or would
+        # file in 1970, outside retention) is replaced by the receive time.
+        monkeypatch.setattr(writer, "now_ms", lambda: TS_MS)
+        boiler = writer.build_boiler_point(pb.BoilerStateMsg(timestamp_ms=timestamp_ms))
+        turbine = writer.build_turbine_point(
+            pb.TurbineStateMsg(timestamp_ms=timestamp_ms)
+        )
+        assert line(boiler).endswith(f" {TS_MS * 1_000_000}")
+        assert line(turbine).endswith(f" {TS_MS * 1_000_000}")
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (TS_MS, TS_MS),
+            (946_684_800_000, 946_684_800_000),
+            (946_684_799_999, None),
+            (-1, None),
+            (0, None),
+            (10**16, None),
+            (10**400, None),
+            (True, None),
+            (1.7e12, None),
+            ("1741000000000", None),
+        ],
+        ids=str,
+    )
+    def test_the_plausible_window(self, value: object, expected: int | None) -> None:
+        assert writer.plausible_timestamp_ms(value) == expected
+
+    def test_a_day_ahead_is_the_limit(self) -> None:
+        assert writer.plausible_timestamp_ms(now_ms() + DAY_MS - 60_000) is not None
+        assert writer.plausible_timestamp_ms(now_ms() + DAY_MS + 60_000) is None
 
 
 class TestRunLabels:
@@ -208,6 +258,20 @@ class TestAlarmAndPlcPoints:
         self, payload: dict[str, Any]
     ) -> None:
         assert points.build_alarm_change_point(payload) is None
+
+    @pytest.mark.parametrize("at_ms", [-1, 0, 5, 10**16, 10**400], ids=str)
+    def test_an_alarm_change_at_an_implausible_time_is_dropped(
+        self, at_ms: int
+    ) -> None:
+        payload = alarm_change(transition={"at_ms": at_ms, "to_state": "CLEARED"})
+        assert points.build_alarm_change_point(payload) is None
+
+    @pytest.mark.parametrize("timestamp_ms", [-1, 0, 5, 10**16], ids=str)
+    def test_a_plc_event_at_an_implausible_time_is_dropped(
+        self, timestamp_ms: int
+    ) -> None:
+        payload = {"kind": "trip", "timestamp_ms": timestamp_ms}
+        assert points.build_plc_event_point(payload) is None
 
     def test_numbers_too_large_for_a_float_are_left_out(self) -> None:
         point = points.build_alarm_change_point(
