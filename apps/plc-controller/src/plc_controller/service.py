@@ -36,6 +36,7 @@ from plc_controller.commands import (
     Setpoints,
     ValidationResult,
     check_load_demand,
+    check_operator,
     check_setpoints,
     check_valves,
 )
@@ -76,6 +77,7 @@ COMMAND_TOLERANCE: float = 1.0e-4
 LINK_ERRORS: tuple[type[Exception], ...] = (grpc.aio.AioRpcError, ConnectionError)
 PLANT_DID_NOT_ACKNOWLEDGE: str = "plant did not acknowledge the command"
 NO_PLANT_STATE: str = "no plant state received yet"
+OPERATOR_UNATTRIBUTED: str = "unattributed"
 ESTOP_UNSENT: str = (
     "E-Stop latched; the plant has not yet acknowledged the trip command"
 )
@@ -267,10 +269,13 @@ class PLCService:
         pressure_pa: float,
         water_level_m: float,
         steam_temp_k: float,
-        operator_id: str = "",
+        operator_id: str,
     ) -> ValidationResult:
         """Validate and store new targets; the working setpoints ramp toward them."""
+        operator = operator_id.strip()
         refusal = check_setpoints(pressure_pa, water_level_m, steam_temp_k)
+        if refusal.accepted:
+            refusal = check_operator(operator)
         if not refusal.accepted:
             return refusal
         self._setpoints = Setpoints(
@@ -282,7 +287,7 @@ class PLCService:
         self._publisher.publish_event(
             PlcEvent(
                 PlcEventKind.SETPOINTS_CHANGED,
-                operator_id or "unknown",
+                operator,
                 {
                     "pressure_pa": pressure_pa,
                     "water_level_m": water_level_m,
@@ -297,9 +302,12 @@ class PLCService:
         """Operator's load target; None until the PLC has seen the plant."""
         return self._load_demand_w
 
-    def set_load_demand(self, load_w: float, operator_id: str = "") -> ValidationResult:
+    def set_load_demand(self, load_w: float, operator_id: str) -> ValidationResult:
         """Set the electrical load target; the load setpoint ramps toward it."""
+        operator = operator_id.strip()
         refusal = check_load_demand(load_w)
+        if refusal.accepted:
+            refusal = check_operator(operator)
         if not refusal.accepted:
             return refusal
         previous = self._load_demand_w
@@ -307,7 +315,7 @@ class PLCService:
         self._publisher.publish_event(
             PlcEvent(
                 PlcEventKind.LOAD_DEMAND_CHANGED,
-                operator_id or "unknown",
+                operator,
                 {"load_w": load_w, "previous_load_w": previous},
             )
         )
@@ -353,6 +361,10 @@ class PLCService:
             return self._reject(
                 f"command source {pb2.CommandSource.Name(source)} is reserved for the PLC"
             )
+        operator = operator_id.strip()
+        attributed = check_operator(operator)
+        if not attributed.accepted:
+            return self._reject(attributed.reason)
 
         async with self._lock:
             if self._interlock.emergency_stop.is_active:
@@ -381,22 +393,28 @@ class PLCService:
                     else self._current_spray_command()
                 ),
                 source=source,
-                operator_id=operator_id,
+                operator_id=operator,
                 timestamp_ms=now_ms(),
             )
             # The mode follows the command only once the plant has it: a command that
             # never arrived must not leave the unit in MANUAL with nobody driving it.
             result = await self._forward(snapshot)
             if result.accepted:
-                self._change_mode(RuntimeMode.MANUAL, operator_id)
+                self._change_mode(RuntimeMode.MANUAL, operator)
                 self._manual_command = snapshot
             return result
 
     async def set_mode(self, mode: RuntimeMode, operator_id: str) -> ValidationResult:
         """AUTO or MANUAL on request; ESTOP is a manual trip that latches."""
-        operator = operator_id or "unknown"
+        operator = operator_id.strip()
+        attributed = check_operator(operator)
         async with self._lock:
             if mode is RuntimeMode.ESTOP:
+                if not attributed.accepted:
+                    # A trip request is honoured whoever sends it; only its record
+                    # suffers from the missing name.
+                    logger.warning("E-Stop requested without a valid operator_id")
+                    operator = OPERATOR_UNATTRIBUTED
                 if not self._interlock.emergency_stop.is_active:
                     event = self._interlock.trip("manual_trip", 1.0, 1.0)
                     self._enter_estop(event, operator, PlcEventKind.MANUAL_TRIP)
@@ -416,6 +434,8 @@ class PLCService:
                             return ValidationResult(accepted=True, reason=ESTOP_UNSENT)
                 return ValidationResult(accepted=True)
 
+            if not attributed.accepted:
+                return self._reject(attributed.reason)
             if self._interlock.emergency_stop.is_active:
                 return self._reject("Emergency stop is active. Reset it first.")
             if mode is RuntimeMode.MANUAL and self._mode is not RuntimeMode.MANUAL:
@@ -428,7 +448,10 @@ class PLCService:
 
     async def reset_emergency_stop(self, operator_id: str) -> ValidationResult:
         """Clear the E-Stop latch once its cause is gone and return to AUTO."""
-        operator = operator_id or "unknown"
+        operator = operator_id.strip()
+        attributed = check_operator(operator)
+        if not attributed.accepted:
+            return attributed
         async with self._lock:
             if not self._interlock.emergency_stop.is_active:
                 return ValidationResult(

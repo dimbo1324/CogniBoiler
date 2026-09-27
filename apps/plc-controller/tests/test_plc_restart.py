@@ -39,7 +39,10 @@ STEAM_TEMP_TRIP_K = 853.15
 
 
 async def trip_on_a_failed_feedwater_pump(plant: Rig) -> pb2.PLCStatusMsg:
-    await plant.stub.SetLoadDemand(pb2.LoadDemandRequest(load_w=DEMO_LOAD_W))
+    ack = await plant.stub.SetLoadDemand(
+        pb2.LoadDemandRequest(load_w=DEMO_LOAD_W, operator_id="op")
+    )
+    assert ack.accepted, ack.reason
     await plant.runtime.inject_fault(FaultSpec(FaultKind.FEEDWATER_PUMP_FAILURE))
     for _ in range(TRIP_WITHIN_STEPS):
         await plant.advance(1)

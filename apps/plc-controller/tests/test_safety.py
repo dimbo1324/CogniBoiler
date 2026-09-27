@@ -196,7 +196,7 @@ class TestEmergencyStop:
     def test_reset_increments_counter(self) -> None:
         estop = EmergencyStop()
         estop.trigger("pressure_pa", 190.0e5, 185.0e5)
-        estop.reset()
+        estop.reset(operator_id="eng")
         assert estop.reset_count == 1
 
     def test_trigger_stores_event(self) -> None:
@@ -216,7 +216,7 @@ class TestEmergencyStop:
 
     def test_reset_without_trigger_is_noop(self) -> None:
         estop = EmergencyStop()
-        estop.reset()  # should not raise
+        estop.reset(operator_id="eng")  # should not raise
         assert estop.reset_count == 0
 
     # Emergency scenario 9

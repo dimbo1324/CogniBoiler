@@ -34,6 +34,9 @@ TEMP_SETPOINT_MAX_K: float = 835.0
 LOAD_DEMAND_MIN_W: float = 0.0
 LOAD_DEMAND_MAX_W: float = RATED_POWER_W
 
+# The gateway's usernames, which it sends as operator_id, are at most 64 characters.
+MAX_OPERATOR_ID_LENGTH: int = 64
+
 PASCALS_PER_BAR: float = 1.0e5
 WATTS_PER_MEGAWATT: float = 1.0e6
 
@@ -98,6 +101,19 @@ class CommandSnapshot:
 
 def _refuse(reason: str) -> ValidationResult:
     return ValidationResult(accepted=False, reason=reason)
+
+
+def check_operator(operator_id: str) -> ValidationResult:
+    """Is the request attributed to a person? Every change to the unit must be.
+
+    Callers pass the name without surrounding blanks; blanks alone are no name.
+    """
+    name = operator_id.strip()
+    if not name:
+        return _refuse("operator_id is required: every request names who made it")
+    if len(name) > MAX_OPERATOR_ID_LENGTH:
+        return _refuse(f"operator_id longer than {MAX_OPERATOR_ID_LENGTH} characters")
+    return ValidationResult(accepted=True)
 
 
 def check_setpoints(

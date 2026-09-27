@@ -96,7 +96,7 @@ class TestManualMode:
             await plant.advance(2)
             before = plant.plc.latest_command()
             ack = await plant.stub.SetControlMode(
-                pb2.ControlModeRequest(mode=pb2.ControlMode.MANUAL)
+                pb2.ControlModeRequest(mode=pb2.ControlMode.MANUAL, operator_id="op")
             )
             assert ack.accepted
             await plant.advance(5)
@@ -141,12 +141,15 @@ class TestTripsAndResets:
 
             refused = await plant.stub.SendCommand(
                 pb2.ControlCommandMsg(
-                    fuel_valve=0.5, feedwater_valve=0.5, steam_valve=0.5
+                    fuel_valve=0.5,
+                    feedwater_valve=0.5,
+                    steam_valve=0.5,
+                    operator_id="op",
                 )
             )
             assert not refused.accepted and "Emergency stop is active" in refused.reason
             auto = await plant.stub.SetControlMode(
-                pb2.ControlModeRequest(mode=pb2.ControlMode.AUTO)
+                pb2.ControlModeRequest(mode=pb2.ControlMode.AUTO, operator_id="eng")
             )
             assert not auto.accepted and "Reset it first" in auto.reason
             again = await plant.stub.SetControlMode(
@@ -192,7 +195,9 @@ class TestTripsAndResets:
 
     async def test_resetting_without_a_trip_is_a_no_op(self) -> None:
         async with rig() as plant:
-            ack = await plant.stub.ResetEmergencyStop(pb2.ResetRequest())
+            ack = await plant.stub.ResetEmergencyStop(
+                pb2.ResetRequest(operator_id="eng")
+            )
             assert (ack.accepted, ack.reason) == (True, "Emergency stop is not active.")
 
     async def test_a_reset_is_refused_while_the_cause_persists(self) -> None:
@@ -238,7 +243,9 @@ class TestRuns:
 
     async def test_a_new_plant_run_reseeds_the_load_demand(self) -> None:
         async with rig() as plant:
-            await plant.stub.SetLoadDemand(pb2.LoadDemandRequest(load_w=200 * MW))
+            await plant.stub.SetLoadDemand(
+                pb2.LoadDemandRequest(load_w=200 * MW, operator_id="op")
+            )
             await plant.runtime.load_scenario(ScenarioName.PART_LOAD)
             # Step counts restart with the run; one scan past the load reaches it.
             await plant.advance(1)

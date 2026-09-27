@@ -78,8 +78,8 @@ class PLCServicer(pb2_grpc.PLCServiceServicer):  # type: ignore[misc]
             operator_id=request.operator_id,
         )
         logger.info(
-            "Command from %s: fv=%.3f fw=%.3f sv=%.3f spray=%s -> %s",
-            request.operator_id or "unknown",
+            "Command from %r: fv=%.3f fw=%.3f sv=%.3f spray=%s -> %s",
+            request.operator_id,
             request.fuel_valve,
             request.feedwater_valve,
             request.steam_valve,
@@ -121,9 +121,9 @@ class PLCServicer(pb2_grpc.PLCServiceServicer):  # type: ignore[misc]
     ) -> pb2.CommandAck:
         result = self._svc.set_load_demand(request.load_w, request.operator_id)
         logger.info(
-            "Load demand %.1f MW from %s -> %s",
+            "Load demand %.1f MW from %r -> %s",
             request.load_w / 1e6,
-            request.operator_id or "unknown",
+            request.operator_id,
             "accepted" if result.accepted else f"rejected: {result.reason}",
         )
         return _ack(result)
@@ -150,7 +150,7 @@ class PLCServicer(pb2_grpc.PLCServiceServicer):  # type: ignore[misc]
         request: pb2.ResetRequest,
         context: grpc.aio.ServicerContext,
     ) -> pb2.CommandAck:
-        result = await self._svc.reset_emergency_stop(request.operator_id or "unknown")
+        result = await self._svc.reset_emergency_stop(request.operator_id)
         return _ack(result)
 
     async def StreamCommands(  # noqa: N802

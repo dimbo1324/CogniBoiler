@@ -81,6 +81,7 @@ class TestPLCService:
             pressure_pa=130.0e5,
             water_level_m=5.0,
             steam_temp_k=800.0,
+            operator_id="eng",
         )
         assert result.accepted
         sp = self.svc.get_setpoints()
@@ -91,6 +92,7 @@ class TestPLCService:
             pressure_pa=PRESSURE_SETPOINT_MAX_PA + 1.0,
             water_level_m=4.8,
             steam_temp_k=811.0,
+            operator_id="eng",
         )
         assert not result.accepted
         assert "Pressure" in result.reason
@@ -100,12 +102,13 @@ class TestPLCService:
             pressure_pa=PRESSURE_SETPOINT_MIN_PA - 1.0,
             water_level_m=4.8,
             steam_temp_k=811.0,
+            operator_id="eng",
         )
         assert not result.accepted
 
     def test_rejected_setpoint_does_not_change_state(self) -> None:
         original = self.svc.get_setpoints().pressure_pa
-        self.svc.update_setpoints(999.0e5, 4.8, 811.0)  # rejected
+        self.svc.update_setpoints(999.0e5, 4.8, 811.0, operator_id="eng")
         assert self.svc.get_setpoints().pressure_pa == pytest.approx(original)
 
     def test_uptime_increases(self) -> None:
@@ -193,6 +196,7 @@ class TestPLCGrpc:
             feedwater_valve=0.5,
             steam_valve=0.55,
             source=pb2.CommandSource.OPERATOR,
+            operator_id="operator-1",
         )
         ack = await self.stub.SendCommand(cmd)
         assert ack.accepted
@@ -238,6 +242,7 @@ class TestPLCGrpc:
             pressure_pa=130.0e5,
             water_level_m=5.0,
             steam_temp_k=800.0,
+            operator_id="eng",
         )
         ack = await self.stub.UpdateSetpoints(new_sp)
         assert ack.accepted
@@ -249,6 +254,7 @@ class TestPLCGrpc:
                 pressure_pa=120.0e5,
                 water_level_m=5.5,
                 steam_temp_k=790.0,
+                operator_id="eng",
             )
         )
         sp = await self.stub.GetSetpoints(pb2.Empty())

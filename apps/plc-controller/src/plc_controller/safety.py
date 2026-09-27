@@ -249,7 +249,7 @@ class EmergencyStop:
         )
         return event
 
-    def reset(self, operator_id: str = "unknown") -> None:
+    def reset(self, operator_id: str) -> None:
         """
         Clear the emergency stop latch (operator action required).
 
@@ -566,7 +566,7 @@ class SafetyInterlock:
         self._trip_count += 1
         return self.emergency_stop.trigger(parameter, value, threshold)
 
-    def reset(self, operator_id: str = "unknown") -> None:
+    def reset(self, operator_id: str) -> None:
         """
         Reset the safety interlock after an emergency stop.
 
