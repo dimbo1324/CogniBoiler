@@ -18,7 +18,7 @@ from enum import StrEnum
 
 from physics_engine.condenser import COOLING_WATER_TEMP_DESIGN
 from physics_engine.faults import ActiveFault, FaultSpec
-from physics_engine.metrics import STEP_SECONDS, STEPS
+from physics_engine.metrics import RUNTIME_FAILURES, STEP_SECONDS, STEPS
 from physics_engine.models import BoilerParameters, BoilerState, ControlInputs
 from physics_engine.plant import PlantConfig, PlantSimulator, PlantSnapshot
 from physics_engine.scenarios import ScenarioName
@@ -234,16 +234,27 @@ class PhysicsRuntime:
         return self.simulation_status()
 
     async def step(self, steps: int) -> SimulationStatus:
-        """Advance a paused simulation by a number of steps, publishing each one."""
+        """Advance a paused simulation by a number of steps, publishing each one.
+
+        A request that is resumed while it runs ends early: the wall clock paces the
+        plant again, and stepping on top of it would run faster than the chosen speed.
+        """
         if not 1 <= steps <= MAX_STEPS_PER_REQUEST:
             raise RuntimeCommandError(
                 f"steps={steps} outside [1, {MAX_STEPS_PER_REQUEST}]"
             )
+        self._refuse_unless_healthy()
         if self._run_state is not RunState.PAUSED:
             raise RuntimeCommandError("pause the simulation before stepping it")
         for _ in range(steps):
             async with self._lock:
-                await self._publish_from_worker(self._timed_step)
+                if self._run_state is not RunState.PAUSED or self._status != "running":
+                    break
+                try:
+                    await self._publish_from_worker(self._timed_step)
+                except Exception as exc:
+                    self._degrade(exc, "Physics step failed")
+                    raise
         return self.simulation_status()
 
     async def load_scenario(self, scenario: ScenarioName | str) -> SimulationStatus:
@@ -313,6 +324,19 @@ class PhysicsRuntime:
                 "Physics work failed after its caller was cancelled", exc_info=error
             )
 
+    def _refuse_unless_healthy(self) -> None:
+        if self._status != "running":
+            detail = f": {self._last_error}" if self._last_error else ""
+            raise RuntimeCommandError(f"physics runtime {self._status}{detail}")
+
+    def _degrade(self, error: BaseException, what: str) -> None:
+        """A failed step leaves the plant where the model broke: nothing steps it again."""
+        self._status = "degraded"
+        self._last_error = str(error)
+        RUNTIME_FAILURES.inc()
+        logger.error("%s: %s", what, error, exc_info=error)
+        self._update_event.set()
+
     def _publish(self, snapshot: PlantSnapshot) -> None:
         self._snapshot = snapshot
         self._sequence += 1
@@ -326,17 +350,12 @@ class PhysicsRuntime:
                 await self._resumed.wait()
                 wall_start = time.perf_counter()
                 async with self._lock:
+                    if self._status != "running":
+                        return
                     if self._run_state is not RunState.RUNNING:
                         continue
                     await self._publish_from_worker(self._timed_step)
-                self._status = "running"
-                self._last_error = ""
                 elapsed = time.perf_counter() - wall_start
                 await asyncio.sleep(max(self.wall_step_s - elapsed, 0.0))
-        except asyncio.CancelledError:
-            raise
         except Exception as exc:
-            self._status = "degraded"
-            self._last_error = str(exc)
-            logger.exception("Physics runtime loop failed: %s", exc)
-            self._update_event.set()
+            self._degrade(exc, "Physics runtime loop failed")

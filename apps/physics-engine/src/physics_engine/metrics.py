@@ -10,6 +10,10 @@ if TYPE_CHECKING:
     from physics_engine.runtime import PhysicsRuntime
 
 STEPS = Counter("physics_steps_total", "Plant steps computed.")
+RUNTIME_FAILURES = Counter(
+    "physics_runtime_failures_total",
+    "Plant steps that failed and degraded the runtime.",
+)
 STEP_SECONDS = Histogram(
     "physics_step_seconds",
     "Wall-clock time to compute one plant step.",
@@ -21,7 +25,9 @@ SIMULATION_TIME = Gauge(
 SPEED_FACTOR = Gauge(
     "physics_simulation_speed_factor", "Simulated seconds per wall-clock second."
 )
-RUNNING = Gauge("physics_simulation_running", "1 while the simulation advances.")
+RUNNING = Gauge(
+    "physics_simulation_running", "1 while the runtime is healthy and not paused."
+)
 ACTIVE_FAULTS = Gauge("physics_active_faults", "Faults active in the plant.")
 RUN_ID = Gauge("physics_run_id", "Changes whenever a scenario is loaded.")
 
@@ -30,8 +36,13 @@ def observe_runtime(runtime: PhysicsRuntime) -> None:
     """Read the simulation clock from the runtime whenever Prometheus scrapes."""
     SIMULATION_TIME.set_function(lambda: runtime.snapshot.simulation_time_s)
     SPEED_FACTOR.set_function(lambda: runtime.simulation_status().speed_factor)
-    RUNNING.set_function(
-        lambda: 1.0 if runtime.simulation_status().run_state.value == "running" else 0.0
-    )
+    RUNNING.set_function(lambda: 1.0 if _advancing(runtime) else 0.0)
     ACTIVE_FAULTS.set_function(lambda: float(len(runtime.snapshot.faults)))
     RUN_ID.set_function(lambda: float(runtime.snapshot.run_id))
+
+
+def _advancing(runtime: PhysicsRuntime) -> bool:
+    return (
+        runtime.status == "running"
+        and runtime.simulation_status().run_state == "running"
+    )

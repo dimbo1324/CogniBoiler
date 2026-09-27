@@ -15,6 +15,7 @@ import grpc.aio
 import pytest
 import pytest_asyncio
 from physics_engine.faults import FaultError, FaultKind, FaultSpec
+from physics_engine.metrics import observe_runtime
 from physics_engine.plant import PlantSnapshot
 from physics_engine.runtime import (
     MAX_STEPS_PER_REQUEST,
@@ -26,6 +27,7 @@ from physics_engine.runtime import (
 )
 from physics_engine.scenarios import ScenarioError, ScenarioName
 from physics_engine.server import PhysicsServicer, serve
+from prometheus_client import REGISTRY
 
 
 @pytest_asyncio.fixture
@@ -36,6 +38,10 @@ async def paused() -> AsyncIterator[PhysicsRuntime]:
         yield runtime
     finally:
         await runtime.stop()
+
+
+def failure_count() -> float:
+    return REGISTRY.get_sample_value("physics_runtime_failures_total") or 0.0
 
 
 async def until(predicate: object, timeout_s: float = 10.0) -> None:
@@ -267,6 +273,8 @@ class TestLifecycle:
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
         runtime = PhysicsRuntime(PhysicsRuntimeConfig(speed_factor=50.0))
+        observe_runtime(runtime)
+        failures = failure_count()
 
         def broken() -> None:
             raise ArithmeticError("the model diverged")
@@ -277,9 +285,59 @@ class TestLifecycle:
             await until(lambda: runtime.status == "degraded")
         assert runtime.last_error == "the model diverged"
         assert "Physics runtime loop failed" in caplog.text
+        assert failure_count() == failures + 1
+        assert REGISTRY.get_sample_value("physics_simulation_running") == 0.0
         with pytest.raises(RuntimeUnavailableError, match="diverged"):
             await runtime.wait_for_update(10**9)
+        await runtime.pause()
+        with pytest.raises(RuntimeCommandError, match="degraded: the model diverged"):
+            await runtime.step(1)
         await runtime.stop()
+
+    async def test_a_failing_manual_step_degrades_the_runtime_for_good(
+        self, paused: PhysicsRuntime, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        failures = failure_count()
+
+        def broken() -> None:
+            raise ArithmeticError("the model diverged")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(paused, "_timed_step", broken)
+            with pytest.raises(ArithmeticError):
+                await paused.step(3)
+        assert paused.status == "degraded"
+        assert failure_count() == failures + 1
+        with pytest.raises(RuntimeUnavailableError, match="diverged"):
+            await paused.wait_for_update(10**9)
+        await paused.resume()
+        with pytest.raises(RuntimeUnavailableError, match="diverged"):
+            await asyncio.wait_for(paused.wait_for_update(10**9), timeout=5.0)
+        assert paused.status == "degraded"
+
+    async def test_a_stopped_runtime_refuses_to_step(self) -> None:
+        runtime = PhysicsRuntime(PhysicsRuntimeConfig(start_paused=True))
+        await runtime.start()
+        await runtime.stop()
+        with pytest.raises(RuntimeCommandError, match="physics runtime stopped"):
+            await runtime.step(1)
+
+    async def test_resuming_ends_a_step_request_early(
+        self, paused: PhysicsRuntime, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        await paused.set_speed(0.1)
+        blocking = BlockingPlantStep(paused)
+        monkeypatch.setattr(paused._plant, "step", blocking)
+        before = paused.simulation_status().step_count
+        stepping = asyncio.create_task(paused.step(5))
+        assert await asyncio.to_thread(blocking.entered.wait, 10.0)
+        resuming = asyncio.create_task(paused.resume())
+        await asyncio.sleep(0)
+        blocking.release.set()
+        await asyncio.wait_for(asyncio.gather(stepping, resuming), timeout=10.0)
+        await paused.pause()
+        # The request's own step plus at most the one the resumed loop takes at once.
+        assert paused.simulation_status().step_count <= before + 2
 
 
 @pytest_asyncio.fixture
