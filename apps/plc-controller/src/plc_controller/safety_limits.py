@@ -85,12 +85,22 @@ class ParameterLimits:
         """
         Evaluate a measured value against the limits.
 
+        A value that is not a real number trips wherever it could be out of limits:
+        NaN whenever either side is protected, an infinity when its own side is. Every
+        comparison with NaN is false, so without this it would read as NORMAL.
+
         Args:
             value: Current measured value (SI units).
 
         Returns:
             SafetyLevel: NORMAL, WARNING, or TRIP.
         """
+        if math.isnan(value):
+            protected = math.isfinite(self.trip_low) or math.isfinite(self.trip_high)
+            return SafetyLevel.TRIP if protected else SafetyLevel.NORMAL
+        if math.isinf(value):
+            side = self.trip_high if value > 0.0 else self.trip_low
+            return SafetyLevel.TRIP if math.isfinite(side) else SafetyLevel.NORMAL
         if value <= self.trip_low or value >= self.trip_high:
             return SafetyLevel.TRIP
         if value <= self.warn_low or value >= self.warn_high:

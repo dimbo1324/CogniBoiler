@@ -8,9 +8,18 @@ watches and where the thresholds are is in `safety_limits.py`; this is what appl
 from __future__ import annotations
 
 import logging
+import math
 import time
 from collections.abc import Mapping
 
+from plc_controller.measurements import (
+    SENSOR_DRUM_LEVEL,
+    SENSOR_DRUM_PRESSURE,
+    SENSOR_DRUM_WATER_TEMP,
+    SENSOR_FURNACE_GAS_TEMP,
+    SENSOR_STEAM_TEMP,
+)
+from plc_controller.numeric import all_finite
 from plc_controller.safety_limits import (
     ALL_ARMED,
     FLAME_FUEL_FLOW_KG_S,
@@ -42,7 +51,11 @@ logger = logging.getLogger(__name__)
 
 
 class ArmingTracker:
-    """Derives the arming state from steam and fuel flow over time."""
+    """Derives the arming state from steam and fuel flow over time.
+
+    A flow that is not a real number keeps the arming it had: reading it as "no flow"
+    would disarm the protections it arms. A non-finite interval counts as no time.
+    """
 
     def __init__(self) -> None:
         self._firing_s = 0.0
@@ -55,12 +68,19 @@ class ArmingTracker:
     def update(
         self, steam_flow_kg_s: float, fuel_flow_kg_s: float, dt: float
     ) -> ArmingState:
-        if fuel_flow_kg_s >= FLAME_FUEL_FLOW_KG_S:
-            self._firing_s += max(dt, 0.0)
-        else:
-            self._firing_s = 0.0
+        elapsed = dt if math.isfinite(dt) and dt > 0.0 else 0.0
+        if math.isfinite(fuel_flow_kg_s):
+            if fuel_flow_kg_s >= FLAME_FUEL_FLOW_KG_S:
+                self._firing_s += elapsed
+            else:
+                self._firing_s = 0.0
+        on_line = (
+            steam_flow_kg_s >= ON_LINE_STEAM_FLOW_KG_S
+            if math.isfinite(steam_flow_kg_s)
+            else self._state.on_line
+        )
         self._state = ArmingState(
-            on_line=steam_flow_kg_s >= ON_LINE_STEAM_FLOW_KG_S,
+            on_line=on_line,
             firing_proven=self._firing_s >= FLAME_PROVING_S,
         )
         return self._state
@@ -117,7 +137,8 @@ class RateOfChangeLimiter:
 
         On the first call (no history) always returns NORMAL —
         no rate can be computed without a previous value. A zero interval keeps the
-        previous rate and reports NORMAL.
+        previous rate and reports NORMAL. A value or interval that is not a real number
+        is ignored and never becomes the history: the limits judge such a value.
 
         Args:
             value: Current measurement (SI units).
@@ -126,6 +147,8 @@ class RateOfChangeLimiter:
         Returns:
             SafetyLevel: NORMAL, WARNING, or TRIP.
         """
+        if not all_finite(value, dt):
+            return SafetyLevel.NORMAL
         if self._prev_value is None or dt <= 0.0:
             if self._prev_value is None:
                 self._prev_value = value
@@ -411,14 +434,27 @@ class SafetyInterlock:
             events.append(event)
             logger.warning("Safety event: %s", event.to_dict())
 
+        failed_instruments: set[str] = set()
+
+        def instrument_failed(sensor: str) -> None:
+            if sensor not in failed_instruments:
+                failed_instruments.add(sensor)
+                record(f"{sensor}_quality", QUALITY_BAD, QUALITY_BAD, SafetyLevel.TRIP)
+
         def evaluate(
             parameter: str,
             value: float,
             limits: ParameterLimits,
             *,
+            sensor: str,
             low_armed: bool = True,
             high_armed: bool = True,
         ) -> None:
+            # A reading that is not a number leaves the parameter unprotected whatever
+            # the operating state, so it trips as a failed instrument, arming or not.
+            if not math.isfinite(value):
+                instrument_failed(sensor)
+                return
             level = limits.check(value)
             if level is SafetyLevel.NORMAL:
                 return
@@ -433,14 +469,29 @@ class SafetyInterlock:
 
         # ── Check each parameter ──────────────────────────────────────────────
         evaluate(
-            "pressure_pa", pressure, self._pressure_limits, low_armed=arming.on_line
+            "pressure_pa",
+            pressure,
+            self._pressure_limits,
+            sensor=SENSOR_DRUM_PRESSURE,
+            low_armed=arming.on_line,
         )
-        evaluate("water_level_m", water_level, self._water_level_limits)
-        evaluate("water_temp_k", water_temp, self._water_temp_limits)
+        evaluate(
+            "water_level_m",
+            water_level,
+            self._water_level_limits,
+            sensor=SENSOR_DRUM_LEVEL,
+        )
+        evaluate(
+            "water_temp_k",
+            water_temp,
+            self._water_temp_limits,
+            sensor=SENSOR_DRUM_WATER_TEMP,
+        )
         evaluate(
             "flue_gas_temp_k",
             flue_gas_temp,
             self._flue_gas_temp_limits,
+            sensor=SENSOR_FURNACE_GAS_TEMP,
             low_armed=arming.firing_proven,
         )
         if steam_temp is not None:
@@ -448,6 +499,7 @@ class SafetyInterlock:
                 "steam_temp_k",
                 steam_temp,
                 self._steam_temp_limits,
+                sensor=SENSOR_STEAM_TEMP,
                 high_armed=arming.on_line,
             )
 
@@ -467,14 +519,14 @@ class SafetyInterlock:
         for sensor in TRIP_SENSORS:
             quality = (sensor_qualities or {}).get(sensor, 0)
             if quality >= QUALITY_BAD:
-                record(f"{sensor}_quality", quality, QUALITY_BAD, SafetyLevel.TRIP)
+                instrument_failed(sensor)
             elif quality >= QUALITY_UNCERTAIN:
                 record(
                     f"{sensor}_quality", quality, QUALITY_UNCERTAIN, SafetyLevel.WARNING
                 )
 
         # ── Permissive: block fuel if drum is dry ─────────────────────────────
-        if not self.fuel_permitted(water_level):
+        if math.isfinite(water_level) and not self.fuel_permitted(water_level):
             record(
                 "fuel_permissive",
                 water_level,

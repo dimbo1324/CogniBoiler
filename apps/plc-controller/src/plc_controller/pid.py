@@ -13,7 +13,10 @@ Cascade PID connects two PID controllers in series:
     - Slave (inner):  fast loop, drives the actuator directly
 """
 
+import math
 from dataclasses import dataclass
+
+from plc_controller.numeric import all_finite, clamp
 
 # ─── PID tuning parameters ────────────────────────────────────────────────────
 
@@ -131,8 +134,11 @@ class PIDController:
 
         Args:
             initial_output: Pre-load the integrator to this output value.
-                            Avoids a large transient on first AUTO step.
+                            Avoids a large transient on first AUTO step. A value
+                            that is not a real number keeps the previous output.
         """
+        if not math.isfinite(initial_output):
+            initial_output = self.state.prev_output
         self.state = PIDState(integral=initial_output, prev_output=initial_output)
         self._manual_output = None
 
@@ -143,6 +149,8 @@ class PIDController:
         Loops whose output is limited outside the PID — a feedforward added to it, a
         guard, an actuator range — call this so the integrator does not wind up.
         """
+        if not math.isfinite(limited_output):
+            return
         delta = limited_output - self.state.prev_output
         if delta != 0.0:
             self.state.integral += delta
@@ -165,11 +173,16 @@ class PIDController:
             dt:          Time step [s]. Must be > 0.
 
         Returns:
-            Controller output, clamped to [output_min, output_max].
+            Controller output, clamped to [output_min, output_max]. With an input
+            that is not a real number the step is skipped: the previous output is
+            returned and the state is left untouched.
         """
         if self._manual_output is not None:
             self.state.prev_output = self._manual_output
             return self._manual_output
+
+        if not all_finite(setpoint, measurement, dt):
+            return self.state.prev_output
 
         p = self.params
 
@@ -199,7 +212,7 @@ class PIDController:
         output_raw = output_pd + self.state.integral
 
         # ── Output clamping ───────────────────────────────────────────────────
-        output = max(p.output_min, min(p.output_max, output_raw))
+        output = clamp(output_raw, p.output_min, p.output_max)
 
         # ── Anti-windup: back-calculate integrator ────────────────────────────
         if p.anti_windup and output != output_raw:

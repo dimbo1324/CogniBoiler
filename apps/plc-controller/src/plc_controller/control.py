@@ -35,6 +35,7 @@ from plc_controller.measurements import (
     ProcessMeasurements,
     ValveSet,
 )
+from plc_controller.numeric import clamp
 from plc_controller.pid import PIDController, PIDParameters
 from plc_controller.ramps import RampedSetpoint
 
@@ -75,10 +76,6 @@ PRESSURE_GUARD_CLOSE_RATE_PER_S: float = 0.01
 # A scan that follows a long gap (a lagging stream, a reconnect) must not integrate the
 # whole gap at once: the loops are tuned for scans of about one simulation step.
 MAX_CONTROL_DT_S: float = 2.0
-
-
-def _clamp(value: float, low: float, high: float) -> float:
-    return max(low, min(high, value))
 
 
 @dataclass(frozen=True)
@@ -236,8 +233,11 @@ class UnitController:
     def hold_level(
         self, m: ProcessMeasurements, level_target_m: float, dt: float
     ) -> float:
-        """Feedwater valve that keeps the drum at its level while nothing else runs."""
-        dt = _clamp(dt, 1.0e-3, MAX_CONTROL_DT_S)
+        """Feedwater valve that keeps the drum at its level while nothing else runs.
+
+        Like `scan`, it needs finite measurements.
+        """
+        dt = clamp(dt, 1.0e-3, MAX_CONTROL_DT_S)
         level_sp = self._ramp(self.level, level_target_m, dt)
         _, valve = self._drum_level(m, level_sp, dt)
         return valve
@@ -247,10 +247,15 @@ class UnitController:
     def scan(
         self, m: ProcessMeasurements, targets: ControlTargets, dt: float
     ) -> ControlOutput:
-        """Compute valve demands for one scan of `dt` seconds of plant time."""
+        """Compute valve demands for one scan of `dt` seconds of plant time.
+
+        The measurements must be finite (`ProcessMeasurements.finite`): a reading that
+        is not a number raises `ValueError` rather than becoming a valve position. The
+        PLC holds the valves on such a scan instead of calling this.
+        """
         if not self._primed:
             self.track(m, targets)
-        dt = _clamp(dt, 1.0e-3, MAX_CONTROL_DT_S)
+        dt = clamp(dt, 1.0e-3, MAX_CONTROL_DT_S)
 
         load_sp = self._ramp(self.load, targets.load_w, dt)
         pressure_sp = self._ramp(self.pressure, targets.pressure_pa, dt)
@@ -326,7 +331,7 @@ class UnitController:
         elif deficit > PRESSURE_GUARD_HOLD_PA:
             valve = min(valve, m.commands.steam)
 
-        valve = _clamp(valve, 0.0, 1.0)
+        valve = clamp(valve, 0.0, 1.0)
         self._turbine.constrain(valve)
         return valve
 
@@ -346,11 +351,11 @@ class UnitController:
             FUEL_VALVE_CAPACITY_KG_S,
             MIN_FIRING_FUEL_KG_S + FUEL_PER_STEAM_LIMIT * m.steam_flow_kg_s,
         )
-        demand = _clamp(feedforward + trim, 0.0, firing_limit)
+        demand = clamp(feedforward + trim, 0.0, firing_limit)
         self._pressure.constrain(demand - feedforward)
 
         base = demand / FUEL_VALVE_CAPACITY_KG_S
-        valve = _clamp(base + self._fuel.step(demand, m.fuel_flow_kg_s, dt), 0.0, 1.0)
+        valve = clamp(base + self._fuel.step(demand, m.fuel_flow_kg_s, dt), 0.0, 1.0)
         self._fuel.constrain(valve - base)
         return demand, valve
 
@@ -362,11 +367,11 @@ class UnitController:
             trim = self._level.state.prev_output
         else:
             trim = self._level.step(level_sp, m.water_level_m, dt)
-        demand = _clamp(steam + trim, 0.0, FEEDWATER_VALVE_CAPACITY_KG_S)
+        demand = clamp(steam + trim, 0.0, FEEDWATER_VALVE_CAPACITY_KG_S)
         self._level.constrain(demand - steam)
 
         base = demand / FEEDWATER_VALVE_CAPACITY_KG_S
-        valve = _clamp(
+        valve = clamp(
             base + self._feedwater.step(demand, m.feedwater_flow_kg_s, dt), 0.0, 1.0
         )
         self._feedwater.constrain(valve - base)

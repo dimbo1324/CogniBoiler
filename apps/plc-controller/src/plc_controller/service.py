@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from enum import StrEnum
 
@@ -131,6 +132,7 @@ class PLCService:
         self._control_task: asyncio.Task[None] | None = None
         self._task_error = ""
         self._stream_failing = False
+        self._holding_non_finite = False
 
     # ─── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -455,6 +457,7 @@ class PLCService:
         measurements = ProcessMeasurements.from_proto(state)
         async with self._lock:
             now = now_ms()
+            self._note_non_finite(measurements)
             self._latest_state = state
             dt = self._advance(measurements, now)
             self._latest_measurements = measurements
@@ -493,7 +496,7 @@ class PLCService:
             if self._mode is RuntimeMode.MANUAL:
                 self._controller.track(measurements, targets)
                 return
-            if dt is None or dt <= 0.0:
+            if dt is None or dt <= 0.0 or not measurements.finite:
                 return
             output = self._controller.scan(measurements, targets, dt)
             await self._forward(
@@ -510,10 +513,11 @@ class PLCService:
 
     def _advance(self, m: ProcessMeasurements, now: int) -> float | None:
         """Scan interval in plant time, or None on the first scan of a plant run."""
+        time_s = m.simulation_time_s if math.isfinite(m.simulation_time_s) else None
         if self._run_id != m.run_id:
             first_run = self._run_id is None
             self._run_id = m.run_id
-            self._last_simulation_time_s = m.simulation_time_s
+            self._last_simulation_time_s = time_s
             self._controller.invalidate()
             self._interlock.reset_rate_history()
             self._arming.reset()
@@ -525,14 +529,17 @@ class PLCService:
                         PlcEventKind.RUN_CHANGED, "physics-engine", {"run_id": m.run_id}
                     )
                 )
-            if not first_run or self._load_demand_w is None:
+            seed = not first_run or self._load_demand_w is None
+            if seed and math.isfinite(m.electrical_power_w):
                 self._load_demand_w = m.electrical_power_w
             return None
+        if time_s is None:
+            return None
         previous = self._last_simulation_time_s
-        self._last_simulation_time_s = m.simulation_time_s
+        self._last_simulation_time_s = time_s
         if previous is None:
             return None
-        return max(m.simulation_time_s - previous, 0.0)
+        return max(time_s - previous, 0.0)
 
     def _targets(self, m: ProcessMeasurements) -> ControlTargets:
         return ControlTargets(
@@ -607,10 +614,12 @@ class PLCService:
         overrides = trip_overrides(self._interlock.emergency_stop.trigger_event)
         if overrides.feedwater is not None:
             feedwater = overrides.feedwater
-        else:
+        elif m.finite:
             feedwater = self._controller.hold_level(
                 m, self._setpoints.water_level_m, max(dt, 1.0e-3)
             )
+        else:
+            feedwater = self._latest_command.feedwater_valve
         return CommandSnapshot(
             fuel_valve=overrides.fuel,
             feedwater_valve=feedwater,
@@ -628,9 +637,22 @@ class PLCService:
         return ValidationResult(accepted=False, reason=reason)
 
     def _current_spray_command(self) -> float:
-        if self._latest_measurements is not None:
-            return self._latest_measurements.commands.spray
+        measurements = self._latest_measurements
+        if measurements is not None and math.isfinite(measurements.commands.spray):
+            return measurements.commands.spray
         return self._latest_command.spray_valve
+
+    def _note_non_finite(self, m: ProcessMeasurements) -> None:
+        """Say once, when it starts, that a reading is not a number."""
+        finite = m.finite
+        if not finite and not self._holding_non_finite:
+            logger.warning(
+                "A plant reading is not a number: its instrument counts as failed and "
+                "the control loops hold their valves until every reading is a number"
+            )
+        elif finite and self._holding_non_finite:
+            logger.info("Every plant reading is a number again")
+        self._holding_non_finite = not finite
 
     async def _forward(self, snapshot: CommandSnapshot) -> ValidationResult:
         """Send a command to PhysicsService, skipping exact repeats."""

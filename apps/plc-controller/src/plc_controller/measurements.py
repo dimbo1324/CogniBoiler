@@ -4,15 +4,22 @@ Process measurements as the PLC sees them: instrument readings with their qualit
 The PLC acts only on what the instruments report through PhysicsService, never on the
 true plant state it cannot know. This module is the boundary between the protobuf
 contract and the control and protection logic.
+
+A reading that is not a real number is the reading of a failed instrument, whatever
+quality the plant reported with it: it is marked BAD here, so every BAD-quality path
+downstream — the instrument trips, the held loop outputs, the alarms — applies to it.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import IntEnum
 
 import cogniboiler_pb2 as pb2
+
+from plc_controller.numeric import all_finite
 
 
 class SignalQuality(IntEnum):
@@ -32,6 +39,19 @@ SENSOR_STEAM_FLOW: str = "steam_flow"
 SENSOR_FEEDWATER_FLOW: str = "feedwater_flow"
 SENSOR_FUEL_FLOW: str = "fuel_flow"
 SENSOR_ELECTRICAL_POWER: str = "electrical_power"
+
+# Every measured value with the instrument that provides it.
+MEASURED_VALUES: tuple[tuple[str, str], ...] = (
+    ("pressure_pa", SENSOR_DRUM_PRESSURE),
+    ("water_level_m", SENSOR_DRUM_LEVEL),
+    ("water_temp_k", SENSOR_DRUM_WATER_TEMP),
+    ("flue_gas_temp_k", SENSOR_FURNACE_GAS_TEMP),
+    ("steam_temp_k", SENSOR_STEAM_TEMP),
+    ("steam_flow_kg_s", SENSOR_STEAM_FLOW),
+    ("feedwater_flow_kg_s", SENSOR_FEEDWATER_FLOW),
+    ("fuel_flow_kg_s", SENSOR_FUEL_FLOW),
+    ("electrical_power_w", SENSOR_ELECTRICAL_POWER),
+)
 
 
 def _quality(value: int) -> SignalQuality:
@@ -80,6 +100,18 @@ class ProcessMeasurements:
         return self.quality(sensor_id) is SignalQuality.BAD
 
     @property
+    def finite(self) -> bool:
+        """True when every reading and every reported valve command is a real number."""
+        return all_finite(
+            *(float(getattr(self, name)) for name, _ in MEASURED_VALUES),
+            self.spray_flow_kg_s,
+            self.commands.fuel,
+            self.commands.feedwater,
+            self.commands.steam,
+            self.commands.spray,
+        )
+
+    @property
     def drum_steam_flow_kg_s(self) -> float:
         """Steam leaving the drum: turbine flow less the spray water added to it."""
         return max(self.steam_flow_kg_s - self.spray_flow_kg_s, 0.0)
@@ -90,7 +122,7 @@ class ProcessMeasurements:
         boiler = state.boiler
         turbine = state.turbine
         actuators = state.actuators
-        return cls(
+        measured = cls(
             simulation_time_s=state.simulation_time_s,
             step_s=state.simulation.step_s if state.simulation.step_s > 0 else 1.0,
             run_id=int(state.simulation.run_id),
@@ -120,3 +152,11 @@ class ProcessMeasurements:
                 sensor.sensor_id: _quality(sensor.quality) for sensor in state.sensors
             },
         )
+        failed = {
+            sensor: SignalQuality.BAD
+            for name, sensor in MEASURED_VALUES
+            if not math.isfinite(getattr(measured, name))
+        }
+        if not failed:
+            return measured
+        return replace(measured, qualities={**measured.qualities, **failed})
