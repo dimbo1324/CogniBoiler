@@ -18,6 +18,7 @@ from alert_manager.processor import (
     AlarmNotFoundError,
     AlarmProcessor,
     AlarmQuery,
+    InvalidOperatorError,
 )
 from alert_manager.views import AlarmView, TransitionView
 
@@ -146,6 +147,9 @@ class AlarmServicer(pb2_grpc.AlarmServiceServicer):  # type: ignore[misc]
             alarm = await self._processor.acknowledge(
                 request.alarm_id, request.operator_id, request.comment
             )
+        except InvalidOperatorError as exc:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            raise
         except AlarmNotFoundError as exc:
             await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
             raise
@@ -153,6 +157,12 @@ class AlarmServicer(pb2_grpc.AlarmServiceServicer):  # type: ignore[misc]
             return pb2.AcknowledgeResult(
                 accepted=False, reason=str(exc), timestamp_ms=now_ms()
             )
+        logger.info(
+            "AcknowledgeAlarm %d by %s from %s",
+            request.alarm_id,
+            alarm.acknowledged_by,
+            context.peer(),
+        )
         return pb2.AcknowledgeResult(
             accepted=True, timestamp_ms=now_ms(), alarms=[alarm_to_proto(alarm)]
         )
@@ -165,8 +175,18 @@ class AlarmServicer(pb2_grpc.AlarmServiceServicer):  # type: ignore[misc]
                 grpc.StatusCode.INVALID_ARGUMENT,
                 f"unknown severity {request.severity!r}",
             )
-        alarms = await self._processor.acknowledge_all(
-            request.operator_id, request.comment, request.severity
+        try:
+            alarms = await self._processor.acknowledge_all(
+                request.operator_id, request.comment, request.severity
+            )
+        except InvalidOperatorError as exc:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            raise
+        logger.info(
+            "AcknowledgeAll (%d alarms) by %s from %s",
+            len(alarms),
+            request.operator_id.strip(),
+            context.peer(),
         )
         return pb2.AcknowledgeResult(
             accepted=True,

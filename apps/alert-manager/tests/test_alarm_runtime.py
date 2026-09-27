@@ -128,13 +128,59 @@ class TestAlarmService:
         self, stub: tuple[pb2_grpc.AlarmServiceStub, dict[str, bool]]
     ) -> None:
         client, _ = stub
+        for alarm_id in (404, 2**31, 2**40):
+            for call in (
+                client.GetAlarm(pb2.AlarmRef(alarm_id=alarm_id)),
+                client.AcknowledgeAlarm(
+                    pb2.AcknowledgeAlarmRequest(
+                        alarm_id=alarm_id, operator_id="operator1"
+                    )
+                ),
+            ):
+                with pytest.raises(grpc.aio.AioRpcError) as failed:
+                    await call
+                assert failed.value.code() == grpc.StatusCode.NOT_FOUND
+
+    async def test_an_acknowledgement_without_an_operator_is_an_invalid_argument(
+        self,
+        stub: tuple[pb2_grpc.AlarmServiceStub, dict[str, bool]],
+        processor: AlarmProcessor,
+    ) -> None:
+        client, _ = stub
+        await processor.handle_condition(condition())
+        alarm = await only_alarm(processor)
         for call in (
-            client.GetAlarm(pb2.AlarmRef(alarm_id=404)),
-            client.AcknowledgeAlarm(pb2.AcknowledgeAlarmRequest(alarm_id=404)),
+            client.AcknowledgeAlarm(
+                pb2.AcknowledgeAlarmRequest(alarm_id=alarm.id, operator_id="  ")
+            ),
+            client.AcknowledgeAll(pb2.AcknowledgeAllRequest()),
         ):
             with pytest.raises(grpc.aio.AioRpcError) as failed:
                 await call
-            assert failed.value.code() == grpc.StatusCode.NOT_FOUND
+            assert failed.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+        assert (await only_alarm(processor)).state is AlarmState.ACTIVE_UNACK
+
+    async def test_an_acknowledgement_logs_the_calling_peer(
+        self,
+        stub: tuple[pb2_grpc.AlarmServiceStub, dict[str, bool]],
+        processor: AlarmProcessor,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        client, _ = stub
+        await processor.handle_condition(condition())
+        alarm = await only_alarm(processor)
+        with caplog.at_level(logging.INFO, logger="alert_manager.grpc_server"):
+            await client.AcknowledgeAlarm(
+                pb2.AcknowledgeAlarmRequest(alarm_id=alarm.id, operator_id="operator1")
+            )
+            await client.AcknowledgeAll(
+                pb2.AcknowledgeAllRequest(operator_id="operator1")
+            )
+        lines = [
+            r.getMessage() for r in caplog.records if r.name.endswith("grpc_server")
+        ]
+        assert len(lines) == 2
+        assert all("operator1" in line and "127.0.0.1" in line for line in lines)
 
     async def test_an_unknown_severity_is_an_invalid_argument(
         self, stub: tuple[pb2_grpc.AlarmServiceStub, dict[str, bool]]
@@ -142,7 +188,9 @@ class TestAlarmService:
         client, _ = stub
         for call in (
             client.ListAlarms(pb2.ListAlarmsRequest(severity="info")),
-            client.AcknowledgeAll(pb2.AcknowledgeAllRequest(severity="info")),
+            client.AcknowledgeAll(
+                pb2.AcknowledgeAllRequest(operator_id="operator1", severity="info")
+            ),
         ):
             with pytest.raises(grpc.aio.AioRpcError) as failed:
                 await call

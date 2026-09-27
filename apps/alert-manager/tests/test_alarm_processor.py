@@ -21,6 +21,7 @@ from alert_manager.processor import (
     AlarmNotFoundError,
     AlarmProcessor,
     AlarmQuery,
+    InvalidOperatorError,
 )
 from prometheus_client import REGISTRY
 from sqlalchemy.exc import IntegrityError
@@ -266,9 +267,33 @@ class TestAcknowledgement:
     ) -> None:
         await processor.handle_condition(condition())
         alarm = await only_alarm(processor)
-        acknowledged = await processor.acknowledge(alarm.id, "   ", "x" * 900)
-        assert acknowledged.acknowledged_by == "unknown"
+        acknowledged = await processor.acknowledge(alarm.id, "o" * 300, "x" * 900)
+        assert acknowledged.acknowledged_by == "o" * 128
         assert acknowledged.ack_comment == "x" * 500
+
+    @pytest.mark.parametrize("operator", ["", "   "])
+    async def test_an_acknowledgement_without_an_operator_is_refused(
+        self, processor: AlarmProcessor, recorder: Recorder, operator: str
+    ) -> None:
+        await processor.handle_condition(condition())
+        alarm = await only_alarm(processor)
+        with pytest.raises(InvalidOperatorError):
+            await processor.acknowledge(alarm.id, operator)
+        with pytest.raises(InvalidOperatorError):
+            await processor.acknowledge_all(operator)
+        assert (await only_alarm(processor)).state is S.ACTIVE_UNACK
+        assert len(recorder.changes) == 1
+
+    @pytest.mark.parametrize("alarm_id", [0, -1, 2**31, 2**40])
+    async def test_an_alarm_id_outside_the_column_is_not_found(
+        self, processor: AlarmProcessor, alarm_id: int
+    ) -> None:
+        # PostgreSQL refuses an int4 parameter above 2**31 - 1 with DataError, which
+        # the gateway would report as "AlarmService unavailable".
+        with pytest.raises(AlarmNotFoundError):
+            await processor.get_alarm(alarm_id)
+        with pytest.raises(AlarmNotFoundError):
+            await processor.acknowledge(alarm_id, "operator1")
 
     async def test_acknowledge_all_of_one_severity(
         self, processor: AlarmProcessor

@@ -40,6 +40,7 @@ DEFAULT_LIST_LIMIT: int = 100
 MAX_LIST_LIMIT: int = 1000
 MAX_COMMENT_LENGTH: int = 500
 MAX_OPERATOR_LENGTH: int = 128
+MAX_ALARM_ID: int = 2**31 - 1
 
 _ACTIVE = [state.value for state in ACTIVE_STATES]
 _OPEN = [state.value for state in OPEN_STATES]
@@ -54,6 +55,23 @@ class ChangeListener(Protocol):
 
 class AlarmNotFoundError(LookupError):
     """No alarm with the requested id."""
+
+
+class InvalidOperatorError(ValueError):
+    """An acknowledgement that names no operator."""
+
+
+def _operator(operator_id: str) -> str:
+    operator = operator_id.strip()[:MAX_OPERATOR_LENGTH]
+    if not operator:
+        raise InvalidOperatorError("operator_id must not be empty")
+    return operator
+
+
+def _check_alarm_id(alarm_id: int) -> None:
+    """Ids outside the integer column are unknown, not a database error."""
+    if not 1 <= alarm_id <= MAX_ALARM_ID:
+        raise AlarmNotFoundError(f"alarm {alarm_id} does not exist")
 
 
 @dataclass(frozen=True)
@@ -166,8 +184,12 @@ class AlarmProcessor:
     async def acknowledge(
         self, alarm_id: int, operator_id: str, comment: str = ""
     ) -> AlarmView:
-        """Acknowledge one alarm; raises AlarmNotFoundError or LifecycleError."""
-        operator = operator_id.strip()[:MAX_OPERATOR_LENGTH] or "unknown"
+        """Acknowledge one alarm.
+
+        Raises InvalidOperatorError, AlarmNotFoundError or LifecycleError.
+        """
+        operator = _operator(operator_id)
+        _check_alarm_id(alarm_id)
         note = comment.strip()[:MAX_COMMENT_LENGTH]
         async with self._lock, self._sessions() as session:
             alarm = await session.get(AlarmEvent, alarm_id)
@@ -184,7 +206,7 @@ class AlarmProcessor:
         self, operator_id: str, comment: str = "", severity: str = ""
     ) -> list[AlarmView]:
         """Acknowledge every unacknowledged alarm, optionally of one severity."""
-        operator = operator_id.strip()[:MAX_OPERATOR_LENGTH] or "unknown"
+        operator = _operator(operator_id)
         note = comment.strip()[:MAX_COMMENT_LENGTH]
         async with self._lock, self._sessions() as session:
             statement = select(AlarmEvent).where(AlarmEvent.state.in_(_UNACKNOWLEDGED))
@@ -247,6 +269,7 @@ class AlarmProcessor:
 
     async def get_alarm(self, alarm_id: int) -> tuple[AlarmView, list[TransitionView]]:
         """One alarm with its transitions, oldest first."""
+        _check_alarm_id(alarm_id)
         async with self._sessions() as session:
             alarm = await session.get(AlarmEvent, alarm_id)
             if alarm is None:
