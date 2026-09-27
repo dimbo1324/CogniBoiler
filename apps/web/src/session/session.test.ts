@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../api/http";
 import { tokens } from "../test/fixtures";
-import { SessionManager, endedNotice, type SessionTimers } from "./session";
+import {
+  SIGN_OUT_FAILED_NOTICE,
+  SessionManager,
+  UNREACHABLE_NOTICE,
+  endedNotice,
+  type SessionTimers,
+} from "./session";
 
 vi.mock("../api/endpoints", () => ({
   refreshSession: vi.fn(),
@@ -132,14 +138,122 @@ describe("SessionManager", () => {
     expect(manager.snapshot().status).toBe("signed_in");
   });
 
-  it("forgets the token on sign-out even if the gateway does not answer", async () => {
+  it.each([502, 503, 504])(
+    "keeps the session and tries again soon when the proxy answers %i",
+    async (status) => {
+      signIn.mockResolvedValue(tokens());
+      await manager.signIn("operator", "secret-password");
+      timers.scheduled = [];
+      refreshSession.mockRejectedValueOnce(apiError(status, `http.${String(status)}`));
+
+      await expect(manager.renew()).resolves.toBeNull();
+      expect(manager.snapshot().status).toBe("signed_in");
+      expect(manager.accessToken()).toBe("access-1");
+      expect(timers.scheduled).toHaveLength(1);
+      expect(timers.scheduled[0]?.ms).toBe(5_000);
+
+      refreshSession.mockResolvedValueOnce(tokens({ access_token: "access-2" }));
+      timers.scheduled[0]?.callback();
+      await vi.waitFor(() => {
+        expect(manager.accessToken()).toBe("access-2");
+      });
+    },
+  );
+
+  it.each([
+    [401, "auth.refresh_invalid"],
+    [403, "auth.forbidden"],
+    [500, "internal"],
+  ])("signs out when the refresh is refused with %i", async (status, code) => {
     signIn.mockResolvedValue(tokens());
     await manager.signIn("operator", "secret-password");
-    signOut.mockRejectedValue(new Error("offline"));
+    refreshSession.mockRejectedValue(apiError(status, code));
 
-    await expect(manager.signOut()).rejects.toThrow("offline");
+    await expect(manager.renew()).resolves.toBeNull();
+    expect(manager.snapshot()).toEqual({ status: "signed_out", notice: endedNotice(code) });
+  });
+
+  it("says the gateway cannot be reached when the proxy answers 503 at start-up", async () => {
+    refreshSession.mockRejectedValue(apiError(503, "http.503"));
+    await manager.restore();
+    expect(manager.snapshot()).toEqual({ status: "signed_out", notice: UNREACHABLE_NOTICE });
+  });
+
+  it("renews when the renewal timer fires", async () => {
+    signIn.mockResolvedValue(tokens());
+    await manager.signIn("operator", "secret-password");
+    refreshSession.mockResolvedValue(tokens({ access_token: "access-2" }));
+
+    timers.scheduled.at(-1)?.callback();
+    await vi.waitFor(() => {
+      expect(manager.accessToken()).toBe("access-2");
+    });
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops the renewal timer when detached", async () => {
+    signIn.mockResolvedValue(tokens());
+    await manager.signIn("operator", "secret-password");
+    expect(timers.scheduled).toHaveLength(1);
+    manager.detach();
+    expect(timers.scheduled).toHaveLength(0);
+  });
+
+  it("signs out when the retry after a superseded refresh is refused too", async () => {
+    signIn.mockResolvedValue(tokens());
+    await manager.signIn("operator", "secret-password");
+    refreshSession
+      .mockRejectedValueOnce(apiError(401, "auth.refresh_superseded"))
+      .mockRejectedValueOnce(apiError(401, "auth.refresh_superseded"));
+
+    const renewal = manager.renew();
+    await vi.waitFor(() => {
+      expect(timers.scheduled.some((entry) => entry.ms === 1000)).toBe(true);
+    });
+    timers.scheduled.find((entry) => entry.ms === 1000)?.callback();
+    await expect(renewal).resolves.toBeNull();
+    expect(refreshSession).toHaveBeenCalledTimes(2);
+    expect(manager.snapshot().status).toBe("signed_out");
+  });
+
+  it("forgets the token on sign-out and says so when the gateway does not answer", async () => {
+    signIn.mockResolvedValue(tokens());
+    await manager.signIn("operator", "secret-password");
+    signOut.mockRejectedValue(apiError(502, "http.502"));
+
+    await expect(manager.signOut()).resolves.toBeUndefined();
+    expect(manager.snapshot()).toEqual({ status: "signed_out", notice: SIGN_OUT_FAILED_NOTICE });
+    expect(manager.accessToken()).toBeNull();
+  });
+
+  it("signs out with the access token, so the gateway closes the session without the cookie", async () => {
+    signIn.mockResolvedValue(tokens());
+    await manager.signIn("operator", "secret-password");
+    signOut.mockResolvedValue({ message: "Signed out." });
+
+    await manager.signOut();
+    expect(signOut).toHaveBeenCalledWith("access-1");
+    expect(manager.snapshot()).toEqual({ status: "signed_out", notice: null });
+  });
+
+  it("stays signed out when a renewal in flight answers after the sign-out", async () => {
+    signIn.mockResolvedValue(tokens());
+    await manager.signIn("operator", "secret-password");
+    let answer: (value: ReturnType<typeof tokens>) => void = () => undefined;
+    refreshSession.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    signOut.mockResolvedValue({ message: "Signed out." });
+
+    const renewal = manager.renew();
+    await manager.signOut();
+    answer(tokens({ access_token: "access-2" }));
+    await expect(renewal).resolves.toBeNull();
     expect(manager.snapshot()).toEqual({ status: "signed_out", notice: null });
     expect(manager.accessToken()).toBeNull();
+    expect(timers.scheduled).toHaveLength(0);
   });
 
   it("ends the session with the reason the gateway gave", async () => {

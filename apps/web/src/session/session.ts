@@ -21,11 +21,30 @@ const RENEW_AHEAD_MS = 60_000;
 const MIN_RENEW_DELAY_MS = 5_000;
 // Another tab exchanged the shared cookie a moment ago: the new cookie is already set.
 const SUPERSEDED_RETRY_MS = 1_000;
+// The proxy answered for a gateway that is restarting: try the refresh again this soon.
+const TRANSIENT_RETRY_MS = MIN_RENEW_DELAY_MS;
+
+export const UNREACHABLE_NOTICE =
+  "The gateway cannot be reached. Sign-in will work once it answers.";
+export const SIGN_OUT_FAILED_NOTICE =
+  "Sign-out could not reach the gateway; the session may still be open. Sign in and sign out again once it answers.";
 
 const ROLES: readonly Role[] = ["viewer", "operator", "engineer", "admin"];
 
 function asRole(value: string): Role {
   return (ROLES as readonly string[]).includes(value) ? (value as Role) : "viewer";
+}
+
+/**
+ * A failure of the gateway's availability rather than a verdict on the session: the network,
+ * or nginx and the Vite proxy answering 502, 503 or 504 while the gateway restarts. The
+ * refresh cookie is still valid then, so the session is kept.
+ */
+function transient(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    (error.code === "network.unreachable" || [502, 503, 504].includes(error.status))
+  );
 }
 
 export function endedNotice(code: string): string {
@@ -59,6 +78,8 @@ export class SessionManager implements Credentials {
   private renewing: Promise<string | null> | null = null;
   private restoring: Promise<void> | null = null;
   private renewTimer: ReturnType<typeof setTimeout> | null = null;
+  // Bumped by every sign-out, so a refresh that was in flight cannot sign the user back in.
+  private generation = 0;
   private readonly listeners = new Set<() => void>();
   private readonly tokenListeners = new Set<(token: string) => void>();
   private readonly timers: SessionTimers;
@@ -125,13 +146,7 @@ export class SessionManager implements Credentials {
     try {
       this.accept(await refreshSession());
     } catch (error) {
-      const unreachable = error instanceof ApiError && error.code === "network.unreachable";
-      this.forget({
-        status: "signed_out",
-        notice: unreachable
-          ? "The gateway cannot be reached. Sign-in will work once it answers."
-          : null,
-      });
+      this.forget({ status: "signed_out", notice: transient(error) ? UNREACHABLE_NOTICE : null });
     }
   }
 
@@ -139,38 +154,57 @@ export class SessionManager implements Credentials {
     this.accept(await signIn(username, password));
   }
 
+  /**
+   * Only the gateway can clear the httpOnly refresh cookie and close the session. The access
+   * token goes along, so the session closes even when the cookie was already rotated. If the
+   * gateway cannot be reached, the console forgets the session anyway and says it may still
+   * be open, instead of looking signed out while a reload would restore it.
+   */
   async signOut(): Promise<void> {
+    const token = this.token;
+    let notice: string | null = null;
     try {
-      await signOut();
-    } finally {
-      this.forget({ status: "signed_out", notice: null });
+      await signOut(token);
+    } catch {
+      notice = SIGN_OUT_FAILED_NOTICE;
     }
+    this.forget({ status: "signed_out", notice });
   }
 
   private async exchange(): Promise<string | null> {
+    const generation = this.generation;
+    const accept = (tokens: TokenResponse): string | null =>
+      generation === this.generation ? this.accept(tokens) : null;
     try {
-      return this.accept(await refreshSession());
+      return accept(await refreshSession());
     } catch (error) {
       if (error instanceof ApiError && error.code === "auth.refresh_superseded") {
         await new Promise<void>((resolve) => {
           this.timers.setTimeout(resolve, SUPERSEDED_RETRY_MS);
         });
+        if (generation !== this.generation) {
+          return null;
+        }
         try {
-          return this.accept(await refreshSession());
+          return accept(await refreshSession());
         } catch (again) {
-          return this.fail(again);
+          return this.fail(again, generation);
         }
       }
-      return this.fail(error);
+      return this.fail(error, generation);
     }
   }
 
-  private fail(error: unknown): null {
-    const code = error instanceof ApiError ? error.code : "network.unreachable";
-    if (code === "network.unreachable" && this.token !== null) {
-      // The gateway is down, not the session: keep it and try again on the next request.
+  private fail(error: unknown, generation: number): null {
+    if (generation !== this.generation) {
       return null;
     }
+    if (transient(error) && this.token !== null) {
+      // The gateway is away, not the session: keep it and try the refresh again soon.
+      this.scheduleRetry(TRANSIENT_RETRY_MS);
+      return null;
+    }
+    const code = error instanceof ApiError ? error.code : "session.unknown";
     this.forget({ status: "signed_out", notice: endedNotice(code) });
     return null;
   }
@@ -191,6 +225,7 @@ export class SessionManager implements Credentials {
   }
 
   private forget(state: SessionState): void {
+    this.generation += 1;
     this.token = null;
     this.clearRenewTimer();
     this.current = state;
@@ -198,11 +233,13 @@ export class SessionManager implements Credentials {
   }
 
   private scheduleRenewal(accessExpiresAtMs: number): void {
-    this.clearRenewTimer();
-    const delay = Math.max(
-      accessExpiresAtMs - this.timers.now() - RENEW_AHEAD_MS,
-      MIN_RENEW_DELAY_MS,
+    this.scheduleRetry(
+      Math.max(accessExpiresAtMs - this.timers.now() - RENEW_AHEAD_MS, MIN_RENEW_DELAY_MS),
     );
+  }
+
+  private scheduleRetry(delay: number): void {
+    this.clearRenewTimer();
     this.renewTimer = this.timers.setTimeout(() => {
       this.renewTimer = null;
       void this.renew();

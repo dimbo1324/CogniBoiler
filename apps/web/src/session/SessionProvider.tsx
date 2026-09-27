@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
@@ -39,11 +40,18 @@ export function SessionProvider({
     };
   }, [manager]);
 
+  // Cached answers belong to the user who fetched them. The refresh cookie is shared by all
+  // tabs, so a renewal can switch this tab to another user without a sign-out in between:
+  // clear on every change of identity, not only on the way out.
+  const identity =
+    state.status === "signed_in" ? `${state.user.username}:${state.user.role}` : null;
+  const cachedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (state.status === "signed_out") {
+    if (cachedFor.current !== null && cachedFor.current !== identity) {
       queryClient.clear();
     }
-  }, [state.status, queryClient]);
+    cachedFor.current = identity;
+  }, [identity, queryClient]);
 
   const value = useMemo(() => ({ manager, state }), [manager, state]);
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

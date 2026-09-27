@@ -46,9 +46,12 @@ export function refreshSession(): Promise<TokenResponse> {
   return request("POST", "/auth/refresh", { auth: false });
 }
 
-/** Closes the session of the refresh cookie; the gateway answers 200 in every case. */
-export function signOut(): Promise<MessageResponse> {
-  return request("POST", "/auth/logout", { auth: false });
+/**
+ * Closes the session of the refresh cookie and of the access token, if one is given; the
+ * gateway answers 200 in every case. The token is sent as it is and never renewed.
+ */
+export function signOut(accessToken: string | null): Promise<MessageResponse> {
+  return request("POST", "/auth/logout", { auth: false, accessToken });
 }
 
 export function fetchProfile(): Promise<Profile> {

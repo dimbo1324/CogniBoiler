@@ -33,10 +33,10 @@ const cases: Case[] = [
   },
   {
     name: "signOut",
-    call: () => endpoints.signOut(),
+    call: () => endpoints.signOut("access-1"),
     method: "POST",
     path: "/auth/logout",
-    options: { auth: false },
+    options: { auth: false, accessToken: "access-1" },
   },
   { name: "fetchProfile", call: () => endpoints.fetchProfile(), method: "GET", path: "/auth/me" },
   {

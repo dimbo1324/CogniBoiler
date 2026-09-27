@@ -61,6 +61,8 @@ export interface RequestOptions {
   signal?: AbortSignal;
   /** Send the access token and renew it once when refused. Default true. */
   auth?: boolean;
+  /** With `auth: false`, a token to send as it is, never renewed (the sign-out). */
+  accessToken?: string | null;
 }
 
 export function buildPath(path: string, query?: Query): string {
@@ -160,7 +162,8 @@ export async function request<T>(
 ): Promise<T> {
   const auth = options.auth ?? true;
   const session = auth ? credentials : null;
-  let response = await send(method, path, options, session?.accessToken() ?? null);
+  const token = session ? session.accessToken() : (options.accessToken ?? null);
+  let response = await send(method, path, options, token);
 
   if (session && response.status === 401) {
     const problem = await readProblem(response);
@@ -168,11 +171,11 @@ export async function request<T>(
       session.ended(problem.code);
       throw new ApiError(problem);
     }
-    const token = await session.renew();
-    if (token === null) {
+    const renewed = await session.renew();
+    if (renewed === null) {
       throw new ApiError(problem);
     }
-    response = await send(method, path, options, token);
+    response = await send(method, path, options, renewed);
     if (response.status === 401) {
       const again = await readProblem(response);
       session.ended(again.code);

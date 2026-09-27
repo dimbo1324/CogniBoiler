@@ -213,6 +213,32 @@ describe("SessionProvider", () => {
     expect(queryClient.getQueryData(["alarms", "active"])).toBeUndefined();
   });
 
+  it("clears cached data when another user's session takes over the shared cookie", async () => {
+    const queryClient = new QueryClient();
+    const { manager } = renderShell(<Probe />, queryClient);
+    await screen.findByText(/signed_in/u);
+    queryClient.setQueryData(["users", "page", 0], ["cached"]);
+    vi.mocked(refreshSession).mockResolvedValue(
+      tokens({ username: "admin", role: "admin", access_expires_at_ms: Date.now() + 900_000 }),
+    );
+    await act(async () => {
+      await manager.renew();
+    });
+    expect(manager.snapshot()).toMatchObject({ user: { username: "admin" } });
+    expect(queryClient.getQueryData(["users", "page", 0])).toBeUndefined();
+  });
+
+  it("keeps cached data when the same user's token is renewed", async () => {
+    const queryClient = new QueryClient();
+    const { manager } = renderShell(<Probe />, queryClient);
+    await screen.findByText(/signed_in/u);
+    queryClient.setQueryData(["alarms", "active"], ["cached"]);
+    await act(async () => {
+      await manager.renew();
+    });
+    expect(queryClient.getQueryData(["alarms", "active"])).toEqual(["cached"]);
+  });
+
   it("answers permissions by the signed-in role", async () => {
     function Rights() {
       const { state } = useSession();

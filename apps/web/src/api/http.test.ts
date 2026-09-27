@@ -84,6 +84,20 @@ describe("request", () => {
     expect(session.renew).not.toHaveBeenCalled();
   });
 
+  it("sends a given token without renewing it when the route is public", async () => {
+    const session = credentials();
+    bindCredentials(session);
+    fetchMock.mockResolvedValue(problem(401, "auth.token_expired"));
+
+    await expect(
+      request("POST", "/auth/logout", { auth: false, accessToken: "access-1" }),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(authorization(fetchMock.mock.calls[0] ?? [])).toBe("Bearer access-1");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(session.renew).not.toHaveBeenCalled();
+    expect(session.ended).not.toHaveBeenCalled();
+  });
+
   it("reads Problem Details, validation errors and Retry-After", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse(
