@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useActiveAlarms } from "../alarms/queries";
 import { fetchHistory, fetchKpi, fetchPlatform } from "../api/endpoints";
+import { ApiError } from "../api/http";
 import type { Kpi, PlantState, Platform, PlcEvent, PlcStatus } from "../api/types";
 import { tripDescription } from "../components/PlcPanel";
 import { useLive, useLiveStore } from "../live/LiveProvider";
@@ -202,9 +203,18 @@ describe("PlatformScreen", () => {
 
   it("explains an unreachable gateway", async () => {
     vi.mocked(useLive).mockReturnValue(snapshot());
-    vi.mocked(fetchPlatform).mockRejectedValue(new Error("Failed to fetch"));
+    vi.mocked(fetchPlatform).mockRejectedValue(
+      new ApiError({
+        status: 0,
+        code: "network.unreachable",
+        title: "Network error",
+        detail: "The gateway cannot be reached.",
+        errors: [],
+        retryAfterS: null,
+      }),
+    );
     renderScreen(<PlatformScreen />);
-    expect(await screen.findByText("Failed to fetch")).toBeDefined();
+    expect(await screen.findByText("The gateway cannot be reached.")).toBeDefined();
   });
 });
 

@@ -171,7 +171,10 @@ export async function request<T>(
       session.ended(problem.code);
       throw new ApiError(problem);
     }
-    const renewed = await session.renew();
+    // Another request may have renewed the token while this one was on its way; its token
+    // is good, and a second refresh would only rotate the cookie again.
+    const current = session.accessToken();
+    const renewed = current !== null && current !== token ? current : await session.renew();
     if (renewed === null) {
       throw new ApiError(problem);
     }
@@ -189,8 +192,24 @@ export async function request<T>(
   if (response.status === 204) {
     return undefined as T;
   }
-  return (await response.json()) as T;
+  try {
+    return (await response.json()) as T;
+  } catch {
+    // A success status with a body that is not JSON: nginx's index.html for a mis-routed
+    // path, or a captive proxy.
+    throw new ApiError({
+      status: response.status,
+      code: "response.malformed",
+      title: "Bad response",
+      detail: "The gateway sent an answer the console cannot read.",
+      errors: [],
+      retryAfterS: null,
+    });
+  }
 }
+
+// describeError runs on every render of a screen that shows an error; report each once.
+const reported = new WeakSet<object>();
 
 /** A sentence for the operator; never the raw exception text. */
 export function describeError(error: unknown): string {
@@ -198,8 +217,10 @@ export function describeError(error: unknown): string {
     const fields = error.problem.errors.map((item) => `${item.location}: ${item.message}`);
     return fields.length ? `${error.problem.detail} ${fields.join("; ")}` : error.problem.detail;
   }
-  if (error instanceof Error) {
-    return error.message;
+  if (typeof error === "object" && error !== null && !reported.has(error)) {
+    reported.add(error);
+    // A defect in the console, not an answer of the gateway: the detail is for a developer.
+    console.error("console error:", error);
   }
-  return "Something went wrong.";
+  return "Something went wrong in the console.";
 }
