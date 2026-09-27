@@ -93,9 +93,7 @@ class FakePhysics:
         self.fail_with: BaseException | None = None
         self.refuse_reason = ""
         self.health_error: BaseException | None = None
-        self.streams: asyncio.Queue[list[pb2.SystemStateMsg] | BaseException] = (
-            asyncio.Queue()
-        )
+        self.feed: asyncio.Queue[pb2.SystemStateMsg | BaseException] = asyncio.Queue()
         self.streams_opened = 0
 
     async def apply_command(self, command: pb2.ControlCommandMsg) -> pb2.CommandAck:
@@ -112,14 +110,13 @@ class FakePhysics:
         return pb2.HealthStatus(service="physics-engine", status="running")
 
     async def stream_system_state(self) -> AsyncGenerator[pb2.SystemStateMsg]:
-        """Each queued item is one stream: a list of states, or an error to raise."""
+        """Yields the states fed to it; a fed exception breaks the stream."""
         self.streams_opened += 1
-        item = await self.streams.get()
-        if isinstance(item, BaseException):
-            raise item
-        for message in item:
-            yield message
-        await asyncio.Event().wait()
+        while True:
+            item = await self.feed.get()
+            if isinstance(item, BaseException):
+                raise item
+            yield item
 
     async def close(self) -> None:
         return None

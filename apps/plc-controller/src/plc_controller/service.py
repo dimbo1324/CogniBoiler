@@ -39,9 +39,7 @@ from plc_controller.commands import (
 )
 from plc_controller.control import ControlTargets, UnitController
 from plc_controller.events import PlcEvent, PlcEventKind, PlcPublisher
-from plc_controller.measurements import (
-    ProcessMeasurements,
-)
+from plc_controller.measurements import ProcessMeasurements, ValveSet
 from plc_controller.metrics import SCAN_SECONDS
 from plc_controller.safety import (
     ArmingTracker,
@@ -66,6 +64,21 @@ DEFAULT_ALERT_MQTT_PORT: int = 1883
 EXTERNAL_COMMAND_SOURCES: frozenset[int] = frozenset(
     {int(pb2.CommandSource.OPERATOR), int(pb2.CommandSource.SCHEDULER)}
 )
+
+
+# Commands are compared at the precision they are deduplicated at.
+COMMAND_TOLERANCE: float = 1.0e-4
+
+
+def _plant_holds(reported: ValveSet, command: CommandSnapshot) -> bool:
+    """Does the plant report this command as the one in force?"""
+    pairs = (
+        (reported.fuel, command.fuel_valve),
+        (reported.feedwater, command.feedwater_valve),
+        (reported.steam, command.steam_valve),
+        (reported.spray, command.spray_valve),
+    )
+    return all(abs(held - sent) <= COMMAND_TOLERANCE for held, sent in pairs)
 
 
 class RuntimeMode(StrEnum):
@@ -427,6 +440,8 @@ class PLCService:
     async def _run_control_loop(self) -> None:
         """Scan on every plant state; reconnect with a delay when the stream breaks."""
         while True:
+            # A new stream may reach a restarted plant, whose valves are not ours.
+            self._last_sent_key = None
             try:
                 async for state in self._physics.stream_system_state():
                     started = time.perf_counter()
@@ -491,7 +506,10 @@ class PLCService:
             targets = self._targets(measurements)
             if self._mode is RuntimeMode.ESTOP:
                 self._controller.track(measurements, targets, keep_level=True)
-                await self._forward(self._trip_command(measurements, dt or 0.0))
+                command = self._trip_command(measurements, dt or 0.0)
+                if not _plant_holds(measurements.commands, command):
+                    self._last_sent_key = None
+                await self._forward(command)
                 return
             if self._mode is RuntimeMode.MANUAL:
                 self._controller.track(measurements, targets)
@@ -518,6 +536,8 @@ class PLCService:
             first_run = self._run_id is None
             self._run_id = m.run_id
             self._last_simulation_time_s = time_s
+            # A new run starts from the scenario's own valves, not from ours.
+            self._last_sent_key = None
             self._controller.invalidate()
             self._interlock.reset_rate_history()
             self._arming.reset()

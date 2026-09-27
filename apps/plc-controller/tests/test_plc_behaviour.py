@@ -225,6 +225,17 @@ class TestTripsAndResets:
 
 
 class TestRuns:
+    async def test_a_reloaded_plant_is_held_in_the_trip(self) -> None:
+        overflow = replace(BoilerParameters().nominal_initial_state(), water_level=7.9)
+        async with rig(initial_state=overflow) as plant:
+            assert plant.plc.mode is RuntimeMode.ESTOP
+            # The scenario load puts the plant's own valves back, fuel included.
+            await plant.runtime.load_scenario(ScenarioName.STEADY_STATE)
+            assert plant.runtime.snapshot.controls.fuel_valve_command > 0.0
+            await plant.advance(2)
+            assert plant.plc.mode is RuntimeMode.ESTOP
+            assert plant.runtime.snapshot.controls.fuel_valve_command == 0.0
+
     async def test_a_new_plant_run_reseeds_the_load_demand(self) -> None:
         async with rig() as plant:
             await plant.stub.SetLoadDemand(pb2.LoadDemandRequest(load_w=200 * MW))
