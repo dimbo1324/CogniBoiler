@@ -205,3 +205,45 @@ class TestAttemptsInFlight:
         assert failing.allowed and succeeding.allowed
         guard.record_success(succeeding)
         assert guard.retry_after_s("anna", "10.0.0.2") == 0
+
+
+class TestClientAddresses:
+    """An IPv6 client can pick any address of its /64, so the /64 is the client."""
+
+    def lock_out(self, guard: LoginThrottle, client: str) -> None:
+        for index in range(CLIENT.max_failures):
+            fail(guard, f"invented-{index}", client)
+
+    def test_addresses_of_one_ipv6_network_share_a_budget(self) -> None:
+        guard, _ = throttle()
+        self.lock_out(guard, "2001:db8:1:2::1")
+        assert guard.retry_after_s("anna", "2001:db8:1:2:ffff:ffff:ffff:ffff") > 0
+
+    def test_another_ipv6_network_has_its_own_budget(self) -> None:
+        guard, _ = throttle()
+        self.lock_out(guard, "2001:db8:1:2::1")
+        assert guard.retry_after_s("anna", "2001:db8:1:3::1") == 0
+
+    def test_ipv4_addresses_are_counted_one_by_one(self) -> None:
+        guard, _ = throttle()
+        self.lock_out(guard, "10.0.0.9")
+        assert guard.retry_after_s("anna", "10.0.0.9") > 0
+        assert guard.retry_after_s("anna", "10.0.0.10") == 0
+
+    def test_an_ipv4_mapped_address_is_the_ipv4_address(self) -> None:
+        guard, _ = throttle()
+        self.lock_out(guard, "::ffff:10.0.0.9")
+        assert guard.retry_after_s("anna", "10.0.0.9") > 0
+        assert guard.retry_after_s("anna", "10.0.0.10") == 0
+
+    def test_a_client_that_is_not_an_address_is_still_counted(self) -> None:
+        guard, _ = throttle()
+        self.lock_out(guard, "unknown")
+        assert guard.retry_after_s("anna", "unknown") > 0
+
+    def test_a_success_releases_the_charge_of_its_network(self) -> None:
+        guard, _ = throttle()
+        for index in range(CLIENT.max_failures * 2):
+            attempt = guard.begin_attempt(f"user-{index}", f"2001:db8::{index + 1}")
+            guard.record_success(attempt)
+        assert guard.retry_after_s("someone", "2001:db8::1") == 0

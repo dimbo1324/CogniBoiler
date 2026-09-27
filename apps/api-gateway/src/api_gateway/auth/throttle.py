@@ -16,6 +16,7 @@ or replicas would each count separately and need a shared store.
 
 from __future__ import annotations
 
+import ipaddress
 import math
 import time
 from collections import OrderedDict, deque
@@ -92,7 +93,10 @@ class _FailureLog:
 
 @dataclass(frozen=True, slots=True)
 class Attempt:
-    """One sign-in attempt; when it was let through, it is charged at `charged_at`."""
+    """One sign-in attempt; when it was let through, it is charged at `charged_at`.
+
+    `account_key` and `client` are the throttle's keys, already normalised.
+    """
 
     account_key: str
     client: str
@@ -123,9 +127,24 @@ class LoginThrottle:
     def _account_key(username: str) -> str:
         return username.strip().casefold()
 
+    @staticmethod
+    def _client_key(client: str) -> str:
+        """An IPv6 client is its /64: one host can take any address in it."""
+        try:
+            address = ipaddress.ip_address(client)
+        except ValueError:
+            return client
+        if isinstance(address, ipaddress.IPv6Address):
+            if address.ipv4_mapped is not None:
+                return str(address.ipv4_mapped)
+            return str(ipaddress.ip_network(f"{address}/64", strict=False))
+        return str(address)
+
     def retry_after_s(self, username: str, client: str) -> int:
         """Whole seconds until another attempt is allowed; 0 when it is allowed now."""
-        return self._wait(self._account_key(username), client, self._clock())
+        return self._wait(
+            self._account_key(username), self._client_key(client), self._clock()
+        )
 
     def _wait(self, account_key: str, client: str, now: float) -> int:
         wait = max(
@@ -143,6 +162,7 @@ class LoginThrottle:
         """
         now = self._clock()
         account_key = self._account_key(username)
+        client = self._client_key(client)
         wait = self._wait(account_key, client, now)
         if wait:
             return Attempt(account_key, client, wait, None)
