@@ -9,6 +9,7 @@ import pytest_asyncio
 from alarm_factories import Recorder
 from alert_manager.models import Base
 from alert_manager.processor import AlarmProcessor
+from alert_manager.queries import AlarmQueries
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 CLEAR_HOLD_S = 0.02
@@ -43,3 +44,8 @@ async def processor(
     found = AlarmProcessor(sessions, recorder, clear_hold_s=CLEAR_HOLD_S)
     yield found
     await found.close()
+
+
+@pytest_asyncio.fixture
+async def queries(sessions: async_sessionmaker[AsyncSession]) -> AlarmQueries:
+    return AlarmQueries(sessions)

@@ -12,16 +12,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Protocol
 
 from cogniboiler_runtime import now_ms
-from sqlalchemy import ColumnElement, case, func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from alert_manager.lifecycle import (
     ACTIVE_STATES,
-    OPEN_STATES,
     UNACKNOWLEDGED_STATES,
     AlarmState,
     after_acknowledge,
@@ -31,19 +29,16 @@ from alert_manager.lifecycle import (
 from alert_manager.metrics import SNAPSHOT_UNMATCHED_KEYS, TRANSITIONS
 from alert_manager.models import AlarmEvent, AlarmTransition
 from alert_manager.payloads import ConditionReport, SnapshotReport
+from alert_manager.queries import AlarmNotFoundError, check_alarm_id
 from alert_manager.views import AlarmView, TransitionView
 
 logger = logging.getLogger(__name__)
 
 CLEAR_HOLD_S: float = 3.0
-DEFAULT_LIST_LIMIT: int = 100
-MAX_LIST_LIMIT: int = 1000
 MAX_COMMENT_LENGTH: int = 500
 MAX_OPERATOR_LENGTH: int = 128
-MAX_ALARM_ID: int = 2**31 - 1
 
 _ACTIVE = [state.value for state in ACTIVE_STATES]
-_OPEN = [state.value for state in OPEN_STATES]
 _UNACKNOWLEDGED = [state.value for state in UNACKNOWLEDGED_STATES]
 
 
@@ -51,10 +46,6 @@ class ChangeListener(Protocol):
     """Told about every alarm state change after it is committed."""
 
     def alarm_changed(self, alarm: AlarmView, transition: TransitionView) -> None: ...
-
-
-class AlarmNotFoundError(LookupError):
-    """No alarm with the requested id."""
 
 
 class InvalidOperatorError(ValueError):
@@ -68,27 +59,11 @@ def _operator(operator_id: str) -> str:
     return operator
 
 
-def _check_alarm_id(alarm_id: int) -> None:
-    """Ids outside the integer column are unknown, not a database error."""
-    if not 1 <= alarm_id <= MAX_ALARM_ID:
-        raise AlarmNotFoundError(f"alarm {alarm_id} does not exist")
-
-
-@dataclass(frozen=True)
-class AlarmQuery:
-    """Filters and paging for alarm lists."""
-
-    open_only: bool = False
-    severity: str = ""
-    parameter: str = ""
-    from_ms: int = 0
-    to_ms: int = 0
-    limit: int = DEFAULT_LIST_LIMIT
-    offset: int = 0
-
-
 class AlarmProcessor:
-    """Owns alarm state: applies reports and acknowledgements, answers queries."""
+    """Owns alarm state: applies reports and acknowledgements, one at a time.
+
+    Reads live in `alert_manager.queries`.
+    """
 
     def __init__(
         self,
@@ -121,11 +96,6 @@ class AlarmProcessor:
         """Wait until every clear waiting out its hold time has run or been dropped."""
         while self._pending_clears:
             await asyncio.gather(*self._pending_clears.values(), return_exceptions=True)
-
-    async def ping(self) -> None:
-        """Raise if the database cannot be reached."""
-        async with self._sessions() as session:
-            await session.execute(select(1))
 
     # ─── Reports from sources ────────────────────────────────────────────────
 
@@ -199,7 +169,7 @@ class AlarmProcessor:
         Raises InvalidOperatorError, AlarmNotFoundError or LifecycleError.
         """
         operator = _operator(operator_id)
-        _check_alarm_id(alarm_id)
+        check_alarm_id(alarm_id)
         note = comment.strip()[:MAX_COMMENT_LENGTH]
         async with self._lock, self._sessions() as session:
             alarm = await session.get(AlarmEvent, alarm_id)
@@ -233,67 +203,6 @@ class AlarmProcessor:
         if views:
             logger.info("%d alarms acknowledged by %s", len(views), operator)
         return views
-
-    # ─── Queries ─────────────────────────────────────────────────────────────
-
-    async def list_alarms(self, query: AlarmQuery) -> tuple[list[AlarmView], int]:
-        """Alarms matching a query and how many match in total."""
-        limit = min(max(query.limit or DEFAULT_LIST_LIMIT, 1), MAX_LIST_LIMIT)
-        offset = max(query.offset, 0)
-        conditions: list[ColumnElement[bool]] = []
-        if query.open_only:
-            conditions.append(AlarmEvent.state.in_(_OPEN))
-        if query.severity:
-            conditions.append(AlarmEvent.severity == query.severity)
-        if query.parameter:
-            conditions.append(AlarmEvent.parameter == query.parameter)
-        if query.from_ms > 0:
-            conditions.append(AlarmEvent.raised_at_ms >= query.from_ms)
-        if query.to_ms > 0:
-            conditions.append(AlarmEvent.raised_at_ms <= query.to_ms)
-
-        if query.open_only:
-            order: tuple[ColumnElement[Any], ...] = (
-                case((AlarmEvent.severity == "critical", 0), else_=1),
-                case((AlarmEvent.state.in_(_UNACKNOWLEDGED), 0), else_=1),
-                AlarmEvent.raised_at_ms.desc(),
-                AlarmEvent.id.desc(),
-            )
-        else:
-            order = (AlarmEvent.raised_at_ms.desc(), AlarmEvent.id.desc())
-
-        async with self._sessions() as session:
-            total = await session.scalar(
-                select(func.count()).select_from(AlarmEvent).where(*conditions)
-            )
-            rows = (
-                await session.scalars(
-                    select(AlarmEvent)
-                    .where(*conditions)
-                    .order_by(*order)
-                    .limit(limit)
-                    .offset(offset)
-                )
-            ).all()
-        return [AlarmView.from_row(row) for row in rows], int(total or 0)
-
-    async def get_alarm(self, alarm_id: int) -> tuple[AlarmView, list[TransitionView]]:
-        """One alarm with its transitions, oldest first."""
-        _check_alarm_id(alarm_id)
-        async with self._sessions() as session:
-            alarm = await session.get(AlarmEvent, alarm_id)
-            if alarm is None:
-                raise AlarmNotFoundError(f"alarm {alarm_id} does not exist")
-            transitions = (
-                await session.scalars(
-                    select(AlarmTransition)
-                    .where(AlarmTransition.alarm_id == alarm_id)
-                    .order_by(AlarmTransition.at_ms, AlarmTransition.id)
-                )
-            ).all()
-        return AlarmView.from_row(alarm), [
-            TransitionView.from_row(row) for row in transitions
-        ]
 
     # ─── State changes ───────────────────────────────────────────────────────
 

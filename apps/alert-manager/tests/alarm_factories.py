@@ -8,7 +8,7 @@ from typing import Any
 
 from alert_manager.lifecycle import AlarmState
 from alert_manager.payloads import ConditionReport, SnapshotReport
-from alert_manager.processor import AlarmProcessor, AlarmQuery
+from alert_manager.queries import AlarmQueries, AlarmQuery
 from alert_manager.views import AlarmView, TransitionView
 
 SOURCE = "plc-controller"
@@ -90,18 +90,18 @@ class Recorder:
 
 
 async def wait_for_state(
-    processor: AlarmProcessor, alarm_id: int, state: AlarmState
+    queries: AlarmQueries, alarm_id: int, state: AlarmState
 ) -> AlarmView:
     """The alarm once it has reached a state; fails after five seconds."""
     async with asyncio.timeout(5.0):
         while True:
-            alarm, _ = await processor.get_alarm(alarm_id)
+            alarm, _ = await queries.get_alarm(alarm_id)
             if alarm.state is state:
                 return alarm
             await asyncio.sleep(0.005)
 
 
-async def only_alarm(processor: AlarmProcessor) -> AlarmView:
-    alarms, total = await processor.list_alarms(AlarmQuery())
+async def only_alarm(queries: AlarmQueries) -> AlarmView:
+    alarms, total = await queries.list_alarms(AlarmQuery())
     assert total == 1, alarms
     return alarms[0]

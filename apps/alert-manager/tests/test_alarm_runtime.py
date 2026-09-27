@@ -27,6 +27,7 @@ from alert_manager.lifecycle import AlarmState
 from alert_manager.models import Base
 from alert_manager.processor import AlarmProcessor
 from alert_manager.publisher import AlarmChangePublisher
+from alert_manager.queries import AlarmQueries
 from alert_manager.subscriber import AlertSubscriber
 from alert_manager.views import AlarmView, TransitionView
 from prometheus_client import REGISTRY
@@ -41,12 +42,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 @pytest_asyncio.fixture
 async def stub(
+    queries: AlarmQueries,
     processor: AlarmProcessor,
 ) -> AsyncIterator[tuple[pb2_grpc.AlarmServiceStub, dict[str, bool]]]:
     subscribed = {"value": True}
     server = grpc.aio.server()
     pb2_grpc.add_AlarmServiceServicer_to_server(
-        AlarmServicer(processor, is_subscribed=lambda: subscribed["value"]), server
+        AlarmServicer(processor, queries, is_subscribed=lambda: subscribed["value"]),
+        server,
     )
     port = server.add_insecure_port("127.0.0.1:0")
     await server.start()
@@ -61,6 +64,7 @@ async def stub(
 class TestAlarmService:
     async def test_health_follows_the_broker_and_the_database(
         self,
+        queries: AlarmQueries,
         stub: tuple[pb2_grpc.AlarmServiceStub, dict[str, bool]],
         processor: AlarmProcessor,
         monkeypatch: pytest.MonkeyPatch,
@@ -75,7 +79,7 @@ class TestAlarmService:
             raise OperationalError("SELECT 1", {}, Exception("refused"))
 
         subscribed["value"] = True
-        monkeypatch.setattr(processor, "ping", unreachable)
+        monkeypatch.setattr(queries, "ping", unreachable)
         assert (await client.Health(pb2.Empty())).status == "degraded"
 
     async def test_lists_details_and_acknowledgements(
@@ -143,12 +147,13 @@ class TestAlarmService:
 
     async def test_an_acknowledgement_without_an_operator_is_an_invalid_argument(
         self,
+        queries: AlarmQueries,
         stub: tuple[pb2_grpc.AlarmServiceStub, dict[str, bool]],
         processor: AlarmProcessor,
     ) -> None:
         client, _ = stub
         await processor.handle_condition(condition())
-        alarm = await only_alarm(processor)
+        alarm = await only_alarm(queries)
         for call in (
             client.AcknowledgeAlarm(
                 pb2.AcknowledgeAlarmRequest(alarm_id=alarm.id, operator_id="  ")
@@ -158,17 +163,18 @@ class TestAlarmService:
             with pytest.raises(grpc.aio.AioRpcError) as failed:
                 await call
             assert failed.value.code() == grpc.StatusCode.INVALID_ARGUMENT
-        assert (await only_alarm(processor)).state is AlarmState.ACTIVE_UNACK
+        assert (await only_alarm(queries)).state is AlarmState.ACTIVE_UNACK
 
     async def test_an_acknowledgement_logs_the_calling_peer(
         self,
+        queries: AlarmQueries,
         stub: tuple[pb2_grpc.AlarmServiceStub, dict[str, bool]],
         processor: AlarmProcessor,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         client, _ = stub
         await processor.handle_condition(condition())
-        alarm = await only_alarm(processor)
+        alarm = await only_alarm(queries)
         with caplog.at_level(logging.INFO, logger="alert_manager.grpc_server"):
             await client.AcknowledgeAlarm(
                 pb2.AcknowledgeAlarmRequest(alarm_id=alarm.id, operator_id="operator1")
@@ -197,13 +203,13 @@ class TestAlarmService:
             assert failed.value.code() == grpc.StatusCode.INVALID_ARGUMENT
 
     async def test_the_server_starts_on_its_port(
-        self, processor: AlarmProcessor
+        self, queries: AlarmQueries, processor: AlarmProcessor
     ) -> None:
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
             port = probe.getsockname()[1]
         server = await start_server(
-            AlarmServicer(processor, is_subscribed=lambda: True), port
+            AlarmServicer(processor, queries, is_subscribed=lambda: True), port
         )
         try:
             async with grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel:
@@ -676,11 +682,11 @@ class TestSubscriber:
         }
 
     async def test_end_to_end_into_the_processor(
-        self, processor: AlarmProcessor, recorder: Recorder
+        self, queries: AlarmQueries, processor: AlarmProcessor, recorder: Recorder
     ) -> None:
         intake = AlertSubscriber(handler=processor)
         await intake._handle_message("alerts/critical", condition_payload())
-        alarm = await only_alarm(processor)
+        alarm = await only_alarm(queries)
         assert alarm.key == "plc-controller:water_level_m:low:critical"
         assert recorder.states == [(None, "ACTIVE_UNACK")]
 

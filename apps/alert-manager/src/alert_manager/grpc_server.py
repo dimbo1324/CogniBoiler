@@ -14,12 +14,8 @@ from cogniboiler_observability import ServerObservability
 from cogniboiler_runtime import now_ms
 
 from alert_manager.lifecycle import AlarmState, LifecycleError
-from alert_manager.processor import (
-    AlarmNotFoundError,
-    AlarmProcessor,
-    AlarmQuery,
-    InvalidOperatorError,
-)
+from alert_manager.processor import AlarmProcessor, InvalidOperatorError
+from alert_manager.queries import AlarmNotFoundError, AlarmQueries, AlarmQuery
 from alert_manager.views import AlarmView, TransitionView
 
 logger = logging.getLogger(__name__)
@@ -82,9 +78,14 @@ class AlarmServicer(pb2_grpc.AlarmServiceServicer):  # type: ignore[misc]
     """Bridges gRPC calls to the alarm processor."""
 
     def __init__(
-        self, processor: AlarmProcessor, *, is_subscribed: Callable[[], bool]
+        self,
+        processor: AlarmProcessor,
+        queries: AlarmQueries,
+        *,
+        is_subscribed: Callable[[], bool],
     ) -> None:
         self._processor = processor
+        self._queries = queries
         self._is_subscribed = is_subscribed
         self._started = time.monotonic()
 
@@ -92,7 +93,7 @@ class AlarmServicer(pb2_grpc.AlarmServiceServicer):  # type: ignore[misc]
         self, request: pb2.Empty, context: grpc.aio.ServicerContext
     ) -> pb2.HealthStatus:
         try:
-            await self._processor.ping()
+            await self._queries.ping()
             status = "running" if self._is_subscribed() else "degraded"
         except Exception as exc:
             logger.warning("AlarmService health: database unreachable: %s", exc)
@@ -112,7 +113,7 @@ class AlarmServicer(pb2_grpc.AlarmServiceServicer):  # type: ignore[misc]
                 grpc.StatusCode.INVALID_ARGUMENT,
                 f"unknown severity {request.severity!r}",
             )
-        alarms, total = await self._processor.list_alarms(
+        alarms, total = await self._queries.list_alarms(
             AlarmQuery(
                 open_only=request.open_only,
                 severity=request.severity,
@@ -131,7 +132,7 @@ class AlarmServicer(pb2_grpc.AlarmServiceServicer):  # type: ignore[misc]
         self, request: pb2.AlarmRef, context: grpc.aio.ServicerContext
     ) -> pb2.AlarmDetailMsg:
         try:
-            alarm, transitions = await self._processor.get_alarm(request.alarm_id)
+            alarm, transitions = await self._queries.get_alarm(request.alarm_id)
         except AlarmNotFoundError as exc:
             await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
             raise

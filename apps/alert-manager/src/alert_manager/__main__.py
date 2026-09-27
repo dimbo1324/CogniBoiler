@@ -22,6 +22,7 @@ from alert_manager.db import create_engine, missing_tables, session_factory
 from alert_manager.grpc_server import DEFAULT_PORT, AlarmServicer, start_server
 from alert_manager.processor import AlarmProcessor
 from alert_manager.publisher import AlarmChangePublisher
+from alert_manager.queries import AlarmQueries
 from alert_manager.subscriber import AlertSubscriber
 
 logger = logging.getLogger("alert_manager")
@@ -68,13 +69,18 @@ async def main(args: argparse.Namespace) -> int:
     publisher = AlarmChangePublisher(
         args.mqtt_host, args.mqtt_port, username=username, password=password
     )
-    processor = AlarmProcessor(session_factory(engine), publisher)
+    sessions = session_factory(engine)
+    processor = AlarmProcessor(sessions, publisher)
     subscriber = AlertSubscriber(
         args.mqtt_host, args.mqtt_port, processor, username=username, password=password
     )
     publisher.start()
     server = await start_server(
-        AlarmServicer(processor, is_subscribed=lambda: subscriber.connected),
+        AlarmServicer(
+            processor,
+            AlarmQueries(sessions),
+            is_subscribed=lambda: subscriber.connected,
+        ),
         args.grpc_port,
     )
     logger.info(
