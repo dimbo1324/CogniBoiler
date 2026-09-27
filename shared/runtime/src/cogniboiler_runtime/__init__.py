@@ -25,6 +25,7 @@ from cogniboiler_runtime.mqtt import (
     reconnect_jitter,
     subscribe_all,
 )
+from cogniboiler_runtime.outage import OutageLog
 from cogniboiler_runtime.payloads import (
     MAX_JSON_PAYLOAD_BYTES,
     decode_json_object,
@@ -44,6 +45,7 @@ __all__ = [
     "SECONDS_PER_DAY",
     "LivenessFile",
     "MqttSession",
+    "OutageLog",
     "decode_json_object",
     "finite_number",
     "is_fresh",
