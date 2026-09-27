@@ -35,7 +35,12 @@ from api_gateway.observability import ObservabilityMiddleware, observe_app
 from api_gateway.observability import router as metrics_router
 from api_gateway.problems import install_problem_handlers
 from api_gateway.realtime.hub import RealtimeHub
-from api_gateway.realtime.sources import run_mqtt_events, run_plc_status, run_telemetry
+from api_gateway.realtime.sources import (
+    report_source_end,
+    run_mqtt_events,
+    run_plc_status,
+    run_telemetry,
+)
 from api_gateway.routers import (
     alarms,
     audit,
@@ -105,6 +110,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             name="realtime-mqtt-events",
         ),
     ]
+    for task in sources:
+        task.add_done_callback(report_source_end)
 
     logger.info("Starting %s v%s", settings.app_name, settings.app_version)
     try:

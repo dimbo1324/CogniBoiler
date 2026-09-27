@@ -6,7 +6,10 @@ Upstreams of the WebSocket channels.
 - alarms: alarm changes from `alarms/changes`, published by alert-manager.
 
 Each source reconnects on its own after a delay and logs once per outage, not once per
-retry.
+retry. A message that cannot be turned into a frame (a NaN from a diverging physics step,
+an enum value this gateway does not know yet) is skipped with one warning per run of bad
+messages; anything else a source did not expect is an error with its traceback, after
+which the source starts over. Only cancellation ends a source.
 """
 
 from __future__ import annotations
@@ -14,12 +17,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Callable
 from typing import Any
 from uuid import uuid4
 
 import grpc
 from aiomqtt import Client
-from cogniboiler_runtime import MqttSession, subscribe_all
+from cogniboiler_runtime import MqttSession, OutageLog, subscribe_all
+from pydantic import BaseModel
 
 from api_gateway.clients import PhysicsGatewayClient, PLCGatewayClient
 from api_gateway.plant_state import plant_state
@@ -35,55 +40,107 @@ TOPIC_ALARM_CHANGES = "alarms/changes"
 EVENT_QOS = 1
 
 
-class _OutageLog:
-    """Logs the first failure of an outage and the recovery, nothing in between."""
+class _Frames:
+    """Publishes one kind of frame; a message that cannot become one is skipped."""
+
+    def __init__(
+        self, hub: RealtimeHub, channel: Channel, kind: str, source: str
+    ) -> None:
+        self._hub = hub
+        self._channel = channel
+        self._kind = kind
+        self._rejects = OutageLog(logger, f"Realtime source {source}: valid frames")
+
+    def publish[M](self, convert: Callable[[M], BaseModel], message: M) -> None:
+        try:
+            data = convert(message).model_dump(mode="json")
+            self._hub.publish(self._channel, self._kind, data)
+        except (ValueError, TypeError) as exc:
+            # pydantic's ValidationError is a ValueError, and so is a NaN the strict
+            # JSON encoder refuses.
+            self._rejects.failed(exc)
+            return
+        self._rejects.recovered()
+
+
+class _Defects:
+    """A failure nobody planned for: an error with traceback once, until a success."""
 
     def __init__(self, source: str) -> None:
         self._source = source
-        self._down = False
+        self._failing = False
 
-    def failed(self, exc: BaseException) -> None:
-        if not self._down:
-            logger.warning("Realtime source %s unavailable: %s", self._source, exc)
-            self._down = True
+    def failed(self) -> None:
+        if self._failing:
+            logger.debug("Realtime source %s failed again", self._source, exc_info=True)
+            return
+        self._failing = True
+        logger.error(
+            "Realtime source %s failed; restarting it in %.0f s",
+            self._source,
+            RECONNECT_DELAY_S,
+            exc_info=True,
+        )
 
-    def recovered(self) -> None:
-        if self._down:
-            logger.info("Realtime source %s recovered", self._source)
-            self._down = False
+    def cleared(self) -> None:
+        self._failing = False
+
+
+def report_source_end(task: asyncio.Task[None]) -> None:
+    """Done callback of a source task: a source that stops for any reason but
+    cancellation is a defect, and must not stop silently."""
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is None:
+        logger.error(
+            "Realtime source %s returned; its channel is dead", task.get_name()
+        )
+    else:
+        logger.error(
+            "Realtime source %s died; its channel is dead",
+            task.get_name(),
+            exc_info=error,
+        )
 
 
 async def run_telemetry(hub: RealtimeHub, physics: PhysicsGatewayClient) -> None:
-    outage = _OutageLog("telemetry")
+    outage = OutageLog(logger, "Realtime source telemetry")
+    defects = _Defects("telemetry")
+    frames = _Frames(hub, Channel.TELEMETRY, "state", "telemetry")
     while True:
         try:
             async for message in physics.stream_system_state(interval_s=0.0):
                 outage.recovered()
-                hub.publish(
-                    Channel.TELEMETRY,
-                    "state",
-                    plant_state(message).model_dump(mode="json"),
-                )
+                defects.cleared()
+                frames.publish(plant_state, message)
         except grpc.RpcError as exc:
             outage.failed(exc)
+        except Exception:
+            defects.failed()
         await asyncio.sleep(RECONNECT_DELAY_S)
 
 
 async def run_plc_status(
     hub: RealtimeHub, plc: PLCGatewayClient, interval_s: float
 ) -> None:
-    outage = _OutageLog("plc status")
+    outage = OutageLog(logger, "Realtime source plc status")
+    defects = _Defects("plc status")
+    frames = _Frames(hub, Channel.PLC, "status", "plc status")
     while True:
         try:
             status = await plc.get_control_status()
+            outage.recovered()
+            defects.cleared()
+            frames.publish(plc_status_from_proto, status)
         except grpc.RpcError as exc:
             outage.failed(exc)
             await asyncio.sleep(RECONNECT_DELAY_S)
             continue
-        outage.recovered()
-        hub.publish(
-            Channel.PLC, "status", plc_status_from_proto(status).model_dump(mode="json")
-        )
+        except Exception:
+            defects.failed()
+            await asyncio.sleep(RECONNECT_DELAY_S)
+            continue
         await asyncio.sleep(interval_s)
 
 

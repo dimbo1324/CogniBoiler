@@ -9,11 +9,18 @@ from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from typing import Any
 
+import cogniboiler_pb2 as pb2
 import pytest
 from aiomqtt import MqttError
 from api_gateway.realtime import sources
 from api_gateway.realtime.hub import Channel, RealtimeHub, Subscriber, encode
-from gateway_fakes import FakePhysicsClient, FakePLCClient, system_state
+from gateway_fakes import (
+    FakePhysicsClient,
+    FakePLCClient,
+    UpstreamDownError,
+    plc_status,
+    system_state,
+)
 
 
 def frames(subscriber: Subscriber) -> list[dict[str, Any]]:
@@ -132,6 +139,48 @@ async def first_frame(subscriber: Subscriber) -> dict[str, Any]:
     return frame
 
 
+class ScriptedPhysics:
+    """A physics stream that plays one script per connection, then stays open."""
+
+    def __init__(self, *attempts: list[pb2.SystemStateMsg | BaseException]) -> None:
+        self.attempts = list(attempts)
+        self.connections = 0
+
+    async def stream_system_state(
+        self, *, interval_s: float = 0.0
+    ) -> AsyncIterator[pb2.SystemStateMsg]:
+        self.connections += 1
+        script = self.attempts.pop(0) if self.attempts else []
+        for item in script:
+            if isinstance(item, BaseException):
+                raise item
+            yield item
+        if not self.attempts:
+            await asyncio.Event().wait()
+
+
+def diverged_state() -> pb2.SystemStateMsg:
+    message = system_state()
+    message.boiler.pressure_pa = float("nan")
+    return message
+
+
+def source_records(
+    caplog: pytest.LogCaptureFixture, level: int
+) -> list[logging.LogRecord]:
+    return [
+        record
+        for record in caplog.records
+        if record.name == sources.logger.name and record.levelno == level
+    ]
+
+
+async def wait_for_record(caplog: pytest.LogCaptureFixture, text: str) -> None:
+    async with asyncio.timeout(5.0):
+        while not any(text in record.getMessage() for record in caplog.records):
+            await asyncio.sleep(0.001)
+
+
 class TestSources:
     async def test_plant_states_become_telemetry(self) -> None:
         hub = RealtimeHub(queue_size=4, max_rate_hz=10.0)
@@ -176,7 +225,7 @@ class TestSources:
             task = asyncio.create_task(
                 sources.run_plc_status(hub, plc, 0.001)  # type: ignore[arg-type]
             )
-            await asyncio.sleep(0.05)
+            await wait_for_record(caplog, "unavailable")
             plc.down = False
             try:
                 await first_frame(subscriber)
@@ -188,8 +237,120 @@ class TestSources:
         ]
         assert levels == [
             (logging.WARNING, "Realtime source plc status unavailable"),
-            (logging.INFO, "Realtime source plc status recovered"),
+            (logging.INFO, "Realtime source plc status available again"),
         ]
+
+    async def test_a_state_that_cannot_be_sent_is_skipped_and_logged_once(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        hub = RealtimeHub(queue_size=4, max_rate_hz=0.0)
+        subscriber = hub.register(0.0)
+        hub.subscribe(subscriber, {Channel.TELEMETRY})
+        physics = ScriptedPhysics([diverged_state(), diverged_state(), system_state()])
+        with caplog.at_level(logging.INFO, logger=sources.logger.name):
+            task = asyncio.create_task(sources.run_telemetry(hub, physics))  # type: ignore[arg-type]
+            try:
+                frame = await first_frame(subscriber)
+            finally:
+                task.cancel()
+        assert frame["data"]["boiler"]["pressure_pa"] == 140.0e5
+        assert physics.connections == 1
+        (warning,) = source_records(caplog, logging.WARNING)
+        assert "telemetry" in warning.getMessage()
+        assert source_records(caplog, logging.ERROR) == []
+
+    async def test_a_plc_status_that_cannot_be_mapped_does_not_stop_the_poll(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        hub = RealtimeHub(queue_size=4, max_rate_hz=10.0)
+        subscriber = hub.register()
+        hub.subscribe(subscriber, {Channel.PLC})
+        plc = FakePLCClient()
+        plc.status = plc_status(mode=99)
+        with caplog.at_level(logging.INFO, logger=sources.logger.name):
+            task = asyncio.create_task(
+                sources.run_plc_status(hub, plc, 0.001)  # type: ignore[arg-type]
+            )
+            try:
+                await wait_for_record(caplog, "plc status")
+                plc.status = plc_status()
+                frame = await first_frame(subscriber)
+            finally:
+                task.cancel()
+        assert frame["data"]["mode"] == "auto"
+        assert len(source_records(caplog, logging.WARNING)) == 1
+        assert source_records(caplog, logging.ERROR) == []
+
+    async def test_the_telemetry_source_reconnects_after_a_stream_error(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setattr(sources, "RECONNECT_DELAY_S", 0.001)
+        hub = RealtimeHub(queue_size=4, max_rate_hz=10.0)
+        subscriber = hub.register()
+        hub.subscribe(subscriber, {Channel.TELEMETRY})
+        physics = ScriptedPhysics(
+            [UpstreamDownError()], [UpstreamDownError()], [system_state()]
+        )
+        with caplog.at_level(logging.INFO, logger=sources.logger.name):
+            task = asyncio.create_task(sources.run_telemetry(hub, physics))  # type: ignore[arg-type]
+            try:
+                frame = await first_frame(subscriber)
+            finally:
+                task.cancel()
+        assert frame["kind"] == "state"
+        assert physics.connections == 3
+        assert len(source_records(caplog, logging.WARNING)) == 1
+        assert len(source_records(caplog, logging.INFO)) == 1
+
+    async def test_an_unexpected_failure_is_an_error_and_the_source_goes_on(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setattr(sources, "RECONNECT_DELAY_S", 0.001)
+        hub = RealtimeHub(queue_size=4, max_rate_hz=10.0)
+        subscriber = hub.register()
+        hub.subscribe(subscriber, {Channel.TELEMETRY})
+        physics = ScriptedPhysics(
+            [RuntimeError("bug")], [RuntimeError("bug")], [system_state()]
+        )
+        with caplog.at_level(logging.INFO, logger=sources.logger.name):
+            task = asyncio.create_task(sources.run_telemetry(hub, physics))  # type: ignore[arg-type]
+            try:
+                frame = await first_frame(subscriber)
+            finally:
+                task.cancel()
+        assert frame["kind"] == "state"
+        (error,) = source_records(caplog, logging.ERROR)
+        assert error.exc_info is not None
+
+    async def test_a_source_that_ends_is_reported(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        async def crashes() -> None:
+            raise RuntimeError("gone")
+
+        async def returns() -> None:
+            return None
+
+        async def waits() -> None:
+            await asyncio.Event().wait()
+
+        with caplog.at_level(logging.INFO, logger=sources.logger.name):
+            tasks = [
+                asyncio.create_task(body(), name=f"source-{body.__name__}")
+                for body in (crashes, returns, waits)
+            ]
+            for task in tasks:
+                task.add_done_callback(sources.report_source_end)
+            tasks[2].cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            await asyncio.sleep(0)
+        errors = source_records(caplog, logging.ERROR)
+        assert sorted(record.getMessage().split()[2] for record in errors) == [
+            "source-crashes",
+            "source-returns",
+        ]
+        crashed = next(r for r in errors if "source-crashes" in r.getMessage())
+        assert crashed.exc_info is not None
 
     @pytest.mark.parametrize(
         ("payload", "expected"),
