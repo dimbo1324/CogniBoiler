@@ -1,10 +1,8 @@
 """
-Password hashing and verification using Argon2 via pwdlib.
+Password hashing and verification with Argon2id (pwdlib).
 
-Why Argon2 over bcrypt:
-  - Winner of the Password Hashing Competition (2015)
-  - Memory-hard: tunable memory cost makes GPU brute-force expensive
-  - Three attack resistance modes; we use Argon2id (hybrid of i and d)
+Argon2id is memory-hard, which makes GPU guessing expensive, and resists both
+side-channel (Argon2i) and GPU (Argon2d) attacks.
 
 Usage:
     hashed = hash_password("secret123")
@@ -14,53 +12,50 @@ Usage:
 
 from __future__ import annotations
 
+import logging
+
 from pwdlib import PasswordHash
+from pwdlib.exceptions import UnknownHashError
 from pwdlib.hashers.argon2 import Argon2Hasher
 
-# ─── Hasher instance ─────────────────────────────────────────────────────────
-# Argon2id is the recommended variant:
-#   - Argon2i  -> side-channel attack resistant (password hashing)
-#   - Argon2d  -> GPU brute-force resistant
-#   - Argon2id -> hybrid; resistant to both
-#
-# These parameters follow OWASP recommendations for interactive logins:
-#   time_cost=2, memory_cost=65536 (64 MB), parallelism=2
-_hasher = PasswordHash([Argon2Hasher()])
+logger = logging.getLogger(__name__)
+
+# Pinned, not left to the library's defaults: sign-in verifies an unknown user against a
+# dummy hash made with these values, and a silent change of cost after an upgrade would
+# let response time tell unknown users from wrong passwords. 64 MiB, 3 passes, 4 lanes.
+TIME_COST = 3
+MEMORY_COST_KIB = 65536
+PARALLELISM = 4
+
+_hasher = PasswordHash(
+    [
+        Argon2Hasher(
+            time_cost=TIME_COST, memory_cost=MEMORY_COST_KIB, parallelism=PARALLELISM
+        )
+    ]
+)
 
 
 def hash_password(plain: str) -> str:
     """
     Hash a plain-text password using Argon2id.
 
-    The returned string is a self-contained encoded hash that includes
-    the algorithm identifier, parameters, random salt, and hash digest.
-    No separate salt storage is needed.
-
-    Args:
-        plain: Plain-text password from the user.
-
-    Returns:
-        Argon2id encoded hash string, safe to store in the database.
+    The returned string holds the algorithm, its parameters, a random salt and the
+    digest, so no separate salt storage is needed.
     """
     return _hasher.hash(plain)
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     """
-    Verify a plain-text password against an Argon2id hash.
+    Whether a plain-text password matches a stored Argon2 hash.
 
-    Performs a constant-time comparison to prevent timing attacks.
-    Never raises — returns False on any mismatch or encoding error.
-
-    Args:
-        plain:  Plain-text password to check (from login form).
-        hashed: Stored Argon2id hash from the database.
-
-    Returns:
-        True if the password matches, False otherwise.
+    A wrong password, or a stored value that is not a hash this module can read, is a
+    mismatch; the latter is also logged, without the value. Any other failure (memory
+    exhaustion, for one) propagates instead of passing for a wrong password.
     """
     try:
         return _hasher.verify(plain, hashed)
-    except Exception:
-        # Malformed hash or unsupported algorithm — treat as mismatch
+    except UnknownHashError:
+        logger.warning("A stored password hash is malformed or of an unknown scheme")
         return False

@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 
 import pytest
 from api_gateway import accounts
+from api_gateway.auth import password
+from api_gateway.auth.password import hash_password, verify_password
 from api_gateway.config import settings
+from api_gateway.routers import auth as auth_router
 
 
 class GatedHash:
@@ -89,3 +93,44 @@ class TestConcurrentHashing:
         gate.release.set()
         await asyncio.gather(*checks)
         assert gate.most_at_once == 3
+
+
+class TestParameters:
+    def test_the_argon2id_cost_is_pinned(self) -> None:
+        # Pinned rather than taken from library defaults: an upgrade that changed them
+        # would give the unknown-user dummy hash a different cost from stored hashes.
+        assert hash_password("x").startswith("$argon2id$v=19$m=65536,t=3,p=4$")
+
+    def test_the_dummy_hash_costs_what_a_stored_hash_costs(self) -> None:
+        prefix = hash_password("x").rsplit("$", 2)[0]
+        assert auth_router._DUMMY_HASH.startswith(prefix)
+
+
+class TestVerificationFailures:
+    def test_a_right_password_passes(self) -> None:
+        assert verify_password("correct horse", hash_password("correct horse"))
+
+    def test_a_hash_nobody_can_read_is_a_mismatch_and_is_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.WARNING, logger="api_gateway.auth.password"):
+            assert verify_password("pw", "md5$not-a-hash-we-know") is False
+        assert "malformed" in caplog.text
+        assert "not-a-hash-we-know" not in caplog.text
+
+    def test_a_wrong_password_is_a_mismatch_without_a_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.WARNING, logger="api_gateway.auth.password"):
+            assert verify_password("wrong", hash_password("right")) is False
+        assert caplog.text == ""
+
+    def test_an_unexpected_fault_is_not_turned_into_a_mismatch(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def out_of_memory(*_: object) -> bool:
+            raise MemoryError
+
+        monkeypatch.setattr(password._hasher, "verify", out_of_memory)
+        with pytest.raises(MemoryError):
+            verify_password("pw", hash_password("pw"))
