@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import socket
 from dataclasses import replace
 
 import cogniboiler_pb2 as pb2
 import cogniboiler_pb2_grpc as pb2_grpc
+import grpc
 import grpc.aio
 import pytest
 from aiomqtt import MqttError
@@ -314,6 +316,48 @@ class TestCommandStream:
             stream.cancel()
             assert first.source == second.source == pb2.CommandSource.PID
             assert first.operator_id == "plc-auto"
+
+    @pytest.mark.parametrize("interval_s", [math.nan, math.inf, -math.inf])
+    async def test_an_interval_that_is_not_a_number_is_refused(
+        self, interval_s: float
+    ) -> None:
+        async with rig() as plant:
+            stream = plant.stub.StreamCommands(pb2.StreamRequest(interval_s=interval_s))
+            with pytest.raises(grpc.aio.AioRpcError) as refused:
+                await stream.read()
+            assert refused.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+
+    @pytest.mark.parametrize(
+        ("requested", "used"), [(0.0, 0.1), (-5.0, 0.1), (2.5, 2.5), (1.0e9, 60.0)]
+    )
+    def test_the_interval_is_kept_between_a_tenth_and_a_minute(
+        self, requested: float, used: float
+    ) -> None:
+        assert plc_server.command_stream_interval(requested) == used
+
+    async def test_the_number_of_open_streams_is_bounded(self) -> None:
+        async with rig() as plant:
+            streams = [
+                plant.stub.StreamCommands(pb2.StreamRequest(interval_s=0.1))
+                for _ in range(plc_server.MAX_COMMAND_STREAMS)
+            ]
+            for stream in streams:
+                await stream.read()
+            extra = plant.stub.StreamCommands(pb2.StreamRequest(interval_s=0.1))
+            with pytest.raises(grpc.aio.AioRpcError) as refused:
+                await extra.read()
+            assert refused.value.code() == grpc.StatusCode.RESOURCE_EXHAUSTED
+            streams[0].cancel()
+            async with asyncio.timeout(5.0):
+                while True:
+                    again = plant.stub.StreamCommands(pb2.StreamRequest(interval_s=0.1))
+                    try:
+                        await again.read()
+                        break
+                    except grpc.aio.AioRpcError:
+                        await asyncio.sleep(0.01)
+            for stream in [*streams, again]:
+                stream.cancel()
 
 
 class TestServe:

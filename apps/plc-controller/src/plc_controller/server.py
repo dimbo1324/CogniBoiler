@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from collections.abc import AsyncGenerator
 
 import cogniboiler_pb2 as pb2
@@ -21,6 +22,7 @@ from plc_controller.client import PhysicsClient, PhysicsClientConfig
 from plc_controller.commands import ValidationResult
 from plc_controller.metrics import observe_service
 from plc_controller.service import PLCService, RuntimeMode
+from plc_controller.status import command_msg
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +31,24 @@ DEFAULT_PORT: int = 50051
 # default it listens on this machine only; the Compose network passes 0.0.0.0.
 DEFAULT_HOST: str = "127.0.0.1"
 
+# StreamCommands: a caller gets the latest command every 0.1 s to 60 s, and at most
+# this many streams are open at once, so no caller can park unbounded server work.
+MIN_COMMAND_STREAM_INTERVAL_S: float = 0.1
+MAX_COMMAND_STREAM_INTERVAL_S: float = 60.0
+MAX_COMMAND_STREAMS: int = 8
+
 _MODES: dict[int, RuntimeMode] = {
     int(pb2.ControlMode.AUTO): RuntimeMode.AUTO,
     int(pb2.ControlMode.MANUAL): RuntimeMode.MANUAL,
     int(pb2.ControlMode.ESTOP): RuntimeMode.ESTOP,
 }
+
+
+def command_stream_interval(requested_s: float) -> float:
+    """The interval a finite request gets, kept between a tenth and a minute."""
+    return min(
+        max(requested_s, MIN_COMMAND_STREAM_INTERVAL_S), MAX_COMMAND_STREAM_INTERVAL_S
+    )
 
 
 def _ack(result: ValidationResult) -> pb2.CommandAck:
@@ -49,6 +64,7 @@ class PLCServicer(pb2_grpc.PLCServiceServicer):  # type: ignore[misc]
 
     def __init__(self, service: PLCService | None = None) -> None:
         self._svc = service or PLCService()
+        self._command_streams = 0
 
     async def Health(  # noqa: N802
         self,
@@ -159,19 +175,23 @@ class PLCServicer(pb2_grpc.PLCServiceServicer):  # type: ignore[misc]
         context: grpc.aio.ServicerContext,
     ) -> AsyncGenerator[pb2.ControlCommandMsg]:
         """Stream control commands at the requested interval."""
-        interval = max(request.interval_s, 0.1)
-        while not context.done():
-            latest = self._svc.latest_command()
-            yield pb2.ControlCommandMsg(
-                fuel_valve=latest.fuel_valve,
-                feedwater_valve=latest.feedwater_valve,
-                steam_valve=latest.steam_valve,
-                spray_valve=latest.spray_valve,
-                timestamp_ms=latest.timestamp_ms,
-                source=latest.source,
-                operator_id=latest.operator_id,
+        if not math.isfinite(request.interval_s):
+            await context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT, "interval_s must be a finite number"
             )
-            await asyncio.sleep(interval)
+        if self._command_streams >= MAX_COMMAND_STREAMS:
+            await context.abort(
+                grpc.StatusCode.RESOURCE_EXHAUSTED,
+                f"at most {MAX_COMMAND_STREAMS} command streams may be open",
+            )
+        interval = command_stream_interval(request.interval_s)
+        self._command_streams += 1
+        try:
+            while not context.done():
+                yield command_msg(self._svc.latest_command())
+                await asyncio.sleep(interval)
+        finally:
+            self._command_streams -= 1
 
 
 def listen_address(host: str, port: int) -> str:
