@@ -138,3 +138,47 @@ class TestAFileThatCannotBeWritten:
     ) -> None:
         with pytest.raises(ValueError, match="interval_s"):
             LivenessFile(tmp_path / "live", interval_s=0.0)
+
+    async def test_a_directory_that_cannot_be_made_does_not_end_the_loop(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # The liveness task runs under gather() with the service: if it died, the
+        # whole service would die with it, for want of a healthcheck file.
+        blocker = tmp_path / "blocker"
+        blocker.write_text("not a directory", encoding="ascii")
+        liveness = LivenessFile(blocker / "nested" / "live", interval_s=0.001)
+        checks = 0
+
+        def is_healthy() -> bool:
+            nonlocal checks
+            checks += 1
+            return True
+
+        with caplog.at_level(logging.WARNING, logger="cogniboiler_runtime.liveness"):
+            task = asyncio.create_task(liveness.run(is_healthy))
+            try:
+                async with asyncio.timeout(5.0):
+                    while checks < 3:
+                        await asyncio.sleep(0.001)
+                assert not task.done()
+            finally:
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert str(blocker / "nested") in warnings[0].getMessage()
+
+
+class TestAFileFromTheFuture:
+    def test_a_modification_time_in_the_future_is_not_fresh(
+        self, tmp_path: Path
+    ) -> None:
+        # Clock skew or a file restored with a container: a dead service must not look
+        # healthy for as long as the skew lasts.
+        path = tmp_path / "live"
+        path.write_text("0", encoding="ascii")
+        future = time.time() + 3600.0
+        os.utime(path, (future, future))
+        assert is_fresh(path, DEFAULT_MAX_AGE_S) is False
+        assert main([str(path)]) == 1

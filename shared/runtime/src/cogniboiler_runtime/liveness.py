@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_INTERVAL_S = 5.0
 DEFAULT_MAX_AGE_S = 30.0
+# A file stamped a moment "ahead" is a filesystem clock that rounds differently from
+# time.time(); one stamped further ahead is skew or a restored file, and says nothing.
+FUTURE_TOLERANCE_S = 1.0
 
 
 class LivenessFile:
@@ -56,10 +59,27 @@ class LivenessFile:
         self._write_failed = False
 
     async def run(self, is_healthy: Callable[[], bool]) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        directory_ready = False
         while True:
+            if not directory_ready:
+                directory_ready = self._make_directory()
             self.beat(is_healthy())
             await asyncio.sleep(self._interval_s)
+
+    def _make_directory(self) -> bool:
+        directory = self._path.parent
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            # Same policy as a failed write: the file ages out and the healthcheck says
+            # so, but the service itself keeps running and the reason is logged once.
+            if not self._write_failed:
+                logger.warning(
+                    "Liveness directory %s cannot be created: %s", directory, exc
+                )
+            self._write_failed = True
+            return False
+        return True
 
 
 def is_fresh(path: Path, max_age_s: float) -> bool:
@@ -69,7 +89,8 @@ def is_fresh(path: Path, max_age_s: float) -> bool:
         return False
     if not stat.S_ISREG(status.st_mode):
         return False
-    return time.time() - status.st_mtime <= max_age_s
+    age_s = time.time() - status.st_mtime
+    return -FUTURE_TOLERANCE_S <= age_s <= max_age_s
 
 
 def main(argv: list[str]) -> int:
