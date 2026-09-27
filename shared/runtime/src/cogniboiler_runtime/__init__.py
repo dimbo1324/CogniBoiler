@@ -25,6 +25,11 @@ from cogniboiler_runtime.mqtt import (
     reconnect_jitter,
     subscribe_all,
 )
+from cogniboiler_runtime.mqtt_queue import (
+    DEFAULT_QUEUE_LIMIT,
+    QueuedMessage,
+    QueuedMqttPublisher,
+)
 from cogniboiler_runtime.outage import OutageLog
 from cogniboiler_runtime.payloads import (
     MAX_JSON_PAYLOAD_BYTES,
@@ -41,6 +46,7 @@ __all__ = [
     "DEFAULT_BROKER_ERRORS",
     "DEFAULT_INTERVAL_S",
     "DEFAULT_MAX_AGE_S",
+    "DEFAULT_QUEUE_LIMIT",
     "DEFAULT_RECONNECT_DELAY_S",
     "MAX_JSON_PAYLOAD_BYTES",
     "MILLISECONDS_PER_DAY",
@@ -52,6 +58,8 @@ __all__ = [
     "LivenessFile",
     "MqttSession",
     "OutageLog",
+    "QueuedMessage",
+    "QueuedMqttPublisher",
     "decode_json_object",
     "finite_number",
     "is_fresh",
