@@ -6,8 +6,10 @@ import time
 
 from cogniboiler_runtime.clock import (
     MILLISECONDS_PER_DAY,
+    MILLISECONDS_PER_MINUTE,
     MILLISECONDS_PER_SECOND,
     NANOSECONDS_PER_MILLISECOND,
+    SECONDS_PER_DAY,
     now_ms,
 )
 
@@ -36,3 +38,8 @@ def test_the_units_are_the_ones_the_contracts_use() -> None:
     assert MILLISECONDS_PER_SECOND == 1_000
     assert MILLISECONDS_PER_DAY == 24 * 60 * 60 * MILLISECONDS_PER_SECOND
     assert NANOSECONDS_PER_MILLISECOND == 1_000_000
+
+
+def test_the_minute_and_the_day_are_named_once() -> None:
+    assert MILLISECONDS_PER_MINUTE == 60 * MILLISECONDS_PER_SECOND
+    assert SECONDS_PER_DAY * MILLISECONDS_PER_SECOND == MILLISECONDS_PER_DAY
