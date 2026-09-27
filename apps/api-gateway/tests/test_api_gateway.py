@@ -4,7 +4,7 @@ Integration tests for the API Gateway.
 Tests cover:
   1. Password hashing and verification  (auth/password.py)
   2. JWT token creation and decoding    (auth/jwt_handler.py)
-  3. RBAC role level hierarchy          (auth/rbac.py)
+  3. RBAC role level hierarchy          (auth/identity.py)
   4. HTTP endpoints via AsyncClient     (routers/*)
 
 No real database or MQTT broker required — all external dependencies
@@ -21,14 +21,14 @@ from __future__ import annotations
 
 import jwt as pyjwt
 import pytest
+from api_gateway.auth.identity import role_level
 from api_gateway.auth.jwt_handler import (
-    create_access_token,
-    create_refresh_token,
     decode_access_token,
     decode_refresh_token,
+    issue_access_token,
+    issue_refresh_token,
 )
 from api_gateway.auth.password import hash_password, verify_password
-from api_gateway.auth.rbac import _role_level
 from fastapi import FastAPI
 from gateway_fakes import FakeHistorianClient
 from httpx import AsyncClient
@@ -80,53 +80,53 @@ class TestPassword:
 
 class TestJWTHandler:
     def test_access_token_is_string(self) -> None:
-        token = create_access_token(user_id=1, role="operator")
+        token = issue_access_token(1, "operator", "session").token
         assert isinstance(token, str)
 
     def test_access_token_has_three_parts(self) -> None:
         # JWT format: header.payload.signature
-        token = create_access_token(user_id=1, role="operator")
+        token = issue_access_token(1, "operator", "session").token
         assert len(token.split(".")) == 3
 
     def test_decode_access_token_returns_correct_sub(self) -> None:
-        token = create_access_token(user_id=42, role="viewer")
+        token = issue_access_token(42, "viewer", "session").token
         payload = decode_access_token(token)
         assert payload["sub"] == "42"
 
     def test_decode_access_token_returns_correct_role(self) -> None:
-        token = create_access_token(user_id=1, role="engineer")
+        token = issue_access_token(1, "engineer", "session").token
         payload = decode_access_token(token)
         assert payload["role"] == "engineer"
 
     def test_decode_access_token_type_is_access(self) -> None:
-        token = create_access_token(user_id=1, role="admin")
+        token = issue_access_token(1, "admin", "session").token
         payload = decode_access_token(token)
         assert payload["type"] == "access"
 
     def test_decode_access_token_has_exp(self) -> None:
-        token = create_access_token(user_id=1, role="viewer")
+        token = issue_access_token(1, "viewer", "session").token
         payload = decode_access_token(token)
         assert "exp" in payload
         assert int(str(payload["exp"])) > 0
 
     def test_refresh_token_type_is_refresh(self) -> None:
-        token = create_refresh_token(user_id=1, role="operator")
+        token = issue_refresh_token(1, "operator", "session").token
         payload = decode_refresh_token(token)
         assert payload["type"] == "refresh"
 
     def test_decode_access_rejects_refresh_token(self) -> None:
         # A refresh token must not be accepted at access-token endpoints
-        refresh = create_refresh_token(user_id=1, role="operator")
+        refresh = issue_refresh_token(1, "operator", "session").token
         with pytest.raises(pyjwt.InvalidTokenError):
             decode_access_token(refresh)
 
     def test_decode_refresh_rejects_access_token(self) -> None:
-        access = create_access_token(user_id=1, role="operator")
+        access = issue_access_token(1, "operator", "session").token
         with pytest.raises(pyjwt.InvalidTokenError):
             decode_refresh_token(access)
 
     def test_tampered_token_raises(self) -> None:
-        token = create_access_token(user_id=1, role="operator")
+        token = issue_access_token(1, "operator", "session").token
         # Tamper the signature (third part) by replacing several characters
         parts = token.split(".")
         sig = parts[2]
@@ -146,28 +146,28 @@ class TestJWTHandler:
 
 class TestRBAC:
     def test_viewer_level_is_zero(self) -> None:
-        assert _role_level("viewer") == 0
+        assert role_level("viewer") == 0
 
     def test_operator_level_is_one(self) -> None:
-        assert _role_level("operator") == 1
+        assert role_level("operator") == 1
 
     def test_engineer_level_is_two(self) -> None:
-        assert _role_level("engineer") == 2
+        assert role_level("engineer") == 2
 
     def test_admin_level_is_three(self) -> None:
-        assert _role_level("admin") == 3
+        assert role_level("admin") == 3
 
     def test_unknown_role_level_is_minus_one(self) -> None:
-        assert _role_level("superuser") == -1
+        assert role_level("superuser") == -1
 
     def test_admin_outranks_engineer(self) -> None:
-        assert _role_level("admin") > _role_level("engineer")
+        assert role_level("admin") > role_level("engineer")
 
     def test_engineer_outranks_operator(self) -> None:
-        assert _role_level("engineer") > _role_level("operator")
+        assert role_level("engineer") > role_level("operator")
 
     def test_operator_outranks_viewer(self) -> None:
-        assert _role_level("operator") > _role_level("viewer")
+        assert role_level("operator") > role_level("viewer")
 
 
 # ─── 4. Health endpoint ───────────────────────────────────────────────────────

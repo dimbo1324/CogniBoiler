@@ -31,7 +31,6 @@ from api_gateway.auth.identity import (
     AuthenticationError,
     CurrentUser,
     resolve_access_token,
-    role_level,
 )
 from api_gateway.dependencies import DbSession
 from api_gateway.problems import ProblemError
@@ -40,10 +39,19 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 
 _BEARER_CHALLENGE = {"WWW-Authenticate": "Bearer"}
 
+RoleDependency = Callable[..., Awaitable[CurrentUser]]
 
-def _role_level(role: str) -> int:
-    """Numeric privilege level of a role; -1 for unknown roles."""
-    return role_level(role)
+# Every dependency require_role() made, with its minimum role: the route inventory test
+# reads it to prove that each mutating route declares one.
+_REQUIREMENTS: dict[RoleDependency, str] = {}
+
+
+def required_role(dependency: object) -> str | None:
+    """The minimum role a dependency made by require_role() enforces, else None."""
+    for known, role in _REQUIREMENTS.items():
+        if known is dependency:
+            return role
+    return None
 
 
 async def get_current_user(
@@ -77,7 +85,7 @@ async def get_current_user(
     return user
 
 
-def require_role(minimum_role: str) -> Callable[..., Awaitable[CurrentUser]]:
+def require_role(minimum_role: str) -> RoleDependency:
     """
     FastAPI dependency factory: the current user, if their role is at least minimum_role.
 
@@ -98,6 +106,7 @@ def require_role(minimum_role: str) -> Callable[..., Awaitable[CurrentUser]]:
             )
         return user
 
+    _REQUIREMENTS[_dependency] = minimum_role
     return _dependency
 
 

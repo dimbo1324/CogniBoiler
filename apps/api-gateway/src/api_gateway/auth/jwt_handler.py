@@ -224,16 +224,6 @@ def issue_refresh_token(
     )
 
 
-def create_access_token(user_id: int, role: str, session_id: str = "") -> str:
-    """Signed access token string; the gateway accepts it only for a stored session."""
-    return issue_access_token(user_id, role, session_id or str(uuid4())).token
-
-
-def create_refresh_token(user_id: int, role: str, session_id: str = "") -> str:
-    """Signed refresh token string; the gateway exchanges it only if it stored it."""
-    return issue_refresh_token(user_id, role, session_id or str(uuid4())).token
-
-
 # ─── Token verification ───────────────────────────────────────────────────────
 
 
