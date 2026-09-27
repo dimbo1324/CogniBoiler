@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import socket
+import threading
 from collections.abc import AsyncIterator
 
 import cogniboiler_pb2 as pb2
@@ -14,6 +15,7 @@ import grpc.aio
 import pytest
 import pytest_asyncio
 from physics_engine.faults import FaultError, FaultKind, FaultSpec
+from physics_engine.plant import PlantSnapshot
 from physics_engine.runtime import (
     MAX_STEPS_PER_REQUEST,
     PhysicsRuntime,
@@ -91,6 +93,92 @@ class TestStepping:
         settled = paused.simulation_status().step_count
         await asyncio.sleep(0.1)
         assert paused.simulation_status().step_count == settled
+
+
+class BlockingPlantStep:
+    """Stands in for `PlantSimulator.step`: holds the worker thread until released."""
+
+    def __init__(self, runtime: PhysicsRuntime) -> None:
+        self._step = runtime._plant.step
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.inside = 0
+        self.most_inside = 0
+        self._count = threading.Lock()
+
+    def __call__(self, steps: int = 1) -> PlantSnapshot:
+        with self._count:
+            self.inside += 1
+            self.most_inside = max(self.most_inside, self.inside)
+        self.entered.set()
+        try:
+            self.release.wait(timeout=10.0)
+            return self._step(steps)
+        finally:
+            with self._count:
+                self.inside -= 1
+
+
+class TestCancellation:
+    async def test_a_cancelled_step_keeps_the_lock_until_its_worker_is_done(
+        self, paused: PhysicsRuntime, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        blocking = BlockingPlantStep(paused)
+        monkeypatch.setattr(paused._plant, "step", blocking)
+        before = paused.simulation_status().step_count
+        stepping = asyncio.create_task(paused.step(5))
+        assert await asyncio.to_thread(blocking.entered.wait, 10.0)
+
+        stepping.cancel()
+        for _ in range(10):
+            await asyncio.sleep(0)
+        assert paused._lock.locked()
+        assert not stepping.done()
+
+        blocking.entered.clear()
+        second = asyncio.create_task(paused.step(1))
+        command = asyncio.create_task(
+            paused.apply_command(fuel_valve=0.5, feedwater_valve=0.5, steam_valve=0.5)
+        )
+        for _ in range(10):
+            await asyncio.sleep(0)
+        assert not command.done()
+        assert not blocking.entered.is_set()
+
+        blocking.release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await stepping
+        await asyncio.wait_for(asyncio.gather(second, command), timeout=10.0)
+        assert blocking.most_inside == 1
+        assert paused.simulation_status().step_count == before + 2
+
+    async def test_a_cancelled_scenario_load_keeps_the_lock_until_it_is_loaded(
+        self, paused: PhysicsRuntime, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        load = paused._plant.load_scenario
+        entered = threading.Event()
+        release = threading.Event()
+
+        def blocking_load(scenario: ScenarioName | str) -> PlantSnapshot:
+            entered.set()
+            release.wait(timeout=10.0)
+            return load(scenario)
+
+        monkeypatch.setattr(paused._plant, "load_scenario", blocking_load)
+        before = paused.simulation_status().run_id
+        loading = asyncio.create_task(paused.load_scenario(ScenarioName.PART_LOAD))
+        assert await asyncio.to_thread(entered.wait, 10.0)
+        loading.cancel()
+        for _ in range(10):
+            await asyncio.sleep(0)
+        assert paused._lock.locked()
+
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await loading
+        assert not paused._lock.locked()
+        status = paused.simulation_status()
+        assert (status.scenario, status.run_id) == (ScenarioName.PART_LOAD, before + 1)
 
 
 class TestSpeed:

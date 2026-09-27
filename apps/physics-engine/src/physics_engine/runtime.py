@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -242,15 +243,13 @@ class PhysicsRuntime:
             raise RuntimeCommandError("pause the simulation before stepping it")
         for _ in range(steps):
             async with self._lock:
-                snapshot = await asyncio.to_thread(self._timed_step)
-                self._publish(snapshot)
+                await self._publish_from_worker(self._timed_step)
         return self.simulation_status()
 
     async def load_scenario(self, scenario: ScenarioName | str) -> SimulationStatus:
         """Reset the plant into a scenario; the run id changes."""
         async with self._lock:
-            snapshot = await asyncio.to_thread(self._plant.load_scenario, scenario)
-            self._publish(snapshot)
+            await self._publish_from_worker(lambda: self._plant.load_scenario(scenario))
         return self.simulation_status()
 
     async def inject_fault(self, spec: FaultSpec) -> ActiveFault:
@@ -283,6 +282,37 @@ class PhysicsRuntime:
         STEPS.inc()
         return snapshot
 
+    async def _publish_from_worker(self, work: Callable[[], PlantSnapshot]) -> None:
+        """Run `work` on a worker thread and publish its snapshot; the lock is held.
+
+        A thread cannot be cancelled. If the caller is, the plant is still being changed,
+        so the lock stays held until the worker returns, and what it did is published
+        before the cancellation goes on.
+        """
+        worker = asyncio.ensure_future(asyncio.to_thread(work))
+        try:
+            snapshot = await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            await self._outlast(worker)
+            raise
+        self._publish(snapshot)
+
+    async def _outlast(self, worker: asyncio.Future[PlantSnapshot]) -> None:
+        while not worker.done():
+            try:
+                await asyncio.wait({worker})
+            except asyncio.CancelledError:
+                continue
+        if worker.cancelled():
+            return
+        error = worker.exception()
+        if error is None:
+            self._publish(worker.result())
+        else:
+            logger.warning(
+                "Physics work failed after its caller was cancelled", exc_info=error
+            )
+
     def _publish(self, snapshot: PlantSnapshot) -> None:
         self._snapshot = snapshot
         self._sequence += 1
@@ -298,8 +328,7 @@ class PhysicsRuntime:
                 async with self._lock:
                     if self._run_state is not RunState.RUNNING:
                         continue
-                    snapshot = await asyncio.to_thread(self._timed_step)
-                    self._publish(snapshot)
+                    await self._publish_from_worker(self._timed_step)
                 self._status = "running"
                 self._last_error = ""
                 elapsed = time.perf_counter() - wall_start
