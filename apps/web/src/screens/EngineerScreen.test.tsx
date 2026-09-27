@@ -162,6 +162,8 @@ describe("simulation", () => {
     await userEvent.clear(steps);
     await userEvent.type(steps, "3601");
     expect((screen.getByRole("button", { name: "Step" }) as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.clear(steps);
+    expect((screen.getByRole("button", { name: "Step" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("shows a refusal of the physics engine", async () => {
@@ -239,6 +241,19 @@ describe("faults", () => {
     const severity = within(section).getByLabelText(/Severity/u);
     await userEvent.clear(severity);
     await userEvent.type(severity, "0.6");
+    expect(inject.disabled).toBe(true);
+  });
+
+  it("never sends a cleared severity or ramp as zero", async () => {
+    renderScreen();
+    const section = screen.getByRole("region", { name: "Faults" });
+    const inject = within(section).getByRole("button", { name: "Inject…" }) as HTMLButtonElement;
+    expect(inject.disabled).toBe(false);
+    await userEvent.clear(within(section).getByLabelText(/Severity/u));
+    expect(inject.disabled).toBe(true);
+    await userEvent.type(within(section).getByLabelText(/Severity/u), "1");
+    expect(inject.disabled).toBe(false);
+    await userEvent.clear(within(section).getByLabelText("Develops over [s]"));
     expect(inject.disabled).toBe(true);
   });
 

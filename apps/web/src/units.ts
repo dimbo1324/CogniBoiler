@@ -50,6 +50,23 @@ export function fractionToPercent(fraction: number): number {
   return fraction * 100;
 }
 
+export function percentToFraction(percent: number): number {
+  return percent / 100;
+}
+
+/**
+ * The number an operator typed, or null. `Number("")` is 0, and a number input reports ""
+ * for text it cannot parse ("12,5" in an en-US browser), so a cleared field would otherwise
+ * become a valid command to close a valve.
+ */
+export function parseDecimal(text: string): number | null {
+  if (text.trim() === "") {
+    return null;
+  }
+  const value = Number(text);
+  return Number.isFinite(value) ? value : null;
+}
+
 /** Heat rate from joules of heat per joule of electricity to kJ/kWh. */
 export function heatRateToKilojoulesPerKilowattHour(joulesPerJoule: number): number {
   return joulesPerJoule * KILOJOULES_PER_KILOWATT_HOUR;

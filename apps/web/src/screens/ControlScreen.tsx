@@ -8,7 +8,7 @@ import {
   setLoadDemand,
   updateSetpoints,
 } from "../api/endpoints";
-import type { CommandAck, PlcMode, PlcStatus } from "../api/types";
+import type { CommandAck, PlcMode, PlcStatus, ValveCommandRequest } from "../api/types";
 import { CommandResult } from "../components/CommandResult";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { PlcModeBadge } from "../components/PlcModeBadge";
@@ -34,7 +34,9 @@ import {
   fractionToPercent,
   kelvinToCelsius,
   megawattsToWatts,
+  parseDecimal,
   pascalsToBar,
+  percentToFraction,
   wattsToMegawatts,
 } from "../units";
 import { queryKeys } from "../api/queryKeys";
@@ -61,8 +63,14 @@ interface PendingCommand {
   run: () => Promise<CommandAck>;
 }
 
-export function inRange(value: number, [low, high]: readonly [number, number]): boolean {
-  return Number.isFinite(value) && value >= low && value <= high;
+export function inRange(value: number | null, [low, high]: readonly [number, number]): boolean {
+  return value !== null && Number.isFinite(value) && value >= low && value <= high;
+}
+
+/** The typed value when it is a number inside the range; null for anything else. */
+function readInRange(text: string, range: readonly [number, number]): number | null {
+  const value = parseDecimal(text);
+  return inRange(value, range) ? value : null;
 }
 
 function NumberField({
@@ -80,7 +88,7 @@ function NumberField({
   range: readonly [number, number];
   step: number;
 }) {
-  const valid = inRange(Number(value), range);
+  const valid = readInRange(value, range) !== null;
   return (
     <label>
       {label} [{unit}]
@@ -107,7 +115,7 @@ function NumberField({
 
 function LoadSection({ plc, ask }: { plc: PlcStatus; ask: (command: PendingCommand) => void }) {
   const [load, setLoad] = useState(() => formatReading(wattsToMegawatts(plc.load_demand_w), 0));
-  const target = Number(load);
+  const target = readInRange(load, LIMITS.loadMw);
   return (
     <Panel title="Load" glyph={PowerIcon}>
       <p>
@@ -127,8 +135,11 @@ function LoadSection({ plc, ask }: { plc: PlcStatus; ask: (command: PendingComma
         <button
           type="button"
           className="primary"
-          disabled={!inRange(target, LIMITS.loadMw)}
+          disabled={target === null}
           onClick={() => {
+            if (target === null) {
+              return;
+            }
             ask({
               title: "Change the load demand",
               body: (
@@ -222,6 +233,22 @@ const VALVES = [
 
 type ValveName = (typeof VALVES)[number][0];
 
+function valveCommand(positions: Record<ValveName, string>): ValveCommandRequest | null {
+  const fuel = readInRange(positions.fuel_valve, LIMITS.valvePct);
+  const feedwater = readInRange(positions.feedwater_valve, LIMITS.valvePct);
+  const steam = readInRange(positions.steam_valve, LIMITS.valvePct);
+  const spray = readInRange(positions.spray_valve, LIMITS.valvePct);
+  if (fuel === null || feedwater === null || steam === null || spray === null) {
+    return null;
+  }
+  return {
+    fuel_valve: percentToFraction(fuel),
+    feedwater_valve: percentToFraction(feedwater),
+    steam_valve: percentToFraction(steam),
+    spray_valve: percentToFraction(spray),
+  };
+}
+
 function positionsOf(plc: PlcStatus): Record<ValveName, string> {
   const command = plc.latest_command;
   return {
@@ -234,9 +261,7 @@ function positionsOf(plc: PlcStatus): Record<ValveName, string> {
 
 function ValvesSection({ plc, ask }: { plc: PlcStatus; ask: (command: PendingCommand) => void }) {
   const [positions, setPositions] = useState(() => positionsOf(plc));
-  const numbers = VALVES.map(([name]) => Number(positions[name]));
-  const valid = numbers.every((value) => inRange(value, LIMITS.valvePct));
-  const fraction = (name: ValveName) => Number(positions[name]) / 100;
+  const command = valveCommand(positions);
   return (
     <Panel title="Manual valves" glyph={ControlIcon}>
       <p className="muted">
@@ -267,26 +292,24 @@ function ValvesSection({ plc, ask }: { plc: PlcStatus; ask: (command: PendingCom
         <button
           type="button"
           className="primary"
-          disabled={!valid || plc.emergency_stop_active}
+          disabled={command === null || plc.emergency_stop_active}
           onClick={() => {
+            if (command === null) {
+              return;
+            }
             ask({
               title: "Send valve positions",
               body: (
                 <p>
                   {VALVES.map(
-                    ([name, label]) => `${label} ${formatReading(Number(positions[name]), 1)} %`,
+                    ([name, label]) =>
+                      `${label} ${formatReading(parseDecimal(positions[name]), 1)} %`,
                   ).join(", ")}
                   . The PLC switches to MANUAL and holds them until AUTO is selected.
                 </p>
               ),
               confirmLabel: "Send and switch to MANUAL",
-              run: () =>
-                sendValveCommand({
-                  fuel_valve: fraction("fuel_valve"),
-                  feedwater_valve: fraction("feedwater_valve"),
-                  steam_valve: fraction("steam_valve"),
-                  spray_valve: fraction("spray_valve"),
-                }),
+              run: () => sendValveCommand(command),
             });
           }}
         >
@@ -312,10 +335,9 @@ function SetpointsSection({
   const [steam, setSteam] = useState(() =>
     formatReading(kelvinToCelsius(plc.setpoints.steam_temp_k), 1),
   );
-  const valid =
-    inRange(Number(pressure), LIMITS.pressureBar) &&
-    inRange(Number(level), LIMITS.levelM) &&
-    inRange(Number(steam), LIMITS.steamTempC);
+  const pressureBar = readInRange(pressure, LIMITS.pressureBar);
+  const levelM = readInRange(level, LIMITS.levelM);
+  const steamC = readInRange(steam, LIMITS.steamTempC);
   return (
     <Panel title="Setpoints" glyph={PressureIcon}>
       <p className="muted">
@@ -349,8 +371,11 @@ function SetpointsSection({
         <button
           type="button"
           className="primary"
-          disabled={!valid}
+          disabled={pressureBar === null || levelM === null || steamC === null}
           onClick={() => {
+            if (pressureBar === null || levelM === null || steamC === null) {
+              return;
+            }
             ask({
               title: "Change the setpoints",
               body: (
@@ -361,9 +386,9 @@ function SetpointsSection({
               confirmLabel: "Apply setpoints",
               run: () =>
                 updateSetpoints({
-                  pressure_pa: barToPascals(Number(pressure)),
-                  water_level_m: Number(level),
-                  steam_temp_k: celsiusToKelvin(Number(steam)),
+                  pressure_pa: barToPascals(pressureBar),
+                  water_level_m: levelM,
+                  steam_temp_k: celsiusToKelvin(steamC),
                 }),
             });
           }}

@@ -15,6 +15,8 @@ import {
   kilogramsPerSecondToTonnesPerHour,
   megawattsToWatts,
   parameterLabel,
+  parseDecimal,
+  percentToFraction,
   pascalsPerSecondToBarPerMinute,
   pascalsToBar,
   pascalsToKilopascals,
@@ -123,5 +125,29 @@ describe("parameterLabel", () => {
     expect(parameterLabel("water_level_m")).toBe("drum level");
     expect(parameterLabel("drum_level_quality")).toBe("drum level instrument");
     expect(parameterLabel("feedwater_flow_kg_s")).toBe("feedwater flow");
+  });
+});
+
+describe("parseDecimal", () => {
+  it("reads what an operator typed into a number field", () => {
+    expect(parseDecimal("12.5")).toBe(12.5);
+    expect(parseDecimal(" 0 ")).toBe(0);
+    expect(parseDecimal("-0.2")).toBe(-0.2);
+  });
+
+  it("never turns an empty or unreadable field into zero", () => {
+    expect(parseDecimal("")).toBeNull();
+    expect(parseDecimal("   ")).toBeNull();
+    expect(parseDecimal("12,5")).toBeNull();
+    expect(parseDecimal("abc")).toBeNull();
+    expect(parseDecimal("Infinity")).toBeNull();
+  });
+});
+
+describe("percentToFraction", () => {
+  it("turns a valve position in percent into the fraction the contract carries", () => {
+    expect(percentToFraction(50)).toBe(0.5);
+    expect(percentToFraction(0)).toBe(0);
+    expect(percentToFraction(fractionToPercent(0.25))).toBeCloseTo(0.25);
   });
 });

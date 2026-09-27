@@ -15,6 +15,7 @@ import type { CommandAck, PlcStatus, Role } from "../api/types";
 import { useLive } from "../live/LiveProvider";
 import type { LiveSnapshot } from "../live/store";
 import { plcStatus } from "../test/fixtures";
+import { parseDecimal } from "../units";
 import { ControlScreen, LIMITS, inRange } from "./ControlScreen";
 
 vi.mock("../api/endpoints", async (importOriginal) => {
@@ -114,8 +115,10 @@ describe("command limits", () => {
   });
 
   it("refuse what is not a number", () => {
-    expect(inRange(Number(""), LIMITS.valvePct)).toBe(true);
-    expect(inRange(Number("abc"), LIMITS.valvePct)).toBe(false);
+    expect(inRange(parseDecimal(""), LIMITS.valvePct)).toBe(false);
+    expect(inRange(parseDecimal("  "), LIMITS.valvePct)).toBe(false);
+    expect(inRange(parseDecimal("abc"), LIMITS.valvePct)).toBe(false);
+    expect(inRange(null, LIMITS.loadMw)).toBe(false);
     expect(inRange(Number.POSITIVE_INFINITY, LIMITS.loadMw)).toBe(false);
   });
 });
@@ -179,6 +182,28 @@ describe("ControlScreen", () => {
     await retype(within(load).getByLabelText(/New demand/u), "301");
     expect(button(load, "Set load…").disabled).toBe(true);
     expect(load.textContent).toContain("0–300 MW");
+  });
+
+  it("never sends a cleared field as zero", async () => {
+    renderScreen("engineer");
+    const load = region("Load");
+    await retype(within(load).getByLabelText(/New demand/u), "");
+    expect(button(load, "Set load…").disabled).toBe(true);
+    expect(load.textContent).toContain("0–300 MW");
+
+    const valves = region("Manual valves");
+    const feedwater = within(valves).getByLabelText(/Feedwater/u);
+    await retype(feedwater, "");
+    expect(feedwater.getAttribute("aria-invalid")).toBe("true");
+    expect(button(valves, "Send positions…").disabled).toBe(true);
+    await retype(feedwater, "12,5");
+    expect(button(valves, "Send positions…").disabled).toBe(true);
+
+    const setpoints = region("Setpoints");
+    await retype(within(setpoints).getByLabelText(/Drum level/u), "");
+    expect(button(setpoints, "Apply…").disabled).toBe(true);
+    expect(vi.mocked(setLoadDemand)).not.toHaveBeenCalled();
+    expect(vi.mocked(sendValveCommand)).not.toHaveBeenCalled();
   });
 
   it("switches the mode and trips the unit only after a confirmation", async () => {

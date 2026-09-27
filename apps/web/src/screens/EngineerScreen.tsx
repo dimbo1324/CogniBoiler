@@ -30,7 +30,7 @@ import {
 } from "../components/ui/icons";
 import { Panel } from "../components/ui/Panel";
 import { useLive } from "../live/LiveProvider";
-import { formatDateTime, formatDuration, formatReading } from "../units";
+import { formatDateTime, formatDuration, formatReading, parseDecimal } from "../units";
 import { queryKeys } from "../api/queryKeys";
 
 type Answer = SimulationAck | FaultAck;
@@ -110,6 +110,8 @@ function SimulationSection({
   const [speed, setSpeed] = useState(String(status.speed_factor));
   const [steps, setSteps] = useState("10");
   const paused = status.run_state === "paused";
+  const stepCount = parseDecimal(steps);
+  const stepsValid = stepCount !== null && stepCount >= STEPS_MIN && stepCount <= STEPS_MAX;
   return (
     <Panel title="Simulation" glyph={EngineerIcon}>
       <dl className="kv">
@@ -172,9 +174,12 @@ function SimulationSection({
         </label>
         <button
           type="button"
-          disabled={!paused || !(Number(steps) >= STEPS_MIN && Number(steps) <= STEPS_MAX)}
+          disabled={!paused || !stepsValid}
           onClick={() => {
-            run(`Step ${steps}`, () => stepSimulation(Number(steps)));
+            if (stepCount === null) {
+              return;
+            }
+            run(`Step ${steps}`, () => stepSimulation(stepCount));
           }}
         >
           Step
@@ -242,17 +247,21 @@ function FaultSection({ ask }: { ask: (action: PendingAction) => void }) {
   const sensors = live.plant?.sensors.map((sensor) => sensor.sensor_id) ?? [];
   const targets =
     spec.target === "valve" ? [...VALVE_TARGETS] : spec.target === "sensor" ? sensors : [];
-  const severityValue = Number(severity);
-  const rampValue = Number(ramp);
-  const valid =
-    (spec.target === "none" || targets.includes(target)) &&
-    (spec.severity === null ||
-      (Number.isFinite(severityValue) &&
-        severityValue >= spec.severity.min &&
-        severityValue <= spec.severity.max)) &&
-    Number.isFinite(rampValue) &&
-    rampValue >= 0 &&
-    rampValue <= FAULT_RAMP_MAX_S;
+  const severityValue = parseDecimal(severity);
+  const rampValue = parseDecimal(ramp);
+  // A kind without a severity is sent with the contract's default of 1.
+  const severityToSend =
+    spec.severity === null
+      ? 1
+      : severityValue !== null &&
+          severityValue >= spec.severity.min &&
+          severityValue <= spec.severity.max
+        ? severityValue
+        : null;
+  const rampToSend =
+    rampValue !== null && rampValue >= 0 && rampValue <= FAULT_RAMP_MAX_S ? rampValue : null;
+  const targetValid = spec.target === "none" || targets.includes(target);
+  const valid = targetValid && severityToSend !== null && rampToSend !== null;
   const faults = live.plant?.faults ?? [];
 
   return (
@@ -327,6 +336,9 @@ function FaultSection({ ask }: { ask: (action: PendingAction) => void }) {
           className="danger"
           disabled={!valid}
           onClick={() => {
+            if (!targetValid || severityToSend === null || rampToSend === null) {
+              return;
+            }
             ask({
               title: `Inject: ${spec.label}`,
               body: (
@@ -343,8 +355,8 @@ function FaultSection({ ask }: { ask: (action: PendingAction) => void }) {
                 injectFault({
                   kind,
                   target,
-                  severity: spec.severity ? severityValue : 1,
-                  ramp_s: rampValue,
+                  severity: severityToSend,
+                  ramp_s: rampToSend,
                 }),
             });
           }}
