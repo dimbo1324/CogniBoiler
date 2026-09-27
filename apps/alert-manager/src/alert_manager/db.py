@@ -8,9 +8,10 @@ service never creates schema. It checks at start-up that the tables exist.
 from __future__ import annotations
 
 import os
+from typing import Any
 
 from sqlalchemy import inspect
-from sqlalchemy.engine import Connection
+from sqlalchemy.engine import Connection, make_url
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -22,6 +23,9 @@ DEFAULT_DATABASE_URL: str = (
     "postgresql+asyncpg://cogniboiler:cogniboiler@localhost:5432/cogniboiler"
 )
 REQUIRED_TABLES: tuple[str, ...] = ("alarm_events", "alarm_transitions")
+CONNECT_TIMEOUT_S: float = 5.0
+COMMAND_TIMEOUT_S: float = 10.0
+POOL_TIMEOUT_S: float = 10.0
 
 
 def database_url() -> str:
@@ -32,9 +36,19 @@ def database_url() -> str:
 
 
 def create_engine(url: str | None = None) -> AsyncEngine:
-    return create_async_engine(
-        url or database_url(), pool_pre_ping=True, hide_parameters=True
-    )
+    """The engine; a PostgreSQL one never waits on the server without a limit."""
+    target = url or database_url()
+    options: dict[str, Any] = {"pool_pre_ping": True, "hide_parameters": True}
+    if make_url(target).get_backend_name() == "postgresql":
+        options["pool_timeout"] = POOL_TIMEOUT_S
+        options["connect_args"] = {
+            "timeout": CONNECT_TIMEOUT_S,
+            "command_timeout": COMMAND_TIMEOUT_S,
+            "server_settings": {
+                "statement_timeout": str(int(COMMAND_TIMEOUT_S * 1000))
+            },
+        }
+    return create_async_engine(target, **options)
 
 
 def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

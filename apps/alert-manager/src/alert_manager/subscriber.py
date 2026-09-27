@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from typing import Protocol
 
@@ -44,6 +45,7 @@ RECONNECT_DELAY_S: float = 5.0
 STORE_RETRY_DELAY_S: float = 1.0
 STORE_RETRY_MAX_DELAY_S: float = 30.0
 INCOMING_QUEUE_LIMIT: int = 10_000
+STALL_LIMIT_S: float = 60.0
 
 
 def store_retry_delay_s(attempt: int) -> float:
@@ -92,6 +94,7 @@ class AlertSubscriber:
         self._processed = 0
         self._skipped = 0
         self._failed = 0
+        self._busy_since: float | None = None
         self._session: MqttSession[Client] = MqttSession(
             self._open_client,
             name="AlertManager",
@@ -103,6 +106,17 @@ class AlertSubscriber:
     def connected(self) -> bool:
         """True while subscribed to the broker; the liveness file follows it."""
         return self._session.connected
+
+    @property
+    def stalled(self) -> bool:
+        """True while one message has been in processing for STALL_LIMIT_S or more."""
+        busy_since = self._busy_since
+        return busy_since is not None and time.monotonic() - busy_since >= STALL_LIMIT_S
+
+    @property
+    def healthy(self) -> bool:
+        """Connected, and not stuck behind a database that stopped answering."""
+        return self.connected and not self.stalled
 
     @property
     def stats(self) -> dict[str, int]:
@@ -120,6 +134,15 @@ class AlertSubscriber:
         if handler is None:
             self._skipped += 1
             return
+        self._busy_since = time.monotonic()
+        try:
+            await self._process(handler, topic, raw_payload)
+        finally:
+            self._busy_since = None
+
+    async def _process(
+        self, handler: MessageHandler, topic: str, raw_payload: bytes
+    ) -> None:
         try:
             if topic == TOPIC_SNAPSHOT:
                 snapshot = parse_snapshot(raw_payload)

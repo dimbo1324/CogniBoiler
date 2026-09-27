@@ -83,7 +83,7 @@ async def main(args: argparse.Namespace) -> int:
     )
     tasks: list[Coroutine[Any, Any, None]] = [subscriber.run()]
     if args.liveness_file is not None:
-        tasks.append(LivenessFile(args.liveness_file).run(lambda: subscriber.connected))
+        tasks.append(LivenessFile(args.liveness_file).run(lambda: subscriber.healthy))
     try:
         await asyncio.gather(*tasks)
     finally:

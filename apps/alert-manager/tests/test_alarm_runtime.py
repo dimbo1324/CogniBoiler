@@ -442,6 +442,32 @@ class TestSubscriber:
     def test_a_subscriber_that_never_connected_is_not_connected(self) -> None:
         # What the container healthcheck reads before the first session opens.
         assert AlertSubscriber().connected is False
+        assert AlertSubscriber().healthy is False
+
+    async def test_a_message_stuck_in_processing_makes_it_unhealthy(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The broker session can stay up while a hung database holds the intake.
+        release = asyncio.Event()
+        entered = asyncio.Event()
+
+        class Stuck(RecordingHandler):
+            async def handle_condition(self, report: Any) -> None:
+                entered.set()
+                await release.wait()
+
+        intake = AlertSubscriber(handler=Stuck())
+        assert intake.stalled is False
+        task = asyncio.create_task(
+            intake._handle_message("alerts/critical", condition_payload())
+        )
+        await entered.wait()
+        assert intake.stalled is False
+        monkeypatch.setattr(subscriber, "STALL_LIMIT_S", 0.0)
+        assert intake.stalled is True
+        release.set()
+        await task
+        assert intake.stalled is False
 
     async def test_the_connected_flag_follows_the_session(
         self, broker: type[FakeBroker]
@@ -596,6 +622,43 @@ class TestDatabaseAccess:
         )
         assert db.database_url() == "postgresql+asyncpg://alarms/db"
 
+    def test_postgresql_connections_have_timeouts(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Without them a database that accepts connections but stops answering blocks
+        # the processor lock, and with it the whole intake, forever.
+        seen: dict[str, Any] = {}
+
+        def capture(url: str, **options: Any) -> str:
+            seen.update(options, url=url)
+            return "engine"
+
+        monkeypatch.setattr(db, "create_async_engine", capture)
+        db.create_engine("postgresql+asyncpg://alarms@db/cogniboiler")
+        assert seen["pool_pre_ping"] is True
+        assert seen["hide_parameters"] is True
+        assert seen["pool_timeout"] == db.POOL_TIMEOUT_S
+        assert seen["connect_args"] == {
+            "timeout": db.CONNECT_TIMEOUT_S,
+            "command_timeout": db.COMMAND_TIMEOUT_S,
+            "server_settings": {
+                "statement_timeout": str(int(db.COMMAND_TIMEOUT_S * 1000))
+            },
+        }
+
+    def test_a_file_database_gets_no_postgresql_options(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: dict[str, Any] = {}
+
+        def capture(url: str, **options: Any) -> str:
+            seen.update(options)
+            return "engine"
+
+        monkeypatch.setattr(db, "create_async_engine", capture)
+        db.create_engine("sqlite+aiosqlite:///alarms.db")
+        assert "connect_args" not in seen and "pool_timeout" not in seen
+
     async def test_missing_tables_are_reported_until_migrated(
         self, tmp_path: Path
     ) -> None:
@@ -660,6 +723,7 @@ class TestEntryPoint:
 
         class Intake:
             connected = True
+            healthy = True
 
             def __init__(self, host: str, port: int, handler: Any, **_: Any) -> None:
                 assert isinstance(handler, AlarmProcessor)
