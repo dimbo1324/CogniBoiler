@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api_gateway.audit import AuditMiddleware
+from api_gateway.auth.headers import SecurityHeadersMiddleware
 from api_gateway.auth.jwt_handler import validate_signing_keys
 from api_gateway.auth.throttle import LoginThrottle, ThrottlePolicy
 from api_gateway.clients import (
@@ -149,6 +150,7 @@ def create_app() -> FastAPI:
     install_problem_handlers(app)
     observe_app(app)
 
+    app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(AuditMiddleware)
     app.add_middleware(
         CORSMiddleware,
