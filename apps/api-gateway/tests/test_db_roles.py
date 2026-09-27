@@ -8,11 +8,14 @@ on the server with `format('%I', '%L')` and never interpolates anything itself.
 
 from __future__ import annotations
 
+import logging
+import traceback
 from types import TracebackType
 from typing import Any
 
 import pytest
 from api_gateway import db_roles
+from sqlalchemy.exc import DBAPIError
 
 
 def test_it_refuses_to_run_without_every_password(
@@ -28,6 +31,22 @@ def test_it_refuses_to_run_without_every_password(
     monkeypatch.setattr(db_roles, "provision", provision)
     assert db_roles.main() == 1
     assert called == []
+
+
+def test_a_failed_provisioning_exits_non_zero_without_the_password(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("GATEWAY_DB_PASSWORD", "gateway-secret-xyz")
+    monkeypatch.setenv("ALARMS_DB_PASSWORD", "alarms-secret-xyz")
+
+    async def provision(_: str, passwords: dict[str, str]) -> None:
+        raise RuntimeError("giving cogniboiler_gateway a login failed")
+
+    monkeypatch.setattr(db_roles, "provision", provision)
+    assert db_roles.main() == 1
+    written = "".join(capsys.readouterr())
+    assert "cogniboiler_gateway" in written
+    assert "secret-xyz" not in written
 
 
 def test_both_roles_get_their_own_password(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -60,6 +79,9 @@ class FakeConnection:
     async def exec_driver_sql(self, statement: str) -> None:
         if self._engine.fail_on_exec:
             raise RuntimeError("connection lost")
+        if self._engine.fail_like_a_driver:
+            # How SQLAlchemy reports a failed statement: its text is in the message.
+            raise DBAPIError.instance(statement, None, Exception("boom"), Exception)
         self._engine.executed.append(statement)
 
 
@@ -86,6 +108,7 @@ class FakeEngine:
         self.executed: list[str] = []
         self.disposed = 0
         self.fail_on_exec = False
+        self.fail_like_a_driver = False
 
     def begin(self) -> FakeBegin:
         return FakeBegin(self)
@@ -135,12 +158,45 @@ class TestProvisioning:
         quoted = "'" + HOSTILE.replace("'", "''") + "'"
         assert used.executed == ['ALTER ROLE "role_a" WITH LOGIN PASSWORD ' + quoted]
 
-    async def test_a_failure_never_echoes_the_parameters(
+    async def test_bound_parameters_are_hidden_from_errors(
         self, engine: list[FakeEngine]
     ) -> None:
         await db_roles.provision("postgresql+asyncpg://owner@db/x", {"role_a": "pw"})
         (used,) = engine
         assert used.options["hide_parameters"] is True
+
+    async def test_a_failed_statement_never_carries_the_password(
+        self,
+        engine: list[FakeEngine],
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        secret = "S3cretProbe-do-not-print"
+
+        def create(url: str, **options: Any) -> FakeEngine:
+            made = FakeEngine(url=url, **options)
+            made.fail_like_a_driver = True
+            engine.append(made)
+            return made
+
+        monkeypatch.setattr(db_roles, "create_async_engine", create)
+        with (
+            caplog.at_level(logging.DEBUG),
+            pytest.raises(RuntimeError) as raised,
+        ):
+            await db_roles.provision(
+                "postgresql+asyncpg://owner@db/x", {"cogniboiler_gateway": secret}
+            )
+        exc = raised.value
+        assert "cogniboiler_gateway" in str(exc)
+        for part in (exc, exc.__cause__, exc.__context__):
+            assert secret not in str(part)
+        rendered = "".join(traceback.format_exception(exc))
+        assert secret not in rendered
+        assert secret not in caplog.text
+        assert "DBAPIError" in caplog.text
+        (used,) = engine
+        assert used.disposed == 1
 
     async def test_every_role_is_provisioned_in_turn(
         self, engine: list[FakeEngine]
