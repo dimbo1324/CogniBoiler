@@ -269,7 +269,7 @@ class TestConnection:
             physics_client=PhysicsClient(
                 PhysicsClientConfig(target=f"127.0.0.1:{port}", timeout_s=0.5)
             ),
-            control_interval_s=0.05,
+            retry_delay_s=0.05,
             enable_alert_publishing=False,
         )
         with caplog.at_level(logging.INFO, logger="plc_controller.service"):

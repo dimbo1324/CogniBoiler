@@ -132,7 +132,7 @@ class TestAPlcRestartWhileTripped:
                 physics_client=PhysicsClient(
                     PhysicsClientConfig(target=plant.physics_target)
                 ),
-                control_interval_s=0.05,
+                retry_delay_s=0.05,
                 enable_alert_publishing=False,
             )
             with caplog.at_level(logging.WARNING, logger="plc_controller.service"):

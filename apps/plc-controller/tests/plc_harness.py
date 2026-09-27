@@ -61,7 +61,7 @@ async def rig(
     target = f"127.0.0.1:{physics_port}"
     plc = PLCService(
         physics_client=PhysicsClient(PhysicsClientConfig(target=target)),
-        control_interval_s=0.05,
+        retry_delay_s=0.05,
         enable_alert_publishing=False,
     )
     await plc.start()

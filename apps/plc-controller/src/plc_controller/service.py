@@ -59,7 +59,9 @@ from plc_controller.status import SafetySnapshot, control_status
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CONTROL_INTERVAL_S: float = 0.2
+# The scan is event-driven (one per plant state); this is only the pause before a
+# broken state stream is opened again.
+STREAM_RETRY_DELAY_S: float = 0.2
 DEFAULT_ALERT_MQTT_HOST: str = "localhost"
 DEFAULT_ALERT_MQTT_PORT: int = 1883
 
@@ -133,7 +135,7 @@ class PLCService:
         self,
         physics_client: PhysicsClient | None = None,
         *,
-        control_interval_s: float = DEFAULT_CONTROL_INTERVAL_S,
+        retry_delay_s: float = STREAM_RETRY_DELAY_S,
         mqtt_host: str = DEFAULT_ALERT_MQTT_HOST,
         mqtt_port: int = DEFAULT_ALERT_MQTT_PORT,
         enable_control_loop: bool = True,
@@ -142,7 +144,7 @@ class PLCService:
         mqtt_password: str | None = None,
     ) -> None:
         self._physics = physics_client or PhysicsClient()
-        self._retry_delay_s = max(control_interval_s, 0.05)
+        self._retry_delay_s = max(retry_delay_s, 0.05)
         self._enable_control_loop = enable_control_loop
 
         self._setpoints = Setpoints()
@@ -771,7 +773,7 @@ class PLCService:
             feedwater = overrides.feedwater
         elif m.finite:
             feedwater = self._controller.hold_level(
-                m, self._setpoints.water_level_m, max(dt, 1.0e-3)
+                m, self._setpoints.water_level_m, dt
             )
         else:
             feedwater = self._latest_command.feedwater_valve

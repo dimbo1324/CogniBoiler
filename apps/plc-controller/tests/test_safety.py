@@ -29,6 +29,7 @@ import logging
 import math
 
 import pytest
+from plc_controller.alarms import DEFAULT_RULES
 from plc_controller.safety import (
     EmergencyStop,
     RateOfChangeLimiter,
@@ -36,6 +37,7 @@ from plc_controller.safety import (
 )
 from plc_controller.safety_limits import (
     FLUE_GAS_TEMP_LIMITS,
+    ON_LINE_STEAM_FLOW_KG_S,
     PRESSURE_LIMITS,
     PRESSURE_RATE_LIMITS,
     PRESSURE_RATE_TRIP,
@@ -280,6 +282,7 @@ class TestEmergencyScenarios:
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
             sensor_qualities=TRIP_INSTRUMENTS_GOOD,
+            dt=1.0,
         )
         assert status.level == SafetyLevel.TRIP
         assert status.safe is False
@@ -292,6 +295,7 @@ class TestEmergencyScenarios:
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
             sensor_qualities=TRIP_INSTRUMENTS_GOOD,
+            dt=1.0,
         )
         assert status.fuel_valve_override == pytest.approx(0.0)
 
@@ -303,6 +307,7 @@ class TestEmergencyScenarios:
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
             sensor_qualities=TRIP_INSTRUMENTS_GOOD,
+            dt=1.0,
         )
         assert status.steam_valve_override == pytest.approx(1.0)
 
@@ -317,6 +322,7 @@ class TestEmergencyScenarios:
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
             sensor_qualities=TRIP_INSTRUMENTS_GOOD,
+            dt=1.0,
         )
         assert status.level == SafetyLevel.TRIP
 
@@ -331,6 +337,7 @@ class TestEmergencyScenarios:
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
             sensor_qualities=TRIP_INSTRUMENTS_GOOD,
+            dt=1.0,
         )
         assert status.level == SafetyLevel.TRIP
 
@@ -342,6 +349,7 @@ class TestEmergencyScenarios:
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
             sensor_qualities=TRIP_INSTRUMENTS_GOOD,
+            dt=1.0,
         )
         assert status.fuel_valve_override == pytest.approx(0.0)
 
@@ -356,6 +364,7 @@ class TestEmergencyScenarios:
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
             sensor_qualities=TRIP_INSTRUMENTS_GOOD,
+            dt=1.0,
         )
         assert status.level == SafetyLevel.TRIP
 
@@ -370,6 +379,7 @@ class TestEmergencyScenarios:
             water_temp=650.0,  # above trip_high 648 K
             flue_gas_temp=NOMINAL_FLUE_TEMP,
             sensor_qualities=TRIP_INSTRUMENTS_GOOD,
+            dt=1.0,
         )
         assert status.level == SafetyLevel.TRIP
 
@@ -384,6 +394,7 @@ class TestEmergencyScenarios:
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=1750.0,  # above trip_high 1700 K
             sensor_qualities=TRIP_INSTRUMENTS_GOOD,
+            dt=1.0,
         )
         assert status.level == SafetyLevel.TRIP
 
@@ -431,6 +442,7 @@ class TestEmergencyScenarios:
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
             sensor_qualities=TRIP_INSTRUMENTS_GOOD,
+            dt=1.0,
         )
         assert status.level == SafetyLevel.TRIP
         assert status.fuel_valve_override == pytest.approx(0.0)
@@ -447,6 +459,7 @@ class TestEmergencyScenarios:
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
             sensor_qualities=TRIP_INSTRUMENTS_GOOD,
+            dt=1.0,
         )
         assert interlock.emergency_stop.is_active
 
@@ -466,6 +479,7 @@ class TestEmergencyScenarios:
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
             sensor_qualities=TRIP_INSTRUMENTS_GOOD,
+            dt=1.0,
         )
         assert interlock.emergency_stop.is_active
 
@@ -492,6 +506,7 @@ class TestWarningConditions:
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
             sensor_qualities=TRIP_INSTRUMENTS_GOOD,
+            dt=1.0,
         )
         assert status.level == SafetyLevel.WARNING
         assert status.safe is False
@@ -508,6 +523,7 @@ class TestWarningConditions:
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
             sensor_qualities=TRIP_INSTRUMENTS_GOOD,
+            dt=1.0,
         )
         assert status.level == SafetyLevel.WARNING
         assert status.fuel_valve_override is None
@@ -547,6 +563,7 @@ class TestStatsCounters:
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
             sensor_qualities=TRIP_INSTRUMENTS_GOOD,
+            dt=1.0,
         )
         assert interlock.warning_count == 1
 
@@ -558,6 +575,7 @@ class TestStatsCounters:
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
             sensor_qualities=TRIP_INSTRUMENTS_GOOD,
+            dt=1.0,
         )
         assert interlock.trip_count == 1
 
@@ -642,3 +660,33 @@ class TestThresholdsAreConstants:
     ) -> None:
         assert math.isfinite(limits.trip_high)
         assert math.isfinite(limits.trip_low) is low_protected
+
+
+class TestNamedThresholds:
+    def test_the_on_line_threshold_is_a_tenth_of_rated_steam_flow(self) -> None:
+        assert ON_LINE_STEAM_FLOW_KG_S == pytest.approx(24.5)
+
+    @pytest.mark.parametrize(
+        ("parameter", "deadband"),
+        [
+            ("pressure_pa", 2.0e5),
+            ("water_level_m", 0.1),
+            ("water_temp_k", 2.0),
+            ("flue_gas_temp_k", 20.0),
+            ("steam_temp_k", 3.0),
+            ("pressure_rate_pa_s", 1.0e5),
+            ("drum_level_quality", 0.5),
+        ],
+    )
+    def test_the_alarm_deadbands_are_unchanged(
+        self, parameter: str, deadband: float
+    ) -> None:
+        rules = [r for r in DEFAULT_RULES if r.parameter == parameter]
+        assert rules
+        assert {r.deadband for r in rules} == {deadband}
+
+    def test_a_safety_check_needs_its_interval(self) -> None:
+        with pytest.raises(TypeError):
+            make_interlock().check(  # type: ignore[call-arg]
+                NOMINAL_PRESSURE, NOMINAL_LEVEL, NOMINAL_WATER_TEMP, NOMINAL_FLUE_TEMP
+            )

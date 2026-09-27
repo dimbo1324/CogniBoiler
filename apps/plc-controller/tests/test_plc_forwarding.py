@@ -47,7 +47,7 @@ async def scanning(physics: FakePhysics) -> AsyncIterator[PLCService]:
     """A PLC whose scan loop reads the fake plant's stream."""
     svc = PLCService(
         physics_client=physics,  # type: ignore[arg-type]
-        control_interval_s=0.01,
+        retry_delay_s=0.01,
         enable_alert_publishing=False,
     )
     await svc.start()

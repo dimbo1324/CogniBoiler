@@ -37,12 +37,11 @@ from plc_controller.measurements import (
 )
 from plc_controller.numeric import clamp
 from plc_controller.pid import PIDController, PIDParameters
+from plc_controller.plant_design import RATED_POWER_W, RATED_STEAM_FLOW_KG_S
 from plc_controller.ramps import RampedSetpoint
 
 # ─── Unit design data the controller is configured with ───────────────────────
 
-RATED_POWER_W: float = 300.0e6
-RATED_STEAM_FLOW_KG_S: float = 245.0
 FUEL_VALVE_CAPACITY_KG_S: float = 25.0
 FEEDWATER_VALVE_CAPACITY_KG_S: float = 380.0
 

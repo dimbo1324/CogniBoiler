@@ -104,7 +104,7 @@ class RateOfChangeLimiter:
     the first-order derivative: rate = (value_now - value_prev) / dt
 
     Usage:
-        limiter = RateOfChangeLimiter("pressure_pa", warn=5e5, trip=10e5)
+        limiter = RateOfChangeLimiter("pressure_pa", warn_rate=5e5, trip_rate=10e5)
         level = limiter.check(pressure, dt=1.0)
     """
 
@@ -371,8 +371,8 @@ class SafetyInterlock:
         water_level: float,
         water_temp: float,
         flue_gas_temp: float,
-        dt: float = 1.0,
         *,
+        dt: float,
         steam_temp: float | None = None,
         arming: ArmingState = ALL_ARMED,
         sensor_qualities: Mapping[str, int] | None = None,
@@ -394,7 +394,7 @@ class SafetyInterlock:
             sensor_qualities: Instrument quality codes by sensor id.
 
         Returns:
-            SafetyStatus with safe flag, worst level, events, and overrides.
+            SafetyStatus with safe flag, highest level, events, and overrides.
         """
         self._check_count += 1
 
@@ -539,11 +539,14 @@ class SafetyInterlock:
         trips = [e for e in events if e.level is SafetyLevel.TRIP]
         if trips:
             self._trip_count += 1
-            worst = trips[0]
+            # The first trip in evaluation order becomes the cause, and only its
+            # overrides apply: a high pressure (vent) outranks a high level (feed
+            # stop) by being checked first. Combining causes is a control decision.
+            first_trip = trips[0]
             event = self.emergency_stop.trigger(
-                parameter=worst.parameter,
-                value=worst.value,
-                threshold=worst.threshold,
+                parameter=first_trip.parameter,
+                value=first_trip.value,
+                threshold=first_trip.threshold,
             )
             overrides = trip_overrides(event)
             return SafetyStatus(

@@ -152,7 +152,7 @@ class TestPLCGrpc:
             physics_client=PhysicsClient(
                 PhysicsClientConfig(target=f"localhost:{physics_port}")
             ),
-            control_interval_s=0.05,
+            retry_delay_s=0.05,
             enable_alert_publishing=False,
         )
         await self.plc_service.start()
@@ -340,7 +340,7 @@ class TestPLCGrpc:
             physics_client=PhysicsClient(
                 PhysicsClientConfig(target=f"localhost:{physics_port}")
             ),
-            control_interval_s=0.05,
+            retry_delay_s=0.05,
             enable_alert_publishing=False,
         )
         await plc_service.start()

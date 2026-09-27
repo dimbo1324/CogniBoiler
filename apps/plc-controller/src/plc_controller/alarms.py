@@ -30,6 +30,13 @@ from plc_controller.measurements import (
     SignalQuality,
 )
 from plc_controller.safety_limits import (
+    ALARM_DEADBAND_FLUE_GAS_TEMP_K,
+    ALARM_DEADBAND_LEVEL_M,
+    ALARM_DEADBAND_PRESSURE_PA,
+    ALARM_DEADBAND_PRESSURE_RATE_PA_S,
+    ALARM_DEADBAND_QUALITY,
+    ALARM_DEADBAND_STEAM_TEMP_K,
+    ALARM_DEADBAND_WATER_TEMP_K,
     FLUE_GAS_TEMP_LIMITS,
     PRESSURE_LIMITS,
     PRESSURE_RATE_LIMITS,
@@ -183,7 +190,7 @@ def quality_rules(sensor_id: str, *, trips: bool) -> tuple[ConditionRule, ...]:
         Severity.WARNING,
         Direction.HIGH,
         float(SignalQuality.UNCERTAIN),
-        0.5,
+        ALARM_DEADBAND_QUALITY,
     )
     if not trips:
         return (warning,)
@@ -195,24 +202,41 @@ def quality_rules(sensor_id: str, *, trips: bool) -> tuple[ConditionRule, ...]:
             Severity.CRITICAL,
             Direction.HIGH,
             float(SignalQuality.BAD),
-            0.5,
+            ALARM_DEADBAND_QUALITY,
         ),
     )
 
 
 DEFAULT_RULES: tuple[ConditionRule, ...] = (
     *limit_rules(
-        "pressure_pa", "Pa", PRESSURE_LIMITS, 2.0e5, low_arming=Arming.ON_LINE
+        "pressure_pa",
+        "Pa",
+        PRESSURE_LIMITS,
+        ALARM_DEADBAND_PRESSURE_PA,
+        low_arming=Arming.ON_LINE,
     ),
-    *limit_rules("water_level_m", "m", WATER_LEVEL_LIMITS, 0.1),
-    *limit_rules("water_temp_k", "K", WATER_TEMP_LIMITS, 2.0),
+    *limit_rules("water_level_m", "m", WATER_LEVEL_LIMITS, ALARM_DEADBAND_LEVEL_M),
+    *limit_rules("water_temp_k", "K", WATER_TEMP_LIMITS, ALARM_DEADBAND_WATER_TEMP_K),
     *limit_rules(
-        "flue_gas_temp_k", "K", FLUE_GAS_TEMP_LIMITS, 20.0, low_arming=Arming.FIRING
+        "flue_gas_temp_k",
+        "K",
+        FLUE_GAS_TEMP_LIMITS,
+        ALARM_DEADBAND_FLUE_GAS_TEMP_K,
+        low_arming=Arming.FIRING,
     ),
     *limit_rules(
-        "steam_temp_k", "K", STEAM_TEMP_LIMITS, 3.0, high_arming=Arming.ON_LINE
+        "steam_temp_k",
+        "K",
+        STEAM_TEMP_LIMITS,
+        ALARM_DEADBAND_STEAM_TEMP_K,
+        high_arming=Arming.ON_LINE,
     ),
-    *limit_rules("pressure_rate_pa_s", "Pa/s", PRESSURE_RATE_LIMITS, 1.0e5),
+    *limit_rules(
+        "pressure_rate_pa_s",
+        "Pa/s",
+        PRESSURE_RATE_LIMITS,
+        ALARM_DEADBAND_PRESSURE_RATE_PA_S,
+    ),
     *quality_rules(SENSOR_DRUM_PRESSURE, trips=True),
     *quality_rules(SENSOR_DRUM_LEVEL, trips=True),
     *(

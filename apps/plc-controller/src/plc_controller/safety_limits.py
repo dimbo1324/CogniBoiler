@@ -43,6 +43,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from plc_controller.plant_design import RATED_STEAM_FLOW_KG_S
+
 # ─── Enums ────────────────────────────────────────────────────────────────────
 
 
@@ -253,9 +255,21 @@ PRESSURE_RATE_LIMITS = ParameterLimits(
 )
 
 # Arming thresholds
-ON_LINE_STEAM_FLOW_KG_S: float = 24.5  # 10 % of rated turbine steam flow
+ON_LINE_STEAM_FLOW_KG_S: float = 0.1 * RATED_STEAM_FLOW_KG_S
 FLAME_FUEL_FLOW_KG_S: float = 1.0
 FLAME_PROVING_S: float = 10.0
+
+# Alarm deadbands: how far a value must come back inside a limit before its alarm
+# clears, so a value hovering on the limit does not chatter. Each stays well inside
+# the gap between its warning and trip limits, so a clearing warning never masks a trip.
+ALARM_DEADBAND_PRESSURE_PA: float = 2.0e5  # about 1 % of the 185 bar trip
+ALARM_DEADBAND_LEVEL_M: float = 0.1  # about 1 % of the 7.8 m trip
+ALARM_DEADBAND_WATER_TEMP_K: float = 2.0  # a ninth of the 18 K warning-to-trip band
+ALARM_DEADBAND_FLUE_GAS_TEMP_K: float = 20.0  # about 1 % of the 1700 K trip
+ALARM_DEADBAND_STEAM_TEMP_K: float = 3.0  # a fifth of the 15 K warning-to-trip band
+ALARM_DEADBAND_PRESSURE_RATE_PA_S: float = 1.0e5  # a rate is a noisy difference
+# An instrument's quality is a code (0, 1, 2); half a step separates two codes.
+ALARM_DEADBAND_QUALITY: float = 0.5
 
 # Instruments whose failure trips the unit, and their quality codes (SensorQuality).
 TRIP_SENSORS: tuple[str, ...] = ("drum_pressure", "drum_level")
