@@ -15,8 +15,16 @@ be judged against it.
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import time
+
 import cogniboiler_pb2 as pb2
+import pytest
 from physics_engine.faults import FaultKind, FaultSpec
+from plc_controller.client import PhysicsClient, PhysicsClientConfig
+from plc_controller.service import PLCService, RuntimeMode
+from plc_fakes import plc, state
 from plc_harness import Rig, rig
 
 MW = 1.0e6
@@ -93,3 +101,70 @@ class TestRestartAfterALowLevelTrip:
             assert status.trip_count == 1
             assert plant.runtime.snapshot.turbine.electrical_power > RECOVERED_W
             assert hottest_k < STEAM_TEMP_TRIP_K
+
+
+class TestAPlcRestartWhileTripped:
+    """Today's behaviour, pinned so that changing it is a deliberate decision.
+
+    The E-Stop latch lives only in the PLC's memory (audit PLC-03, an owner decision).
+    A PLC restarted while the unit is tripped comes back in AUTO with the latch clear
+    and no reset, and seeds its load demand from the tripped plant's zero output. The
+    fuel stays shut here only because the drum, boxed in by the trip, sits above the
+    140 bar pressure setpoint; once the pressure falls below it, AUTO fires again.
+    """
+
+    async def test_it_resumes_auto_without_a_reset_and_says_so(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        async with rig() as plant:
+            tripped = await plant.stub.SetControlMode(
+                pb2.ControlModeRequest(mode=pb2.ControlMode.ESTOP, operator_id="eng")
+            )
+            assert tripped.accepted
+            await plant.advance(30)
+            assert plant.runtime.snapshot.controls.fuel_valve_command == 0.0
+            await plant.plc.close()
+
+            restarted = PLCService(
+                physics_client=PhysicsClient(
+                    PhysicsClientConfig(target=plant.physics_target)
+                ),
+                control_interval_s=0.05,
+                enable_alert_publishing=False,
+            )
+            with caplog.at_level(logging.WARNING, logger="plc_controller.service"):
+                await restarted.start()
+                try:
+                    for _ in range(60):
+                        await plant.runtime.step(1)
+                        await scanned(restarted, plant)
+                    status = await restarted.get_control_status()
+                finally:
+                    await restarted.close()
+
+        assert status.mode == pb2.ControlMode.AUTO
+        assert not status.emergency_stop_active
+        assert status.trip_count == 0
+        assert status.latest_command.source == pb2.CommandSource.PID
+        assert status.load_demand_w == 0.0
+        assert plant.runtime.snapshot.boiler.pressure > 140.0e5
+        assert plant.runtime.snapshot.controls.fuel_valve_command == 0.0
+        assert "looks tripped" in caplog.text
+
+    async def test_a_plant_in_operation_raises_no_such_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        svc, _ = plc()
+        with caplog.at_level(logging.WARNING, logger="plc_controller.service"):
+            await svc.process_state(state(step=0))
+            await svc.process_state(state(step=0, run_id=2, fuel_command=0.0))
+        assert svc.mode is RuntimeMode.AUTO
+        assert "looks tripped" not in caplog.text
+
+
+async def scanned(svc: PLCService, plant: Rig) -> None:
+    target = plant.runtime.simulation_status().step_count
+    deadline = time.monotonic() + 10.0
+    while svc.last_scanned_step < target:
+        assert time.monotonic() < deadline, f"PLC did not scan step {target}"
+        await asyncio.sleep(0.001)

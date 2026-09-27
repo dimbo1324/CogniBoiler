@@ -48,6 +48,7 @@ from plc_controller.safety import (
     SafetyInterlock,
 )
 from plc_controller.safety_limits import (
+    ON_LINE_STEAM_FLOW_KG_S,
     WATER_LEVEL_LIMITS,
     ArmingState,
     SafetyEvent,
@@ -96,6 +97,16 @@ def _plant_holds(reported: ValveSet, command: CommandSnapshot) -> bool:
         (reported.spray, command.spray_valve),
     )
     return all(abs(held - sent) <= COMMAND_TOLERANCE for held, sent in pairs)
+
+
+def _warn_if_tripped(m: ProcessMeasurements) -> None:
+    """The latch lives in memory only: say so when the PLC starts on a tripped unit."""
+    if m.commands.fuel <= 0.0 and m.steam_flow_kg_s < ON_LINE_STEAM_FLOW_KG_S:
+        logger.warning(
+            "The first plant state looks tripped (fuel command 0, turbine off line). "
+            "The PLC starts in AUTO without a latched E-Stop: a trip latched before a "
+            "PLC restart is not restored"
+        )
 
 
 class RuntimeMode(StrEnum):
@@ -618,7 +629,9 @@ class PLCService:
             self._controller.invalidate()
             self._interlock.reset_rate_history()
             self._arming.reset()
-            if not first_run:
+            if first_run:
+                _warn_if_tripped(m)
+            else:
                 for transition in self._alarms.clear_all(now):
                     self._publisher.publish_alarm(transition)
                 self._publisher.publish_event(
