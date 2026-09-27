@@ -29,7 +29,8 @@ deterministic and fast. `simulate` integrates with an adaptive implicit solver a
 events for offline analysis.
 """
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, fields
 
 import numpy as np
 from scipy.integrate import solve_ivp
@@ -98,6 +99,10 @@ MIN_MODEL_LEVEL: float = 0.01  # m
 # within this margin of the drum top the feedwater pump can no longer push water in.
 DRY_OUT_LEVEL: float = 0.2  # m
 OVERFILL_MARGIN: float = 0.2  # m
+
+
+class PlantDivergedError(ArithmeticError):
+    """The integration produced a state that is not a number."""
 
 
 @dataclass(frozen=True)
@@ -431,10 +436,15 @@ class BoilerModel:
         k3 = rate(y0 + 0.5 * dt * k2)
         k4 = rate(y0 + dt * k3)
         y1 = y0 + dt / 6.0 * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
-        return self._bounded(BoilerState.from_vector([float(v) for v in y1]))
+        integrated = BoilerState.from_vector([float(v) for v in y1])
+        _check_finite(integrated)
+        return self._bounded(integrated)
 
     def _bounded(self, state: BoilerState) -> BoilerState:
-        """Keep an integrated state inside the physical domain of the model."""
+        """Keep an integrated state inside the physical domain of the model.
+
+        `min` and `max` pass NaN through, so the state is checked for finiteness first.
+        """
         return BoilerState(
             internal_energy=max(state.internal_energy, 0.0),
             pressure=max(state.pressure, MIN_MODEL_PRESSURE),
@@ -532,3 +542,10 @@ class BoilerModel:
             if len(t_event) > 0:
                 return f"ALARM [{event_names[i]}] at t={t_event[0]:.1f}s"
         return "Terminated by unknown event."
+
+
+def _check_finite(state: BoilerState) -> None:
+    for item in fields(state):
+        value = getattr(state, item.name)
+        if not math.isfinite(value):
+            raise PlantDivergedError(f"boiler state diverged: non-finite {item.name}")

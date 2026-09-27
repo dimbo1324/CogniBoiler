@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+from dataclasses import replace
 from typing import Any
 
 import cogniboiler_pb2 as pb
@@ -12,6 +13,7 @@ import pytest
 from aiomqtt import MqttError
 from physics_engine import __main__ as entry
 from physics_engine import mqtt_publisher
+from physics_engine.boiler import BoilerBalance, PlantDivergedError
 from physics_engine.faults import FaultKind, FaultSpec
 from physics_engine.metrics import observe_runtime
 from physics_engine.mqtt_publisher import (
@@ -95,6 +97,38 @@ class TestScenarios:
             PlantSimulator(PlantConfig(step_s=0.0))
         with pytest.raises(ValueError, match="steps"):
             PlantSimulator().step(0)
+
+    @pytest.mark.parametrize("step_s", [float("nan"), float("inf"), -1.0])
+    def test_a_step_that_is_not_a_positive_number_is_refused(
+        self, step_s: float
+    ) -> None:
+        with pytest.raises(ValueError, match="step_s"):
+            PlantConfig(step_s=step_s)
+
+    @pytest.mark.parametrize("temp_k", [float("nan"), float("inf"), 0.0, -5.0])
+    def test_a_cooling_water_temperature_must_be_a_positive_number(
+        self, temp_k: float
+    ) -> None:
+        with pytest.raises(ValueError, match="cooling_water_temp_k"):
+            PlantConfig(cooling_water_temp_k=temp_k)
+
+    def test_a_diverged_state_stops_the_step_and_keeps_the_last_good_one(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        plant = PlantSimulator()
+        boiler = plant._system.boiler
+        balance = boiler.balance
+
+        def diverging(*args: Any, **kwargs: Any) -> BoilerBalance:
+            nan = float("nan")
+            return replace(balance(*args, **kwargs), derivatives=(nan,) * 5)
+
+        monkeypatch.setattr(boiler, "balance", diverging)
+        before = plant.snapshot
+        with pytest.raises(PlantDivergedError, match="non-finite"):
+            plant.step(1)
+        assert plant.snapshot is before
+        assert plant.snapshot.step_count == 0
 
 
 class TestValvesAndInstruments:

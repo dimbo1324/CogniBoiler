@@ -10,6 +10,7 @@ runtime paces the simulator against real time; tools and tests drive it directly
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, field, replace
 
 from physics_engine.boiler import BoilerBalance
@@ -69,6 +70,12 @@ class PlantConfig:
     cooling_water_temp_k: float = COOLING_WATER_TEMP_DESIGN
     boiler_params: BoilerParameters = field(default_factory=BoilerParameters)
     turbine_params: TurbineParameters = field(default_factory=TurbineParameters)
+
+    def __post_init__(self) -> None:
+        for name in ("step_s", "cooling_water_temp_k"):
+            value = getattr(self, name)
+            if not (math.isfinite(value) and value > 0.0):
+                raise ValueError(f"{name} must be a finite number > 0, not {value!r}")
 
 
 @dataclass(frozen=True)
@@ -177,8 +184,6 @@ class PlantSimulator:
         initial_controls: ControlInputs | None = None,
     ) -> None:
         self._config = config or PlantConfig()
-        if self._config.step_s <= 0.0:
-            raise ValueError("step_s must be > 0")
         self._system = BoilerTurbineSystem(
             self._config.boiler_params, self._config.turbine_params
         )

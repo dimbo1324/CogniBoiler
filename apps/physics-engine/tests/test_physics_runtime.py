@@ -202,9 +202,17 @@ class TestSpeed:
         with pytest.raises(RuntimeCommandError, match="speed factor"):
             await paused.set_speed(speed)
 
-    def test_a_runtime_needs_a_positive_speed(self) -> None:
+    @pytest.mark.parametrize("speed", [0.0, float("nan"), float("inf")])
+    def test_a_runtime_needs_a_positive_finite_speed(self, speed: float) -> None:
         with pytest.raises(ValueError, match="speed_factor"):
-            PhysicsRuntime(PhysicsRuntimeConfig(speed_factor=0.0))
+            PhysicsRuntime(PhysicsRuntimeConfig(speed_factor=speed))
+
+    @pytest.mark.parametrize("speed", [float("nan"), float("inf")])
+    async def test_a_non_finite_speed_is_refused_at_run_time(
+        self, paused: PhysicsRuntime, speed: float
+    ) -> None:
+        with pytest.raises(RuntimeCommandError, match="speed factor"):
+            await paused.set_speed(speed)
 
 
 class TestScenariosAndFaults:

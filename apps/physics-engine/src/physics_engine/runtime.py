@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -80,8 +81,9 @@ class PhysicsRuntime:
 
     def __init__(self, config: PhysicsRuntimeConfig | None = None) -> None:
         self.config = config or PhysicsRuntimeConfig()
-        if self.config.speed_factor <= 0:
-            raise ValueError("speed_factor must be > 0")
+        speed = self.config.speed_factor
+        if not (math.isfinite(speed) and speed > 0):
+            raise ValueError(f"speed_factor must be a finite number > 0, not {speed!r}")
         self._plant = PlantSimulator(
             PlantConfig(
                 step_s=self.config.dt,

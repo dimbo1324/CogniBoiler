@@ -7,8 +7,10 @@ Test categories:
     TestNumerics  — solver stability and result validity
 """
 
+from dataclasses import replace
+
 import pytest
-from physics_engine.boiler import BoilerModel
+from physics_engine.boiler import BoilerModel, PlantDivergedError
 from physics_engine.models import BoilerParameters, BoilerState, ControlInputs
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -366,3 +368,17 @@ class TestNumerics:
         message = model.check_result(result)
         assert isinstance(message, str)
         assert len(message) > 0
+
+
+class TestRk4Step:
+    """The fixed-step integration the live plant runs."""
+
+    def test_a_non_finite_state_raises_instead_of_being_clamped(
+        self,
+        model: BoilerModel,
+        initial_state: BoilerState,
+        nominal_controls: ControlInputs,
+    ) -> None:
+        broken = replace(initial_state, flue_gas_temp=float("nan"))
+        with pytest.raises(PlantDivergedError, match="non-finite"):
+            model.step(broken, nominal_controls, dt=1.0)
