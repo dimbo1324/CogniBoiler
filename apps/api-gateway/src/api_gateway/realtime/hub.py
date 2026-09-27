@@ -5,8 +5,9 @@ One upstream per channel feeds the hub; the hub serializes each message once and
 it to every subscriber of that channel through a bounded queue. A slow client never slows
 the upstream or other clients:
 
-- telemetry is a stream of snapshots: a subscriber gets at most its rate, and when its
-  queue is full the oldest frame is dropped;
+- telemetry is a stream of snapshots: a subscriber gets at most its rate, and a frame
+  that finds its queue full is dropped — the next snapshot replaces it, and a queued
+  event is never evicted to make room;
 - PLC events and alarm changes must not be lost silently: a subscriber whose queue
   overflows is marked, and its connection is closed so the client reloads state over
   REST and resubscribes.
@@ -62,14 +63,11 @@ class Subscriber:
         return False
 
     def offer_frame(self, frame: str) -> None:
-        """Queue a telemetry frame, dropping the oldest one if the queue is full."""
-        if self.queue.full():
-            try:
-                self.queue.get_nowait()
-                self.dropped_frames += 1
-            except asyncio.QueueEmpty:
-                pass
-        self.queue.put_nowait(frame)
+        """Queue a telemetry frame, or drop it when the queue is full."""
+        try:
+            self.queue.put_nowait(frame)
+        except asyncio.QueueFull:
+            self.dropped_frames += 1
 
     def offer_event(self, frame: str) -> None:
         """Queue an event; on overflow mark the subscriber for disconnection."""

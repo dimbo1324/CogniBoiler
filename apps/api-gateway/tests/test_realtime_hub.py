@@ -41,12 +41,21 @@ class TestSubscriber:
         subscriber = Subscriber(queue_size=8, max_rate_hz=0.0)
         assert all(subscriber.telemetry_due(1.0) for _ in range(5))
 
-    async def test_a_full_queue_drops_the_oldest_telemetry(self) -> None:
+    async def test_a_full_queue_drops_the_incoming_telemetry(self) -> None:
         subscriber = Subscriber(queue_size=2, max_rate_hz=10.0)
         for frame in ("a", "b", "c"):
             subscriber.offer_frame(frame)
         assert subscriber.dropped_frames == 1
-        assert [subscriber.queue.get_nowait() for _ in range(2)] == ["b", "c"]
+        assert [subscriber.queue.get_nowait() for _ in range(2)] == ["a", "b"]
+        assert subscriber.overflowed is False
+
+    async def test_telemetry_never_evicts_a_queued_event(self) -> None:
+        subscriber = Subscriber(queue_size=2, max_rate_hz=10.0)
+        subscriber.offer_event("alarm")
+        subscriber.offer_frame("t1")
+        subscriber.offer_frame("t2")
+        assert [subscriber.queue.get_nowait() for _ in range(2)] == ["alarm", "t1"]
+        assert subscriber.dropped_frames == 1
         assert subscriber.overflowed is False
 
     async def test_an_event_that_does_not_fit_marks_the_subscriber(self) -> None:
