@@ -37,7 +37,3 @@ class RampedSetpoint:
         error = self.target - self.value
         self.value += max(-max_move, min(max_move, error))
         return self.value
-
-    @property
-    def settled(self) -> bool:
-        return self.value == self.target

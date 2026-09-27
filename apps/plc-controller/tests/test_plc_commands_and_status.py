@@ -54,7 +54,6 @@ NOMINAL = Setpoints(pressure_pa=140.0e5, water_level_m=4.8, steam_temp_k=811.0)
 def measurements(**overrides: object) -> ProcessMeasurements:
     values: dict[str, object] = {
         "simulation_time_s": 10.0,
-        "step_s": 1.0,
         "run_id": 7,
         "pressure_pa": 140.0e5,
         "water_level_m": 4.8,
@@ -67,7 +66,6 @@ def measurements(**overrides: object) -> ProcessMeasurements:
         "fuel_flow_kg_s": 17.0,
         "electrical_power_w": 300.0e6,
         "commands": ValveSet(0.6, 0.6, 0.7, 0.05),
-        "positions": ValveSet(0.6, 0.6, 0.7, 0.05),
         "qualities": {},
     }
     values.update(overrides)

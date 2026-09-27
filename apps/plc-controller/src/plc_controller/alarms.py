@@ -311,9 +311,6 @@ class AlarmConditionMonitor:
             )
         )
 
-    def active_critical(self) -> tuple[AlarmCondition, ...]:
-        return tuple(c for c in self.active() if c.rule.severity is Severity.CRITICAL)
-
     @staticmethod
     def _armed(arming: Arming, state: ArmingState) -> bool:
         match arming:

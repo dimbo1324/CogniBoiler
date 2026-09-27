@@ -76,7 +76,6 @@ class ProcessMeasurements:
     """One scan's worth of readings from the plant."""
 
     simulation_time_s: float
-    step_s: float
     run_id: int
     pressure_pa: float
     water_level_m: float
@@ -89,7 +88,6 @@ class ProcessMeasurements:
     fuel_flow_kg_s: float
     electrical_power_w: float
     commands: ValveSet
-    positions: ValveSet
     qualities: Mapping[str, SignalQuality] = field(default_factory=dict)
 
     def quality(self, sensor_id: str) -> SignalQuality:
@@ -124,7 +122,6 @@ class ProcessMeasurements:
         actuators = state.actuators
         measured = cls(
             simulation_time_s=state.simulation_time_s,
-            step_s=state.simulation.step_s if state.simulation.step_s > 0 else 1.0,
             run_id=int(state.simulation.run_id),
             pressure_pa=boiler.pressure_pa,
             water_level_m=boiler.water_level_m,
@@ -141,12 +138,6 @@ class ProcessMeasurements:
                 feedwater=actuators.feedwater_valve_command,
                 steam=actuators.steam_valve_command,
                 spray=actuators.spray_valve_command,
-            ),
-            positions=ValveSet(
-                fuel=actuators.fuel_valve_position,
-                feedwater=actuators.feedwater_valve_position,
-                steam=actuators.steam_valve_position,
-                spray=actuators.spray_valve_position,
             ),
             qualities={
                 sensor.sensor_id: _quality(sensor.quality) for sensor in state.sensors

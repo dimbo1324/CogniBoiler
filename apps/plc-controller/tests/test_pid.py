@@ -1,18 +1,7 @@
-"""
-Unit tests for PIDController and CascadePIDController.
-
-Test categories:
-    TestPID         — single PID correctness and edge cases
-    TestCascadePID  — cascade PID coupling and mode switching
-"""
+"""Unit tests for PIDController: correctness and edge cases."""
 
 import pytest
-from plc_controller.pid import (
-    CascadePIDController,
-    CascadePIDParameters,
-    PIDController,
-    PIDParameters,
-)
+from plc_controller.pid import PIDController, PIDParameters
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -43,30 +32,6 @@ def integrating_pid() -> PIDController:
         anti_windup=True,
     )
     return PIDController(params)
-
-
-@pytest.fixture  # type: ignore[misc]
-def cascade() -> CascadePIDController:
-    """Cascade PID with simple tunings for coupling tests."""
-    params = CascadePIDParameters(
-        master=PIDParameters(
-            kp=1.0,
-            ki=0.0,
-            kd=0.0,
-            output_min=0.0,
-            output_max=5.0,
-        ),
-        slave=PIDParameters(
-            kp=1.0,
-            ki=0.0,
-            kd=0.0,
-            output_min=0.0,
-            output_max=1.0,
-        ),
-        slave_setpoint_min=0.0,
-        slave_setpoint_max=5.0,
-    )
-    return CascadePIDController(params)
 
 
 # ─── PID tests ────────────────────────────────────────────────────────────────
@@ -150,30 +115,6 @@ class TestPID:
             f"Integrator wound up: integral={pid.state.integral:.1f}"
         )
 
-    def test_manual_mode_returns_fixed_output(self, simple_pid: PIDController) -> None:
-        """
-        In MANUAL mode, output must equal the manual setpoint
-        regardless of process variable.
-        """
-        simple_pid.set_manual(0.7)
-        output = simple_pid.step(setpoint=100.0, measurement=0.0, dt=1.0)
-        assert abs(output - 0.7) < 1e-9, (
-            f"MANUAL mode output wrong: expected 0.7, got {output:.6f}"
-        )
-
-    def test_auto_resumes_after_manual(self, simple_pid: PIDController) -> None:
-        """
-        After switching back to AUTO, controller must resume normal output.
-        """
-        simple_pid.set_manual(0.5)
-        simple_pid.step(setpoint=5.0, measurement=5.0, dt=1.0)
-        simple_pid.set_auto()
-
-        # With SP=PV=5.0 and kp=1.0, ki=kd=0 -> error=0 -> output=0
-        # But due to bumpless transfer integrator=0.5, output may vary
-        # Key check: controller is no longer in manual mode
-        assert not simple_pid.is_manual
-
     def test_zero_error_gives_zero_proportional_output(
         self, simple_pid: PIDController
     ) -> None:
@@ -182,71 +123,3 @@ class TestPID:
         """
         output = simple_pid.step(setpoint=5.0, measurement=5.0, dt=1.0)
         assert abs(output) < 1e-9, f"Non-zero output at zero error: {output:.6f}"
-
-
-# ─── Cascade PID tests ────────────────────────────────────────────────────────
-
-
-class TestCascadePID:
-    """
-    Verify cascade PID master-slave coupling.
-    """
-
-    def test_larger_primary_error_gives_larger_output(
-        self, cascade: CascadePIDController
-    ) -> None:
-        """
-        Larger primary (master) error must produce larger final output.
-        """
-        out_small = cascade.step(
-            primary_setpoint=10.0,
-            primary_measurement=9.5,  # error = 0.5
-            inner_measurement=0.0,
-            dt=1.0,
-        )
-        cascade.reset()
-        out_large = cascade.step(
-            primary_setpoint=10.0,
-            primary_measurement=8.0,  # error = 2.0
-            inner_measurement=0.0,
-            dt=1.0,
-        )
-        assert out_large > out_small, (
-            f"Larger error did not increase output: "
-            f"small={out_small:.4f}, large={out_large:.4f}"
-        )
-
-    def test_manual_mode_freezes_output(self, cascade: CascadePIDController) -> None:
-        """
-        In MANUAL mode, output must be fixed regardless of inputs.
-        """
-        cascade.set_manual(0.4)
-        out1 = cascade.step(
-            primary_setpoint=100.0,
-            primary_measurement=0.0,
-            inner_measurement=0.0,
-            dt=1.0,
-        )
-        out2 = cascade.step(
-            primary_setpoint=100.0,
-            primary_measurement=0.0,
-            inner_measurement=0.0,
-            dt=1.0,
-        )
-        assert abs(out1 - 0.4) < 1e-9
-        assert abs(out2 - 0.4) < 1e-9
-
-    def test_output_within_slave_bounds(self, cascade: CascadePIDController) -> None:
-        """
-        Cascade output must always be within slave output_min/output_max.
-        """
-        for _ in range(10):
-            out = cascade.step(
-                primary_setpoint=100.0,
-                primary_measurement=0.0,
-                inner_measurement=0.0,
-                dt=1.0,
-            )
-        assert (
-            cascade.params.slave.output_min <= out <= cascade.params.slave.output_max
-        ), f"Output out of slave bounds: {out:.4f}"

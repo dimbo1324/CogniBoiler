@@ -56,10 +56,6 @@ class PhysicsClient:
             self._stub = pb2_grpc.PhysicsServiceStub(self._channel)
         return self._stub
 
-    async def connect(self) -> None:
-        """Create the gRPC channel lazily."""
-        self._connected_stub()
-
     async def close(self) -> None:
         """Close the gRPC channel if it was opened."""
         if self._channel is None:
@@ -72,13 +68,6 @@ class PhysicsClient:
         """Fetch PhysicsService health."""
         return await self._connected_stub().Health(
             pb2.Empty(), timeout=self.config.timeout_s
-        )
-
-    async def get_system_state(self) -> pb2.SystemStateMsg:
-        """Fetch the current live process state."""
-        return await self._connected_stub().GetSystemState(
-            pb2.Empty(),
-            timeout=self.config.timeout_s,
         )
 
     async def stream_system_state(self) -> AsyncGenerator[pb2.SystemStateMsg]:

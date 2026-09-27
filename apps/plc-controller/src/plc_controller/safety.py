@@ -193,7 +193,6 @@ class EmergencyStop:
     def __init__(self) -> None:
         self._active: bool = False
         self._trigger_event: SafetyEvent | None = None
-        self._reset_count: int = 0
 
     @property
     def is_active(self) -> bool:
@@ -204,11 +203,6 @@ class EmergencyStop:
     def trigger_event(self) -> SafetyEvent | None:
         """The event that caused the last trip, or None if never tripped."""
         return self._trigger_event
-
-    @property
-    def reset_count(self) -> int:
-        """Number of times this instance has been reset by an operator."""
-        return self._reset_count
 
     def trigger(
         self,
@@ -261,12 +255,7 @@ class EmergencyStop:
             return
 
         self._active = False
-        self._reset_count += 1
-        logger.warning(
-            "Emergency stop RESET by operator=%s  reset_count=%d",
-            operator_id,
-            self._reset_count,
-        )
+        logger.warning("Emergency stop RESET by operator=%s", operator_id)
 
 
 # ─── Main safety interlock ────────────────────────────────────────────────────
@@ -319,16 +308,10 @@ class SafetyInterlock:
         )
         self.emergency_stop = EmergencyStop()
 
-        self._check_count: int = 0
         self._warning_count: int = 0
         self._trip_count: int = 0
 
     # ─── Stats ───────────────────────────────────────────────────────────────
-
-    @property
-    def check_count(self) -> int:
-        """Total number of check() calls since creation."""
-        return self._check_count
 
     @property
     def warning_count(self) -> int:
@@ -396,8 +379,6 @@ class SafetyInterlock:
         Returns:
             SafetyStatus with safe flag, highest level, events, and overrides.
         """
-        self._check_count += 1
-
         if self.emergency_stop.is_active:
             self._pressure_rate.check(pressure, dt)
             overrides = trip_overrides(self.emergency_stop.trigger_event)

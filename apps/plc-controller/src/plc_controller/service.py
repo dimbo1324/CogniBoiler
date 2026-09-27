@@ -53,6 +53,7 @@ from plc_controller.safety_limits import (
     WATER_LEVEL_LIMITS,
     ArmingState,
     SafetyEvent,
+    SafetyLevel,
     trip_overrides,
 )
 from plc_controller.status import SafetySnapshot, control_status
@@ -169,9 +170,7 @@ class PLCService:
         self._commands_rejected = 0
         self._commands_forwarded = 0
         self._latest_command = CommandSnapshot()
-        self._manual_command: CommandSnapshot | None = None
         self._last_sent_key: tuple[float, float, float, float, int, str] | None = None
-        self._latest_state: pb2.SystemStateMsg | None = None
         self._latest_measurements: ProcessMeasurements | None = None
         self._trip_cause: SafetySnapshot | None = None
         self._run_id: int | None = None
@@ -425,7 +424,6 @@ class PLCService:
             result = await self._forward(snapshot)
             if result.accepted:
                 self._change_mode(RuntimeMode.MANUAL, operator)
-                self._manual_command = snapshot
             return result
 
     async def set_mode(self, mode: RuntimeMode, operator_id: str) -> ValidationResult:
@@ -462,10 +460,7 @@ class PLCService:
                 return self._reject(attributed.reason)
             if self._interlock.emergency_stop.is_active:
                 return self._reject("Emergency stop is active. Reset it first.")
-            if mode is RuntimeMode.MANUAL and self._mode is not RuntimeMode.MANUAL:
-                self._manual_command = self.latest_command()
             if mode is RuntimeMode.AUTO:
-                self._manual_command = None
                 self._controller.invalidate()
             self._change_mode(mode, operator)
             return ValidationResult(accepted=True)
@@ -495,7 +490,6 @@ class PLCService:
             cause = self._trip_cause
             self._interlock.reset(operator_id=operator)
             self._controller.invalidate()
-            self._manual_command = None
             self._trip_cause = None
             self._mode = RuntimeMode.AUTO
             self._publisher.publish_event(
@@ -509,10 +503,6 @@ class PLCService:
             return ValidationResult(accepted=True)
 
     # ─── Status ─────────────────────────────────────────────────────────────
-
-    async def get_process_state(self) -> pb2.SystemStateMsg:
-        """Fetch the current process state from the live PhysicsService."""
-        return await self._physics.get_system_state()
 
     async def get_control_status(self) -> pb2.PLCStatusMsg:
         """The PLC's mode, targets, working setpoints, loops and alarm conditions."""
@@ -608,7 +598,6 @@ class PLCService:
         async with self._lock:
             now = now_ms()
             self._note_non_finite(measurements)
-            self._latest_state = state
             dt = self._advance(measurements, now)
             self._latest_measurements = measurements
             arming = self._arming.update(
@@ -616,7 +605,7 @@ class PLCService:
             )
 
             was_latched = self._interlock.emergency_stop.is_active
-            self._interlock.check(
+            status = self._interlock.check(
                 pressure=measurements.pressure_pa,
                 water_level=measurements.water_level_m,
                 water_temp=measurements.water_temp_k,
@@ -629,8 +618,8 @@ class PLCService:
             trigger = self._interlock.emergency_stop.trigger_event
             if (
                 not was_latched
+                and status.level is SafetyLevel.TRIP
                 and trigger is not None
-                and (self._interlock.emergency_stop.is_active)
             ):
                 self._enter_estop(
                     trigger, "safety-interlock", PlcEventKind.INTERLOCK_TRIPPED
@@ -745,7 +734,6 @@ class PLCService:
         self, event: SafetyEvent, operator_id: str, kind: PlcEventKind
     ) -> None:
         self._trip_cause = SafetySnapshot.from_event(event)
-        self._manual_command = None
         self._change_mode(RuntimeMode.ESTOP, operator_id)
         logger.warning(
             "E-Stop latched: %s=%.4g (limit %.4g) by %s",

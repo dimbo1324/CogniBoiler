@@ -1,16 +1,13 @@
 """
-PID controller and cascade PID for boiler control loops.
+Discrete-time PID controller for the boiler control loops.
 
-Implements a discrete-time PID controller with:
     - Anti-windup (integrator clamping)
     - Output clamping
     - Derivative filtering (low-pass)
-    - Bumpless transfer between AUTO and MANUAL modes
     - Back-calculation when the caller limits the output further
 
-Cascade PID connects two PID controllers in series:
-    - Master (outer): slow loop, computes setpoint for slave
-    - Slave (inner):  fast loop, drives the actuator directly
+Bumpless transfer is done by the caller: `reset(initial_output=...)` loads the
+integrator with the valve position the loop takes over (see `control.py`).
 """
 
 import math
@@ -62,7 +59,7 @@ class PIDState:
     integral: float = 0.0  # Accumulated integral term
     prev_error: float = 0.0  # Error at previous time step (for derivative)
     prev_derivative: float = 0.0  # Filtered derivative at previous step
-    prev_output: float = 0.0  # Output at previous step (for bumpless transfer)
+    prev_output: float = 0.0  # Output at previous step
     initialized: bool = False  # False until first step() call
 
 
@@ -98,33 +95,6 @@ class PIDController:
     def __init__(self, params: PIDParameters) -> None:
         self.params = params
         self.state = PIDState()
-        self._manual_output: float | None = None  # set when in MANUAL mode
-
-    # ─── Mode control ─────────────────────────────────────────────────────────
-
-    def set_manual(self, output: float) -> None:
-        """
-        Switch to MANUAL mode with a fixed output value.
-
-        The integrator is back-calculated to match the manual output,
-        ensuring bumpless transfer back to AUTO.
-
-        Args:
-            output: Fixed output value [output_min, output_max].
-        """
-        output = max(self.params.output_min, min(self.params.output_max, output))
-        self._manual_output = output
-        # Back-calculate integrator for bumpless AUTO resumption
-        self.state.integral = output
-
-    def set_auto(self) -> None:
-        """Switch to AUTO mode (resume PID control)."""
-        self._manual_output = None
-
-    @property
-    def is_manual(self) -> bool:
-        """True if controller is in MANUAL mode."""
-        return self._manual_output is not None
 
     # ─── Reset ────────────────────────────────────────────────────────────────
 
@@ -140,7 +110,6 @@ class PIDController:
         if not math.isfinite(initial_output):
             initial_output = self.state.prev_output
         self.state = PIDState(integral=initial_output, prev_output=initial_output)
-        self._manual_output = None
 
     def constrain(self, limited_output: float) -> None:
         """
@@ -177,10 +146,6 @@ class PIDController:
             that is not a real number the step is skipped: the previous output is
             returned and the state is left untouched.
         """
-        if self._manual_output is not None:
-            self.state.prev_output = self._manual_output
-            return self._manual_output
-
         if not all_finite(setpoint, measurement, dt):
             return self.state.prev_output
 
@@ -225,117 +190,3 @@ class PIDController:
         self.state.prev_output = output
 
         return output
-
-
-# ─── Cascade PID ──────────────────────────────────────────────────────────────
-
-
-@dataclass
-class CascadePIDParameters:
-    """
-    Tuning parameters for a cascade (master-slave) PID pair.
-
-    Master (outer loop): controls process variable (e.g. pressure, level).
-    Slave  (inner loop): controls intermediate variable (e.g. fuel flow, feed flow).
-    """
-
-    master: PIDParameters  # Outer (slow) loop
-    slave: PIDParameters  # Inner (fast) loop
-
-    # Setpoint limits for the slave loop output of the master [process units].
-    # Master output is clamped to this range before being passed to the slave
-    # as its setpoint.  Prevents the master from demanding physically impossible
-    # intermediate setpoints.
-    slave_setpoint_min: float = 0.0
-    slave_setpoint_max: float = 1.0
-
-
-class CascadePIDController:
-    """
-    Cascade (master-slave) PID controller.
-
-    The master PID controls the primary process variable (e.g. drum pressure).
-    Its output becomes the setpoint for the slave PID, which controls a faster
-    inner variable (e.g. fuel flow rate) and drives the final actuator.
-
-    Cascade control advantages over single-loop PID:
-        1. Inner loop rejects disturbances before they reach the outer loop.
-        2. Outer loop can be tuned more aggressively (inner loop is faster).
-        3. Actuator nonlinearity is handled by the inner loop.
-
-    Usage:
-        params = CascadePIDParameters(
-            master=PIDParameters(kp=0.5, ki=0.02, kd=1.0,
-                                 output_min=0.0, output_max=10.0),
-            slave=PIDParameters(kp=2.0,  ki=0.5,  kd=0.1,
-                                output_min=0.0, output_max=1.0),
-            slave_setpoint_min=0.0,
-            slave_setpoint_max=10.0,
-        )
-        cascade = CascadePIDController(params)
-        valve_cmd = cascade.step(
-            primary_setpoint=140e5,    # desired drum pressure [Pa]
-            primary_measurement=138e5, # actual drum pressure [Pa]
-            inner_measurement=6.5,     # actual fuel flow [kg/s]
-            dt=1.0,
-        )
-    """
-
-    def __init__(self, params: CascadePIDParameters) -> None:
-        self.params = params
-        self.master = PIDController(params.master)
-        self.slave = PIDController(params.slave)
-
-    def step(
-        self,
-        primary_setpoint: float,
-        primary_measurement: float,
-        inner_measurement: float,
-        dt: float,
-    ) -> float:
-        """
-        Compute one cascade PID step.
-
-        Args:
-            primary_setpoint:     Desired value for outer loop (e.g. pressure [Pa]).
-            primary_measurement:  Measured value for outer loop.
-            inner_measurement:    Measured value for inner loop (e.g. fuel flow [kg/s]).
-            dt:                   Time step [s].
-
-        Returns:
-            Final actuator command, clamped to slave output range [0, 1].
-        """
-        # ── Master: primary variable -> slave setpoint ─────────────────────────
-        slave_setpoint_raw = self.master.step(
-            setpoint=primary_setpoint,
-            measurement=primary_measurement,
-            dt=dt,
-        )
-        # Clamp master output to valid slave setpoint range
-        slave_setpoint = max(
-            self.params.slave_setpoint_min,
-            min(self.params.slave_setpoint_max, slave_setpoint_raw),
-        )
-
-        # ── Slave: inner variable -> actuator command ──────────────────────────
-        actuator_command = self.slave.step(
-            setpoint=slave_setpoint,
-            measurement=inner_measurement,
-            dt=dt,
-        )
-
-        return actuator_command
-
-    def set_manual(self, output: float) -> None:
-        """Set both loops to MANUAL with bumpless transfer."""
-        self.slave.set_manual(output)
-
-    def set_auto(self) -> None:
-        """Resume AUTO mode on both loops."""
-        self.master.set_auto()
-        self.slave.set_auto()
-
-    def reset(self) -> None:
-        """Reset both controllers."""
-        self.master.reset()
-        self.slave.reset()

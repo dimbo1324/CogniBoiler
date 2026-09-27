@@ -226,9 +226,6 @@ class TestMonitor:
             "water_level_m",
             "stack_temp_k",
         ]
-        assert [c.rule.parameter for c in monitor.active_critical()] == [
-            "water_level_m"
-        ]
 
     def test_a_new_run_clears_every_condition(self) -> None:
         monitor = AlarmConditionMonitor((STACK_HIGH, LEVEL_LOW))

@@ -211,7 +211,7 @@ class TestEmergencyStop:
         estop = EmergencyStop()
         estop.trigger("pressure_pa", 190.0e5, 185.0e5)
         estop.reset(operator_id="eng")
-        assert estop.reset_count == 1
+        assert not estop.is_active
 
     def test_trigger_stores_event(self) -> None:
         estop = EmergencyStop()
@@ -231,7 +231,7 @@ class TestEmergencyStop:
     def test_reset_without_trigger_is_noop(self) -> None:
         estop = EmergencyStop()
         estop.reset(operator_id="eng")  # should not raise
-        assert estop.reset_count == 0
+        assert not estop.is_active
 
     # Emergency scenario 9
     def test_triggered_estop_blocks_restart_without_reset(self) -> None:
@@ -262,12 +262,6 @@ class TestSafetyInterlockNominal:
         interlock = make_interlock()
         status = nominal_check(interlock)
         assert len(status.events) == 0
-
-    def test_check_count_increments(self) -> None:
-        interlock = make_interlock()
-        nominal_check(interlock)
-        nominal_check(interlock)
-        assert interlock.check_count == 2
 
 
 class TestEmergencyScenarios:

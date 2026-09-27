@@ -59,7 +59,6 @@ class SafetyLevel(StrEnum):
 class SafetyAction(StrEnum):
     """Action taken in response to a safety event."""
 
-    NONE = "none"
     WARN = "warn"
     EMERGENCY_STOP = "emergency_stop"
 
