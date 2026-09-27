@@ -14,13 +14,17 @@ from cogniboiler_observability import client_interceptors
 
 DEFAULT_PHYSICS_TARGET: str = "localhost:50052"
 
+# The gateway gives a PLCService call 2 s. An E-Stop can wait behind a scan's command
+# to the plant and then send its own, so each plant call must take under half of it.
+DEFAULT_PHYSICS_TIMEOUT_S: float = 0.75
+
 
 @dataclass
 class PhysicsClientConfig:
     """Connection parameters for the PhysicsService."""
 
     target: str = DEFAULT_PHYSICS_TARGET
-    timeout_s: float = 2.0
+    timeout_s: float = DEFAULT_PHYSICS_TIMEOUT_S
 
 
 class PhysicsClient:

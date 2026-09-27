@@ -20,6 +20,7 @@ import time
 from enum import StrEnum
 
 import cogniboiler_pb2 as pb2
+import grpc.aio
 from cogniboiler_runtime import now_ms
 
 from plc_controller.alarms import (
@@ -68,6 +69,20 @@ EXTERNAL_COMMAND_SOURCES: frozenset[int] = frozenset(
 
 # Commands are compared at the precision they are deduplicated at.
 COMMAND_TOLERANCE: float = 1.0e-4
+
+# Failures of the plant link, as opposed to faults of the PLC itself.
+LINK_ERRORS: tuple[type[Exception], ...] = (grpc.aio.AioRpcError, ConnectionError)
+PLANT_DID_NOT_ACKNOWLEDGE: str = "plant did not acknowledge the command"
+ESTOP_UNSENT: str = (
+    "E-Stop latched; the plant has not yet acknowledged the trip command"
+)
+
+
+def link_error(exc: BaseException) -> str:
+    """A one-line reason for a failed call to the plant."""
+    if isinstance(exc, grpc.aio.AioRpcError):
+        return f"{exc.code().name}: {exc.details()}"
+    return str(exc) or type(exc).__name__
 
 
 def _plant_holds(reported: ValveSet, command: CommandSnapshot) -> bool:
@@ -145,6 +160,8 @@ class PLCService:
         self._control_task: asyncio.Task[None] | None = None
         self._task_error = ""
         self._stream_failing = False
+        self._forward_failing = False
+        self._forward_failures = 0
         self._holding_non_finite = False
 
     # ─── Lifecycle ──────────────────────────────────────────────────────────
@@ -340,9 +357,13 @@ class PLCService:
                 operator_id=operator_id,
                 timestamp_ms=now_ms(),
             )
-            self._change_mode(RuntimeMode.MANUAL, operator_id)
-            self._manual_command = snapshot
-            return await self._forward(snapshot)
+            # The mode follows the command only once the plant has it: a command that
+            # never arrived must not leave the unit in MANUAL with nobody driving it.
+            result = await self._forward(snapshot)
+            if result.accepted:
+                self._change_mode(RuntimeMode.MANUAL, operator_id)
+                self._manual_command = snapshot
+            return result
 
     async def set_mode(self, mode: RuntimeMode, operator_id: str) -> ValidationResult:
         """AUTO or MANUAL on request; ESTOP is a manual trip that latches."""
@@ -353,9 +374,19 @@ class PLCService:
                     event = self._interlock.trip("manual_trip", 1.0, 1.0)
                     self._enter_estop(event, operator, PlcEventKind.MANUAL_TRIP)
                     if self._latest_measurements is not None:
-                        await self._forward(
+                        sent = await self._forward(
                             self._trip_command(self._latest_measurements, 0.0)
                         )
+                        if not sent.accepted:
+                            # The latch stands either way; every scan re-sends the trip
+                            # command until the plant holds it.
+                            logger.warning(
+                                "E-Stop by %s is latched, but the plant has not "
+                                "acknowledged the trip command: %s",
+                                operator,
+                                sent.reason,
+                            )
+                            return ValidationResult(accepted=True, reason=ESTOP_UNSENT)
                 return ValidationResult(accepted=True)
 
             if self._interlock.emergency_stop.is_active:
@@ -674,6 +705,24 @@ class PLCService:
             logger.info("Every plant reading is a number again")
         self._holding_non_finite = not finite
 
+    def _forward_failed(self, snapshot: CommandSnapshot, exc: Exception) -> None:
+        """A person's command is reported every time; the PLC's own once per outage."""
+        self._forward_failures += 1
+        reason = link_error(exc)
+        if int(snapshot.source) in EXTERNAL_COMMAND_SOURCES:
+            logger.warning(
+                "Command from %s did not reach the plant: %s",
+                snapshot.operator_id,
+                reason,
+            )
+        elif not self._forward_failing:
+            logger.warning(
+                "PhysicsService did not acknowledge the PLC's command: %s — "
+                "the next scan sends it again",
+                reason,
+            )
+        self._forward_failing = True
+
     async def _forward(self, snapshot: CommandSnapshot) -> ValidationResult:
         """Send a command to PhysicsService, skipping exact repeats."""
         key = (
@@ -688,17 +737,24 @@ class PLCService:
             self._latest_command = snapshot
             return ValidationResult(accepted=True)
 
-        ack = await self._physics.apply_command(
-            pb2.ControlCommandMsg(
-                fuel_valve=snapshot.fuel_valve,
-                feedwater_valve=snapshot.feedwater_valve,
-                steam_valve=snapshot.steam_valve,
-                spray_valve=snapshot.spray_valve,
-                timestamp_ms=snapshot.timestamp_ms,
-                source=snapshot.source,
-                operator_id=snapshot.operator_id,
+        try:
+            ack = await self._physics.apply_command(
+                pb2.ControlCommandMsg(
+                    fuel_valve=snapshot.fuel_valve,
+                    feedwater_valve=snapshot.feedwater_valve,
+                    steam_valve=snapshot.steam_valve,
+                    spray_valve=snapshot.spray_valve,
+                    timestamp_ms=snapshot.timestamp_ms,
+                    source=snapshot.source,
+                    operator_id=snapshot.operator_id,
+                )
             )
-        )
+        except LINK_ERRORS as exc:
+            self._forward_failed(snapshot, exc)
+            return ValidationResult(accepted=False, reason=PLANT_DID_NOT_ACKNOWLEDGE)
+        if self._forward_failing:
+            logger.info("PhysicsService acknowledges commands again")
+            self._forward_failing = False
         if not ack.accepted:
             logger.warning("PhysicsService refused a command: %s", ack.reason)
             return self._reject(ack.reason)

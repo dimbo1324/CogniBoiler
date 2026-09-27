@@ -7,6 +7,8 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import cogniboiler_pb2 as pb2
+import grpc
+import grpc.aio
 from plc_controller.service import PLCService
 
 SENSORS: tuple[str, ...] = (
@@ -82,6 +84,15 @@ def state(
             pb2.SensorStatusMsg(sensor_id=sensor, quality=code)
             for sensor, code in quality.items()
         ],
+    )
+
+
+def rpc_error(
+    code: grpc.StatusCode = grpc.StatusCode.UNAVAILABLE,
+) -> grpc.aio.AioRpcError:
+    """The error a gRPC call raises when the plant cannot be reached."""
+    return grpc.aio.AioRpcError(
+        code, grpc.aio.Metadata(), grpc.aio.Metadata(), details="plant unreachable"
     )
 
 
