@@ -9,15 +9,22 @@ gave them. Refusals by the gateway become status codes:
     no signed-in user, 401, 403      BadUserAccessDenied
     400, 404, 409, 422               BadInvalidArgument
     gateway or upstream unavailable  BadCommunicationError
+
+Arguments of the wrong type, NaN or infinite are BadInvalidArgument before anything is
+sent; a defect inside a method is BadInternalError.
 """
 
 from __future__ import annotations
 
+import functools
 import logging
+import math
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from asyncua import ua
 from cogniboiler_observability import correlation_scope
+from cogniboiler_runtime import finite_number
 
 from opcua_server.gateway import GatewayClient, GatewayReply, GatewayUnavailableError
 from opcua_server.identity import CURRENT_USER, GatewayUser
@@ -28,6 +35,13 @@ logger = logging.getLogger(__name__)
 
 # ua is untyped: a result is a list of ua.Variant outputs or a ua.StatusCode.
 MethodResult = Any
+
+SET_LOAD_DEMAND = "SetLoadDemand"
+SET_CONTROL_MODE = "SetControlMode"
+RESET_EMERGENCY_STOP = "ResetEmergencyStop"
+APPLY_VALVE_COMMAND = "ApplyValveCommand"
+ACKNOWLEDGE_ALARM = "AcknowledgeAlarm"
+ACKNOWLEDGE_ALL_ALARMS = "AcknowledgeAllAlarms"
 
 
 def argument(name: str, variant_type: ua.VariantType, description: str) -> ua.Argument:
@@ -50,16 +64,58 @@ def _status(code: int) -> Any:
     return status(code)
 
 
+def _value(variant: Any) -> Any:
+    return variant.Value if isinstance(variant, ua.Variant) else variant
+
+
 def _number(variant: Any) -> float | None:
-    value = variant.Value if isinstance(variant, ua.Variant) else variant
-    if isinstance(value, bool) or not isinstance(value, int | float):
+    """A finite number: asyncua does not enforce the declared input types."""
+    return finite_number(_value(variant))
+
+
+def _integer(variant: Any) -> int | None:
+    """An integer, or a float with an integral finite value; every digit is kept."""
+    value = _value(variant)
+    if isinstance(value, bool):
         return None
-    return float(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
+        return int(value)
+    return None
 
 
 def _text(variant: Any) -> str | None:
-    value = variant.Value if isinstance(variant, ua.Variant) else variant
+    value = _value(variant)
     return value if isinstance(value, str) else None
+
+
+def _guarded[**P](
+    action: str,
+) -> Callable[
+    [Callable[P, Awaitable[MethodResult]]], Callable[P, Awaitable[MethodResult]]
+]:
+    """Turn a defect inside a method into BadInternalError and one warning.
+
+    Uncaught, asyncua logs the exception as an ERROR traceback and answers
+    BadUnexpectedError, and any client, anonymous ones included, could trigger it.
+    """
+
+    def wrap(
+        callback: Callable[P, Awaitable[MethodResult]],
+    ) -> Callable[P, Awaitable[MethodResult]]:
+        @functools.wraps(callback)
+        async def guarded(*args: P.args, **kwargs: P.kwargs) -> MethodResult:
+            try:
+                return await callback(*args, **kwargs)
+            except Exception:
+                logger.warning("OPC UA %s failed unexpectedly", action, exc_info=True)
+                METHOD_CALLS.labels(action, "failed").inc()
+                return _status(StatusCodes.BadInternalError)
+
+        return guarded
+
+    return wrap
 
 
 class MethodHandlers:
@@ -133,25 +189,29 @@ class MethodHandlers:
             return None
         return await self._gateway.request("POST", path, payload, tokens.access_token)
 
+    @_guarded(SET_LOAD_DEMAND)
     async def set_load_demand(self, parent: Any, load_w: Any) -> MethodResult:
         value = _number(load_w)
         if value is None:
             return _status(StatusCodes.BadInvalidArgument)
         return await self._forward(
-            "SetLoadDemand", "/api/v1/commands/load", {"load_w": value}
+            SET_LOAD_DEMAND, "/api/v1/commands/load", {"load_w": value}
         )
 
+    @_guarded(SET_CONTROL_MODE)
     async def set_control_mode(self, parent: Any, mode: Any) -> MethodResult:
         value = _text(mode)
         if value is None:
             return _status(StatusCodes.BadInvalidArgument)
         return await self._forward(
-            "SetControlMode", "/api/v1/commands/mode", {"mode": value.strip().lower()}
+            SET_CONTROL_MODE, "/api/v1/commands/mode", {"mode": value.strip().lower()}
         )
 
+    @_guarded(RESET_EMERGENCY_STOP)
     async def reset_emergency_stop(self, parent: Any) -> MethodResult:
-        return await self._forward("ResetEmergencyStop", "/api/v1/commands/reset", {})
+        return await self._forward(RESET_EMERGENCY_STOP, "/api/v1/commands/reset", {})
 
+    @_guarded(APPLY_VALVE_COMMAND)
     async def apply_valve_command(
         self, parent: Any, fuel: Any, feedwater: Any, steam: Any
     ) -> MethodResult:
@@ -159,7 +219,7 @@ class MethodHandlers:
         if any(value is None for value in values):
             return _status(StatusCodes.BadInvalidArgument)
         return await self._forward(
-            "ApplyValveCommand",
+            APPLY_VALVE_COMMAND,
             "/api/v1/commands/valve",
             {
                 "fuel_valve": values[0],
@@ -168,23 +228,23 @@ class MethodHandlers:
             },
         )
 
+    @_guarded(ACKNOWLEDGE_ALARM)
     async def acknowledge_alarm(
         self, parent: Any, alarm_id: Any, comment: Any
     ) -> MethodResult:
-        number = _number(alarm_id)
+        number = _integer(alarm_id)
         text = _text(comment)
-        if number is None or text is None or number < 1 or number != int(number):
+        if number is None or text is None or number < 1:
             return _status(StatusCodes.BadInvalidArgument)
         return await self._forward(
-            "AcknowledgeAlarm",
-            f"/api/v1/alarms/{int(number)}/ack",
-            {"comment": text},
+            ACKNOWLEDGE_ALARM, f"/api/v1/alarms/{number}/ack", {"comment": text}
         )
 
+    @_guarded(ACKNOWLEDGE_ALL_ALARMS)
     async def acknowledge_all_alarms(self, parent: Any, comment: Any) -> MethodResult:
         text = _text(comment)
         if text is None:
             return _status(StatusCodes.BadInvalidArgument)
         return await self._forward(
-            "AcknowledgeAllAlarms", "/api/v1/alarms/ack-all", {"comment": text}
+            ACKNOWLEDGE_ALL_ALARMS, "/api/v1/alarms/ack-all", {"comment": text}
         )

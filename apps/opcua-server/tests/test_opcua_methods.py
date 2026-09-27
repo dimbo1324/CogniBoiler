@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from collections.abc import AsyncIterator, Iterator
 from types import SimpleNamespace
@@ -141,6 +142,12 @@ class TestMethods:
             lambda h: h.acknowledge_alarm(None, 2.5, "x"),
             lambda h: h.acknowledge_alarm(None, 7, None),
             lambda h: h.acknowledge_all_alarms(None, 12),
+            lambda h: h.acknowledge_alarm(None, math.nan, "x"),
+            lambda h: h.acknowledge_alarm(None, math.inf, "x"),
+            lambda h: h.acknowledge_alarm(None, True, "x"),
+            lambda h: h.set_load_demand(None, math.nan),
+            lambda h: h.set_load_demand(None, -math.inf),
+            lambda h: h.apply_valve_command(None, math.inf, 0, 0),
         ],
     )
     async def test_bad_arguments_never_reach_the_gateway(
@@ -151,6 +158,51 @@ class TestMethods:
         assert code(result) == StatusCodes.BadInvalidArgument
         # The background sign-in may have run; no command may have.
         assert [c.path for c in script.calls if not c.path.startswith("/auth/")] == []
+
+    @pytest.mark.parametrize("alarm_id", [math.nan, math.inf, -math.inf])
+    async def test_an_anonymous_non_finite_alarm_id_is_an_invalid_argument(
+        self, alarm_id: float, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        handlers = MethodHandlers(GatewayClient("http://127.0.0.1:1"))
+        with caplog.at_level(logging.DEBUG):
+            result = await handlers.acknowledge_alarm(None, ua.Variant(alarm_id), "x")
+        assert code(result) == StatusCodes.BadInvalidArgument
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+    @pytest.mark.parametrize(
+        ("alarm_id", "path"),
+        [
+            (7.0, "/api/v1/alarms/7/ack"),
+            (2**53 + 1, f"/api/v1/alarms/{2**53 + 1}/ack"),
+        ],
+    )
+    async def test_an_integral_alarm_id_keeps_every_digit(
+        self,
+        as_operator: GatewayClient,
+        gateway: tuple[str, GatewayScript],
+        alarm_id: float,
+        path: str,
+    ) -> None:
+        _, script = gateway
+        result = await MethodHandlers(as_operator).acknowledge_alarm(None, alarm_id, "")
+        assert outputs(result) == (True, "")
+        assert script.calls[-1].path == path
+
+    async def test_an_unexpected_failure_is_an_internal_error_not_a_traceback(
+        self,
+        as_operator: GatewayClient,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        async def broken(*_: Any, **__: Any) -> Any:
+            raise RuntimeError("defect in the forwarding")
+
+        monkeypatch.setattr(as_operator, "request", broken)
+        with caplog.at_level(logging.WARNING, logger="opcua_server.methods"):
+            result = await MethodHandlers(as_operator).set_load_demand(None, 1e6)
+        assert code(result) == StatusCodes.BadInternalError
+        assert "SetLoadDemand failed unexpectedly" in caplog.text
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
     async def test_a_refusal_by_the_plc_is_returned_as_outputs(
         self, as_operator: GatewayClient, gateway: tuple[str, GatewayScript]
