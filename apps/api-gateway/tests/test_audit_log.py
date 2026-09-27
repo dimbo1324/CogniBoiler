@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 from api_gateway.audit import (
+    carries_credentials,
     command_outcome,
     should_audit,
     write_audit_entry,
@@ -18,6 +19,8 @@ from api_gateway.dependencies import get_db
 from api_gateway.models.user import AuditLog
 from fastapi import FastAPI
 from httpx import AsyncClient
+
+NEW_PASSWORD = "Copper-Kettle-Bridge-7"
 
 
 def bearer(tokens: dict[str, str]) -> dict[str, str]:
@@ -55,6 +58,25 @@ class TestWhatIsRecorded:
     ) -> None:
         assert should_audit(method, path, status) is expected
 
+    @pytest.mark.parametrize(
+        ("path", "expected"),
+        [
+            ("/auth/login", True),
+            ("/auth/password", True),
+            ("/api/v1/users", True),
+            ("/api/v1/users/7/password", True),
+            ("/auth/login/", True),
+            ("/Auth/Login", True),
+            ("/auth/refresh", False),
+            ("/auth/logout", False),
+            ("/api/v1/users/7", False),
+            ("/api/v1/users/7/revoke-sessions", False),
+            ("/api/v1/commands/load", False),
+        ],
+    )
+    def test_which_bodies_carry_credentials(self, path: str, expected: bool) -> None:
+        assert carries_credentials(path) is expected
+
     def test_a_command_outcome_names_the_refusal(self) -> None:
         assert command_outcome(True, "") == "accepted"
         assert command_outcome(False, "E-Stop active") == "refused: E-Stop active"
@@ -72,9 +94,27 @@ class TestWhatIsRecorded:
         assert found[0]["detail"] == "username=viewer1"
         assert found[0]["response_status"] == 200
 
-    async def test_the_body_is_kept_only_as_a_digest(
+    async def test_a_command_body_is_kept_only_as_a_digest(
+        self,
+        client: AsyncClient,
+        operator_tokens: dict[str, str],
+        admin_tokens: dict[str, str],
+    ) -> None:
+        body = json.dumps({"mode": "manual"}).encode()
+        await client.post(
+            "/api/v1/commands/mode",
+            content=body,
+            headers={"Content-Type": "application/json", **bearer(operator_tokens)},
+        )
+        row = (await entries(client, admin_tokens, endpoint="/api/v1/commands"))[0]
+        assert row["request_body_hash"] == hashlib.sha256(body).hexdigest()
+        assert "manual" not in json.dumps(row)
+
+    async def test_a_sign_in_body_leaves_no_digest(
         self, client: AsyncClient, admin_tokens: dict[str, str]
     ) -> None:
+        # A digest of {"username": ..., "password": ...} is an unsalted, fast password
+        # verifier: whoever reads the audit log could crack it offline.
         body = json.dumps(
             {"username": "viewer1", "password": "wrong_password"}
         ).encode()
@@ -82,9 +122,57 @@ class TestWhatIsRecorded:
             "/auth/login", content=body, headers={"Content-Type": "application/json"}
         )
         row = (await entries(client, admin_tokens, endpoint="/auth/login"))[0]
-        assert row["request_body_hash"] == hashlib.sha256(body).hexdigest()
+        assert row["request_body_hash"] is None
         assert row["outcome"] == "refused: invalid credentials"
         assert "wrong_password" not in json.dumps(row)
+
+    async def test_a_misspelt_sign_in_path_leaves_no_digest_either(
+        self, client: AsyncClient, admin_tokens: dict[str, str]
+    ) -> None:
+        await client.post(
+            "/auth/login/", json={"username": "viewer1", "password": "wrong_password"}
+        )
+        await client.post(
+            "/AUTH/LOGIN", json={"username": "viewer1", "password": "wrong_password"}
+        )
+        rows = await entries(client, admin_tokens, method="POST")
+        assert {row["endpoint"] for row in rows} >= {"/auth/login/", "/AUTH/LOGIN"}
+        assert all(row["request_body_hash"] is None for row in rows)
+
+    async def test_a_password_change_leaves_no_digest(
+        self,
+        client: AsyncClient,
+        operator_tokens: dict[str, str],
+        admin_tokens: dict[str, str],
+    ) -> None:
+        await client.post(
+            "/auth/password",
+            json={"current_password": "not-my-password", "new_password": NEW_PASSWORD},
+            headers=bearer(operator_tokens),
+        )
+        row = (await entries(client, admin_tokens, endpoint="/auth/password"))[0]
+        assert row["request_body_hash"] is None
+
+    async def test_an_account_creation_and_a_reset_leave_no_digest(
+        self, client: AsyncClient, admin_tokens: dict[str, str]
+    ) -> None:
+        created = await client.post(
+            "/api/v1/users",
+            json={"username": "newbie", "password": NEW_PASSWORD, "role": "viewer"},
+            headers=bearer(admin_tokens),
+        )
+        assert created.status_code == 201, created.text
+        reset = await client.post(
+            f"/api/v1/users/{created.json()['id']}/password",
+            json={"new_password": "Another-Harbour-Lamp-9"},
+            headers=bearer(admin_tokens),
+        )
+        assert reset.status_code == 200, reset.text
+        rows = await entries(client, admin_tokens, method="POST")
+        endpoints = {row["endpoint"] for row in rows}
+        assert "/api/v1/users" in endpoints
+        assert f"/api/v1/users/{created.json()['id']}/password" in endpoints
+        assert all(row["request_body_hash"] is None for row in rows)
 
     async def test_a_refused_read_is_recorded_with_the_caller(
         self,

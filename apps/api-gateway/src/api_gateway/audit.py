@@ -13,6 +13,10 @@ address, the request, a SHA-256 digest of the body (never the body), the status,
 duration and the outcome a route reported — a PLC refusal is an HTTP 200 whose outcome
 starts with "refused".
 
+A body that carries a password (sign-in, password change, account creation, password
+reset) leaves no digest at all: its username is known, so an unsalted digest of it is a
+fast password verifier that anyone reading the log or a backup could crack offline.
+
 The row is written after the response. If the write fails, the whole record goes to the
 error log instead, so the trail survives in the service log.
 """
@@ -21,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -41,6 +46,8 @@ MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 REFUSAL_STATUSES = frozenset({401, 403, 429})
 AUDITED_READ_PREFIXES = ("/api/v1/audit", "/api/v1/users")
 UNAUDITED_PATHS = frozenset({"/health", "/ready", "/docs", "/redoc", "/openapi.json"})
+CREDENTIAL_PATHS = frozenset({"/auth/login", "/auth/password", "/api/v1/users"})
+_CREDENTIAL_PATTERN = re.compile(r"/api/v1/users/[^/]+/password")
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +84,15 @@ def should_audit(method: str, path: str, status: int) -> bool:
     if method in MUTATING_METHODS or status in REFUSAL_STATUSES:
         return True
     return method == "GET" and path.startswith(AUDITED_READ_PREFIXES)
+
+
+def carries_credentials(path: str) -> bool:
+    """Whether a request body on this path can hold a password."""
+    normalized = path.rstrip("/").lower()
+    return (
+        normalized in CREDENTIAL_PATHS
+        or _CREDENTIAL_PATTERN.fullmatch(normalized) is not None
+    )
 
 
 def client_address(scope: Scope) -> str:
@@ -122,7 +138,7 @@ class AuditMiddleware:
 
         received_at_ms = int(time.time() * 1000)
         started = time.perf_counter()
-        digest = hashlib.sha256()
+        digest = None if carries_credentials(str(scope["path"])) else hashlib.sha256()
         body_bytes = 0
         status = 500
 
@@ -131,7 +147,7 @@ class AuditMiddleware:
             message = await receive()
             if message["type"] == "http.request":
                 chunk: bytes = message.get("body", b"")
-                if chunk:
+                if chunk and digest is not None:
                     digest.update(chunk)
                     body_bytes += len(chunk)
             return message
@@ -165,7 +181,9 @@ class AuditMiddleware:
                         ip_address=client_address(scope)[:45],
                         method=method,
                         endpoint=path[:256],
-                        request_body_hash=digest.hexdigest() if body_bytes else None,
+                        request_body_hash=(
+                            digest.hexdigest() if digest and body_bytes else None
+                        ),
                         response_status=status,
                         duration_ms=int((time.perf_counter() - started) * 1000),
                         timestamp_ms=received_at_ms,
