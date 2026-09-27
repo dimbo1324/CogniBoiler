@@ -678,6 +678,7 @@ class TestEntryPoint:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         called: list[str] = []
+        running = asyncio.Event()
 
         class Sub:
             connected = False
@@ -687,7 +688,8 @@ class TestEntryPoint:
                 return None
 
             async def run(self) -> None:
-                return None
+                running.set()
+                await asyncio.Event().wait()
 
             async def flush_periodically(self) -> None:
                 return None
@@ -720,7 +722,10 @@ class TestEntryPoint:
             metrics_host="127.0.0.1",
         )
         task = asyncio.create_task(entry.main(args, "token"))
-        await asyncio.sleep(0.05)
+        # gather has started every task by the time the subscriber runs.
+        async with asyncio.timeout(5.0):
+            await running.wait()
+        await asyncio.sleep(0)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task

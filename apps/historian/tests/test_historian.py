@@ -1,12 +1,4 @@
-"""
-Tests for Historian writer and subscriber (protobuf edition).
-
-No real InfluxDB or MQTT broker needed.
-We test:
-  1. build_boiler_point()  — Point construction from BoilerStateMsg
-  2. build_turbine_point() — Point construction from TurbineStateMsg
-  3. HistorianSubscriber._handle_message() — full pipeline with mock writer
-"""
+"""Boiler and turbine points, and the subscriber's pipeline with a mock writer."""
 
 from __future__ import annotations
 
@@ -84,153 +76,82 @@ def make_mock_writer() -> MagicMock:
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 
-@pytest.fixture  # type: ignore[misc]
+@pytest.fixture
 def writer() -> MagicMock:
     return make_mock_writer()
 
 
-@pytest.fixture  # type: ignore[misc]
+@pytest.fixture
 def subscriber(writer: MagicMock) -> HistorianSubscriber:
     return HistorianSubscriber(writer=writer)
 
 
-# ─── build_boiler_point tests ─────────────────────────────────────────────────
+# ─── Point builders ───────────────────────────────────────────────────────────
 
 
 class TestBuildBoilerPoint:
-    def test_returns_point_instance(self) -> None:
+    def test_one_point_of_the_boiler_measurement(self) -> None:
         point = build_boiler_point(make_boiler_msg())
         assert isinstance(point, Point)
+        assert point.to_line_protocol().startswith(MEASUREMENT_BOILER)
 
-    def test_measurement_is_boiler_sensors(self) -> None:
-        line = build_boiler_point(make_boiler_msg()).to_line_protocol()
-        assert line.startswith(MEASUREMENT_BOILER)
+    @pytest.mark.parametrize(
+        "field",
+        [
+            "pressure_pa=14000000",
+            "water_level_m=4.8",
+            "water_temp_k=611",
+            "flue_gas_temp_k=1200",
+            "internal_energy_j=",
+        ],
+    )
+    def test_every_value_is_a_field_of_the_one_point(self, field: str) -> None:
+        assert field in build_boiler_point(make_boiler_msg()).to_line_protocol()
 
-    def test_pressure_field_present(self) -> None:
-        line = build_boiler_point(
-            make_boiler_msg(pressure_pa=14_000_000.0)
-        ).to_line_protocol()
-        assert "pressure_pa=14000000" in line
-
-    def test_water_level_field_present(self) -> None:
-        line = build_boiler_point(make_boiler_msg(water_level_m=4.8)).to_line_protocol()
-        assert "water_level_m=4.8" in line
-
-    def test_water_temp_field_present(self) -> None:
-        line = build_boiler_point(
-            make_boiler_msg(water_temp_k=611.0)
-        ).to_line_protocol()
-        assert "water_temp_k=611" in line
-
-    def test_flue_gas_temp_field_present(self) -> None:
-        line = build_boiler_point(
-            make_boiler_msg(flue_gas_temp_k=1200.0)
-        ).to_line_protocol()
-        assert "flue_gas_temp_k=1200" in line
-
-    def test_internal_energy_field_present(self) -> None:
-        line = build_boiler_point(
-            make_boiler_msg(internal_energy_j=2.5e12)
-        ).to_line_protocol()
-        assert "internal_energy_j=" in line
-
-    def test_quality_good_tag(self) -> None:
-        line = build_boiler_point(
-            make_boiler_msg(quality=pb.SensorQuality.GOOD)
-        ).to_line_protocol()
-        assert "quality=good" in line
-
-    def test_quality_uncertain_tag(self) -> None:
-        line = build_boiler_point(
-            make_boiler_msg(quality=pb.SensorQuality.UNCERTAIN)
-        ).to_line_protocol()
-        assert "quality=uncertain" in line
-
-    def test_quality_bad_tag(self) -> None:
-        line = build_boiler_point(
-            make_boiler_msg(quality=pb.SensorQuality.BAD)
-        ).to_line_protocol()
-        assert "quality=bad" in line
+    @pytest.mark.parametrize(
+        ("quality", "tag"),
+        [
+            (pb.SensorQuality.GOOD, "quality=good"),
+            (pb.SensorQuality.UNCERTAIN, "quality=uncertain"),
+            (pb.SensorQuality.BAD, "quality=bad"),
+        ],
+    )
+    def test_the_quality_is_a_tag(self, quality: int, tag: str) -> None:
+        line = build_boiler_point(make_boiler_msg(quality=quality)).to_line_protocol()
+        assert tag in line
 
     def test_timestamp_converted_to_nanoseconds(self) -> None:
         line = build_boiler_point(
             make_boiler_msg(timestamp_ms=TS_MS)
         ).to_line_protocol()
-        ts_ns = int(line.split()[-1])
-        assert ts_ns == TS_NS
-
-    def test_all_five_fields_present_in_one_point(self) -> None:
-        line = build_boiler_point(make_boiler_msg()).to_line_protocol()
-        for field in (
-            "pressure_pa",
-            "water_level_m",
-            "water_temp_k",
-            "flue_gas_temp_k",
-            "internal_energy_j",
-        ):
-            assert field in line, f"Missing field: {field}"
-
-
-# ─── build_turbine_point tests ────────────────────────────────────────────────
+        assert int(line.split()[-1]) == TS_NS
 
 
 class TestBuildTurbinePoint:
-    def test_returns_point_instance(self) -> None:
+    def test_one_point_of_the_turbine_measurement(self) -> None:
         point = build_turbine_point(make_turbine_msg())
         assert isinstance(point, Point)
+        assert point.to_line_protocol().startswith(MEASUREMENT_TURBINE)
 
-    def test_measurement_is_turbine_sensors(self) -> None:
-        line = build_turbine_point(make_turbine_msg()).to_line_protocol()
-        assert line.startswith(MEASUREMENT_TURBINE)
-
-    def test_electrical_power_field_present(self) -> None:
-        line = build_turbine_point(
-            make_turbine_msg(electrical_power_w=200_000_000.0)
-        ).to_line_protocol()
-        assert "electrical_power_w=" in line
-
-    def test_shaft_power_field_present(self) -> None:
-        line = build_turbine_point(make_turbine_msg()).to_line_protocol()
-        assert "shaft_power_w=" in line
-
-    def test_steam_flow_field_present(self) -> None:
-        line = build_turbine_point(
-            make_turbine_msg(steam_flow_kg_s=150.0)
-        ).to_line_protocol()
-        assert "steam_flow_kg_s=150" in line
-
-    def test_exhaust_pressure_field_present(self) -> None:
-        line = build_turbine_point(
-            make_turbine_msg(exhaust_pressure_pa=7000.0)
-        ).to_line_protocol()
-        assert "exhaust_pressure_pa=7000" in line
-
-    def test_enthalpy_in_field_present(self) -> None:
-        line = build_turbine_point(make_turbine_msg()).to_line_protocol()
-        assert "enthalpy_in_j_kg=" in line
-
-    def test_enthalpy_out_field_present(self) -> None:
-        line = build_turbine_point(make_turbine_msg()).to_line_protocol()
-        assert "enthalpy_out_j_kg=" in line
+    @pytest.mark.parametrize(
+        "field",
+        [
+            "electrical_power_w=",
+            "shaft_power_w=",
+            "enthalpy_in_j_kg=",
+            "enthalpy_out_j_kg=",
+            "exhaust_pressure_pa=7000",
+            "steam_flow_kg_s=150",
+        ],
+    )
+    def test_every_value_is_a_field_of_the_one_point(self, field: str) -> None:
+        assert field in build_turbine_point(make_turbine_msg()).to_line_protocol()
 
     def test_timestamp_converted_to_nanoseconds(self) -> None:
         line = build_turbine_point(
             make_turbine_msg(timestamp_ms=TS_MS)
         ).to_line_protocol()
-        ts_ns = int(line.split()[-1])
-        assert ts_ns == TS_NS
-
-    def test_all_six_fields_present_in_one_point(self) -> None:
-        line = build_turbine_point(make_turbine_msg()).to_line_protocol()
-        for field in (
-            "electrical_power_w",
-            "shaft_power_w",
-            "enthalpy_in_j_kg",
-            "enthalpy_out_j_kg",
-            "exhaust_pressure_pa",
-            "steam_flow_kg_s",
-        ):
-            assert field in line, f"Missing field: {field}"
+        assert int(line.split()[-1]) == TS_NS
 
 
 # ─── HistorianSubscriber tests ────────────────────────────────────────────────
