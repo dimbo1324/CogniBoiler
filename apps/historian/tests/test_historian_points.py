@@ -420,3 +420,34 @@ class TestWriter:
             assert store.write_points([new_point("b"), new_point("c")]) == 0
         assert (store.written, store.errors) == (0, 3)
         assert "InfluxDB write" in caplog.text
+
+    def test_an_outage_is_one_warning_and_one_recovery_line(
+        self, influx: FakeInfluxClient, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # One line per failed write was ~1800 lines an hour with InfluxDB down.
+        store = InfluxWriter("http://influx:8086", "t", "org", "sensors")
+        influx.api.fail = True
+        with caplog.at_level(logging.DEBUG, logger="historian.writer"):
+            store.write_point(new_point("a"))
+            store.write_points([new_point("b"), new_point("c")])
+            store.write_point(new_point("d"))
+            influx.api.fail = False
+            store.write_point(new_point("e"))
+            store.write_point(new_point("f"))
+        levels = [r.levelno for r in caplog.records]
+        assert levels.count(logging.WARNING) == 1
+        assert levels.count(logging.DEBUG) == 2
+        recoveries = [
+            r.getMessage() for r in caplog.records if r.levelno == logging.INFO
+        ]
+        assert recoveries == ["InfluxDB writes succeed again (4 points lost)"]
+
+    def test_a_second_outage_warns_again(
+        self, influx: FakeInfluxClient, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        store = InfluxWriter("http://influx:8086", "t", "org", "sensors")
+        with caplog.at_level(logging.WARNING, logger="historian.writer"):
+            for fail in (True, False, True):
+                influx.api.fail = fail
+                store.write_point(new_point("a"))
+        assert [r.levelno for r in caplog.records].count(logging.WARNING) == 2

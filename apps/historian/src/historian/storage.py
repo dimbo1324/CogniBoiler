@@ -159,13 +159,16 @@ def apply_policy(url: str, token: str, policy: StoragePolicy) -> None:
 
 
 async def ensure_storage(url: str, token: str, policy: StoragePolicy) -> None:
-    """Apply the storage policy, retrying until it succeeds."""
+    """Apply the storage policy, retrying until it succeeds; warn once."""
+    failures = 0
     while True:
         try:
             await asyncio.to_thread(apply_policy, url, token, policy)
         except Exception as exc:
-            logger.warning(
-                "Storage policy not applied (%s); retrying in %.0f s",
+            failures += 1
+            log = logger.warning if failures == 1 else logger.debug
+            log(
+                "Storage policy not applied (%s); retrying every %.0f s",
                 exc,
                 RETRY_DELAY_S,
             )

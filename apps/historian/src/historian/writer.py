@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
 import time
 from typing import Protocol, cast
 
@@ -198,6 +199,10 @@ class InfluxWriter:
         writer.close()
 
     In tests, inject a mock write_api instead of a real client.
+
+    Writes run in worker threads, so the counters sit behind a lock. An outage is
+    logged once as a warning, repeats at debug, and the first success after it says
+    how many points were lost.
     """
 
     def __init__(
@@ -213,6 +218,9 @@ class InfluxWriter:
         self._write_api = self._client.write_api(write_options=SYNCHRONOUS)
         self._written: int = 0
         self._errors: int = 0
+        self._lost_in_outage: int = 0
+        self._failing = False
+        self._counters = threading.Lock()
 
     @property
     def written(self) -> int:
@@ -237,15 +245,33 @@ class InfluxWriter:
         try:
             self._write_api.write(bucket=self._bucket, record=points)
         except Exception as exc:
-            self._errors += len(points)
-            POINTS_FAILED.inc(len(points))
-            logger.warning("InfluxDB write error: %s", exc)
+            self._record_failure(len(points), exc)
             return 0
         finally:
             WRITE_SECONDS.observe(time.perf_counter() - started)
-        self._written += len(points)
-        POINTS_WRITTEN.inc(len(points))
+        self._record_success(len(points))
         return len(points)
+
+    def _record_failure(self, count: int, exc: Exception) -> None:
+        POINTS_FAILED.inc(count)
+        with self._counters:
+            self._errors += count
+            self._lost_in_outage += count
+            first = not self._failing
+            self._failing = True
+        log = logger.warning if first else logger.debug
+        log("InfluxDB write error, %d points lost: %s", count, exc)
+
+    def _record_success(self, count: int) -> None:
+        POINTS_WRITTEN.inc(count)
+        with self._counters:
+            self._written += count
+            recovered = self._failing
+            lost = self._lost_in_outage
+            self._failing = False
+            self._lost_in_outage = 0
+        if recovered:
+            logger.info("InfluxDB writes succeed again (%d points lost)", lost)
 
     def close(self) -> None:
         """Flush and close the InfluxDB client."""

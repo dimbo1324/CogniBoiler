@@ -228,15 +228,18 @@ class TestStoragePolicy:
 
         def flaky(url: str, token: str, policy: StoragePolicy) -> None:
             attempts.append(1)
-            if len(attempts) < 3:
+            if len(attempts) < 4:
                 raise ConnectionError("influxdb starting")
 
         monkeypatch.setattr(storage, "apply_policy", flaky)
         monkeypatch.setattr(storage, "RETRY_DELAY_S", 0.0)
-        with caplog.at_level(logging.INFO, logger="historian.storage"):
+        with caplog.at_level(logging.DEBUG, logger="historian.storage"):
             await ensure_storage("http://influx:8086", "token", POLICY)
-        assert len(attempts) == 3
-        assert caplog.text.count("retrying") == 2
+        assert len(attempts) == 4
+        # Three failures cost one warning; the repeats go to debug.
+        levels = [r.levelno for r in caplog.records]
+        assert levels.count(logging.WARNING) == 1
+        assert levels.count(logging.DEBUG) == 2
         assert "Storage policy applied: sensors 7 d raw, sensors_1m 90 d" in caplog.text
 
 
