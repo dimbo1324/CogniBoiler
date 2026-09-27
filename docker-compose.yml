@@ -169,7 +169,7 @@ services:
     <<: *python-service
     build: { context: ., target: plc-controller }
     image: ${COGNIBOILER_REGISTRY:-cogniboiler}/plc-controller:${COGNIBOILER_TAG:-dev}
-    command: ["python", "-m", "plc_controller", "--port", "50051", "--physics-target", "physics-engine:50052", "--mqtt-host", "mosquitto", "--mqtt-port", "1883", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
+    command: ["python", "-m", "plc_controller", "--host", "0.0.0.0", "--port", "50051", "--physics-target", "physics-engine:50052", "--mqtt-host", "mosquitto", "--mqtt-port", "1883", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     environment:
       LOG_DIR: /app/logs
       MQTT_USERNAME: plc-controller
