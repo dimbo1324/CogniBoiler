@@ -112,6 +112,16 @@ class AlarmProcessor:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
 
+    @property
+    def pending_clears(self) -> frozenset[str]:
+        """Keys of the clears still waiting out their hold time."""
+        return frozenset(self._pending_clears)
+
+    async def drain(self) -> None:
+        """Wait until every clear waiting out its hold time has run or been dropped."""
+        while self._pending_clears:
+            await asyncio.gather(*self._pending_clears.values(), return_exceptions=True)
+
     async def ping(self) -> None:
         """Raise if the database cannot be reached."""
         async with self._sessions() as session:
@@ -443,7 +453,11 @@ class AlarmProcessor:
         )
         TRANSITIONS.labels(view.severity, transition_view.to_state.value).inc()
         if self._listener is not None:
-            self._listener.alarm_changed(view, transition_view)
+            try:
+                self._listener.alarm_changed(view, transition_view)
+            except Exception:
+                # The change is committed; failing here would report it as lost.
+                logger.exception("Listener failed on the change of alarm %d", view.id)
         return view
 
     @staticmethod

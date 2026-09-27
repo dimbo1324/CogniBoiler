@@ -137,7 +137,7 @@ class TestClearing:
         with caplog.at_level(logging.INFO, logger="alert_manager.processor"):
             await processor.handle_condition(condition(active=False))
             await processor.handle_condition(condition())
-        await asyncio.sleep(0.1)
+        await processor.drain()
         alarm = await only_alarm(processor)
         assert alarm.state is S.ACTIVE_UNACK
         assert len(recorder.changes) == 1
@@ -158,7 +158,7 @@ class TestClearing:
         self, processor: AlarmProcessor, recorder: Recorder
     ) -> None:
         await processor.handle_condition(condition(active=False))
-        await asyncio.sleep(0.1)
+        await processor.drain()
         assert recorder.changes == []
 
     async def test_a_returning_condition_reactivates_the_same_open_alarm(
@@ -334,7 +334,7 @@ class TestSnapshots:
     ) -> None:
         await processor.handle_condition(condition(source="physics-engine"))
         await processor.handle_snapshot(snapshot(timestamp_ms=5_000))
-        await asyncio.sleep(0.1)
+        await processor.drain()
         alarm = await only_alarm(processor)
         assert alarm.state is S.ACTIVE_UNACK
 
@@ -343,8 +343,27 @@ class TestSnapshots:
     ) -> None:
         await processor.handle_condition(condition(timestamp_ms=9_000))
         await processor.handle_snapshot(snapshot(timestamp_ms=5_000))
-        await asyncio.sleep(0.1)
+        await processor.drain()
         assert (await only_alarm(processor)).state is S.ACTIVE_UNACK
+
+    async def test_a_snapshot_leaves_a_pending_clear_alone(
+        self,
+        sessions: async_sessionmaker[AsyncSession],
+        recorder: Recorder,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        slow = AlarmProcessor(sessions, recorder, clear_hold_s=60.0)
+        try:
+            report = condition(timestamp_ms=1_000)
+            await slow.handle_condition(report)
+            await slow.handle_condition(condition(active=False, timestamp_ms=2_000))
+            with caplog.at_level(logging.INFO, logger="alert_manager.processor"):
+                await slow.handle_snapshot(snapshot(timestamp_ms=5_000))
+            assert slow.pending_clears == frozenset({report.key})
+            assert "no longer lists" not in caplog.text
+            assert recorder.states == [(None, "ACTIVE_UNACK")]
+        finally:
+            await slow.close()
 
     async def test_a_listed_key_without_an_active_alarm_is_reported_once(
         self, processor: AlarmProcessor, caplog: pytest.LogCaptureFixture
@@ -505,6 +524,40 @@ class TestDatabase:
             )
             with pytest.raises(IntegrityError):
                 await session.commit()
+
+    async def test_a_listener_that_raises_does_not_undo_a_committed_change(
+        self,
+        sessions: async_sessionmaker[AsyncSession],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        class Broken:
+            def alarm_changed(self, *_: object) -> None:
+                raise RuntimeError("listener bug")
+
+        fragile = AlarmProcessor(sessions, Broken(), clear_hold_s=0.01)
+        try:
+            with caplog.at_level(logging.ERROR, logger="alert_manager.processor"):
+                await fragile.handle_condition(condition())
+                alarm = await only_alarm(fragile)
+                acknowledged = await fragile.acknowledge(alarm.id, "operator1")
+            assert acknowledged.state is S.ACTIVE_ACK
+            failures = [r for r in caplog.records if "Listener failed" in r.message]
+            assert len(failures) == 2
+        finally:
+            await fragile.close()
+
+    async def test_drain_waits_for_every_pending_clear(
+        self, processor: AlarmProcessor, recorder: Recorder
+    ) -> None:
+        await processor.handle_condition(condition("water_level_m"))
+        await processor.handle_condition(condition("pressure_pa", direction="high"))
+        await processor.handle_condition(condition("water_level_m", active=False))
+        await processor.handle_condition(
+            condition("pressure_pa", direction="high", active=False)
+        )
+        await processor.drain()
+        assert processor.pending_clears == frozenset()
+        assert recorder.states.count(("ACTIVE_UNACK", "CLEARED_UNACK")) == 2
 
     async def test_a_processor_without_a_listener_still_works(
         self, sessions: async_sessionmaker[AsyncSession]
