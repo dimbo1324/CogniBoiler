@@ -9,6 +9,8 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
+import uvicorn
+from api_gateway import __main__ as launcher
 from api_gateway import db_init, main
 from api_gateway.auth.password import verify_password
 from api_gateway.config import settings
@@ -255,3 +257,53 @@ class TestLifespan:
             async with main.lifespan(main.create_app()):
                 pass
         assert made == []
+
+
+class TestLauncher:
+    @pytest.fixture
+    def launched(self, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+        calls: list[dict[str, Any]] = []
+
+        def run(app: str, **options: Any) -> None:
+            calls.append({"app": app, **options})
+
+        monkeypatch.setattr(launcher.uvicorn, "run", run)
+        monkeypatch.setattr(launcher, "configure_logging", lambda service: None)
+        return calls
+
+    def test_the_launcher_passes_host_and_port_to_uvicorn(
+        self, launched: list[dict[str, Any]]
+    ) -> None:
+        launcher.main(["--host", "0.0.0.0", "--port", "9000"])
+        (options,) = launched
+        assert options["app"] == "api_gateway.main:app"
+        assert (options["host"], options["port"]) == ("0.0.0.0", 9000)
+        assert options["forwarded_allow_ips"] == "127.0.0.1"
+        assert options["proxy_headers"] is True
+
+    def test_websocket_frames_and_queues_are_bounded(
+        self, launched: list[dict[str, Any]]
+    ) -> None:
+        launcher.main([])
+        (options,) = launched
+        assert options["ws_max_size"] <= 64 * 1024
+        assert options["ws_max_queue"] <= 8
+
+    @pytest.mark.parametrize(
+        ("platform", "loop"),
+        [("win32", "asyncio:SelectorEventLoop"), ("linux", "auto")],
+    )
+    def test_windows_gets_the_selector_loop_mqtt_needs(
+        self,
+        launched: list[dict[str, Any]],
+        monkeypatch: pytest.MonkeyPatch,
+        platform: str,
+        loop: str,
+    ) -> None:
+        monkeypatch.setattr(launcher.sys, "platform", platform)
+        launcher.main([])
+        assert launched[0]["loop"] == loop
+
+    def test_uvicorn_resolves_the_loop_name_to_a_selector_loop(self) -> None:
+        config = uvicorn.Config("api_gateway.main:app", loop=launcher.WINDOWS_LOOP)
+        assert config.get_loop_factory() is asyncio.SelectorEventLoop
