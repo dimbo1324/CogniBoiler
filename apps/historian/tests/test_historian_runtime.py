@@ -16,6 +16,7 @@ import pytest
 from aiomqtt import MqttError
 from historian import __main__ as entry
 from historian import storage, subscriber
+from historian.stats import report_stats
 from historian.storage import (
     StoragePolicy,
     apply_policy,
@@ -241,20 +242,23 @@ class TestStoragePolicy:
 
 class RecordingWriter:
     def __init__(self) -> None:
-        self.single: list[Any] = []
         self.batches: list[list[Any]] = []
         self.errors = 0
+        self.closed = False
 
-    def write_point(self, point: Any) -> None:
-        self.single.append(point)
+    def write_point(self, point: Any) -> int:
+        return self.write_points([point])
 
-    def write_points(self, points: list[Any]) -> None:
+    def write_points(self, points: list[Any]) -> int:
         self.batches.append(points)
+        return len(points)
+
+    def close(self) -> None:
+        self.closed = True
 
     @property
     def lines(self) -> list[str]:
-        written = self.single + [p for batch in self.batches for p in batch]
-        return [point.to_line_protocol() for point in written]
+        return [p.to_line_protocol() for batch in self.batches for p in batch]
 
 
 def plant(scenario: str, run_id: int, faults: list[str] = []) -> bytes:  # noqa: B006
@@ -381,11 +385,11 @@ class TestSubscriber:
         store = RecordingWriter()
         sub = HistorianSubscriber(store, batch_size=50, flush_interval_s=0.1)  # type: ignore[arg-type]
         await sub._handle_message("status/historian", b"online")
-        assert store.single == []
+        assert store.batches == []
         task = asyncio.create_task(sub.flush_periodically())
         try:
             async with asyncio.timeout(5.0):
-                while not store.single:
+                while not store.batches:
                     await asyncio.sleep(0.01)
         finally:
             task.cancel()
@@ -396,7 +400,7 @@ class TestSubscriber:
         sub = HistorianSubscriber(store, batch_size=50, flush_interval_s=0.1)  # type: ignore[arg-type]
         sub._last_flush_at -= 1.0
         await sub._handle_message("status/historian", b"online")
-        assert len(store.single) == 1
+        assert [len(batch) for batch in store.batches] == [1]
 
 
 class FakeBroker:
@@ -473,7 +477,7 @@ class TestSubscriberSession:
         options = broker.connections[0]
         assert (options["clean_session"], options["identifier"]) == (False, "historian")
         assert (options["username"], options["password"]) == ("historian", "pw")
-        assert len(store.single) == 1
+        assert len(store.lines) == 1
         assert sub.stats["skipped"] == 1
         assert sub.connected is False
         assert "Historian: MQTT error" in caplog.text
@@ -494,6 +498,25 @@ class TestSubscriberSession:
         finally:
             task.cancel()
         assert broker.connections[0]["clean_session"] is None
+
+
+class TestStats:
+    async def test_the_counters_are_logged_and_stored(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        store = RecordingWriter()
+        store.errors = 4
+        sub = SimpleNamespace(stats={"received": 9, "stored": 7, "skipped": 2})
+        with caplog.at_level(logging.INFO, logger="historian.stats"):
+            task = asyncio.create_task(report_stats(sub, store, 0.0))  # type: ignore[arg-type]
+            try:
+                async with asyncio.timeout(5.0):
+                    while not store.batches:
+                        await asyncio.sleep(0.001)
+            finally:
+                task.cancel()
+        assert store.lines[0].startswith("historian_stats,service=historian ")
+        assert "received=9 stored=7 skipped=2 writer_errors=4" in caplog.text
 
 
 class TestEntryPoint:
@@ -547,7 +570,7 @@ class TestEntryPoint:
             task = asyncio.create_task(entry.main(args, ""))
             try:
                 async with asyncio.timeout(5.0):
-                    while not store.single or not (tmp_path / "alive").exists():
+                    while not store.batches or not (tmp_path / "alive").exists():
                         await asyncio.sleep(0.01)
             finally:
                 task.cancel()
@@ -557,7 +580,7 @@ class TestEntryPoint:
         assert made["subscriber"]["mqtt_password"] == "broker-pass"
         assert made["subscriber"]["client_id"] == "historian"
         assert made["policy"].aggregate_bucket == "sensors_1m"
-        assert store.single[0].to_line_protocol().startswith("historian_stats")
+        assert store.lines[0].startswith("historian_stats")
         assert "INFLUXDB_TOKEN is empty" in caplog.text
 
     async def test_an_empty_aggregate_bucket_disables_the_policy(

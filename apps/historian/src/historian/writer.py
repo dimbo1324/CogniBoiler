@@ -222,35 +222,30 @@ class InfluxWriter:
     def errors(self) -> int:
         return self._errors
 
-    def write_point(self, point: PointLike) -> None:
-        """Write a single Point to InfluxDB. Errors are counted, not raised."""
-        started = time.perf_counter()
-        try:
-            self._write_api.write(bucket=self._bucket, record=point)
-            self._written += 1
-            POINTS_WRITTEN.inc()
-        except Exception as exc:
-            self._errors += 1
-            POINTS_FAILED.inc()
-            logger.warning("InfluxDB write error: %s", exc)
-        finally:
-            WRITE_SECONDS.observe(time.perf_counter() - started)
+    def write_point(self, point: PointLike) -> int:
+        """Write one point; how many InfluxDB accepted (0 or 1)."""
+        return self.write_points([point])
 
-    def write_points(self, points: list[PointLike]) -> None:
-        """Write a batch of points to InfluxDB in one call."""
+    def write_points(self, points: list[PointLike]) -> int:
+        """Write a batch in one call; how many points InfluxDB accepted.
+
+        Errors are counted and logged, never raised.
+        """
         if not points:
-            return
+            return 0
         started = time.perf_counter()
         try:
             self._write_api.write(bucket=self._bucket, record=points)
-            self._written += len(points)
-            POINTS_WRITTEN.inc(len(points))
         except Exception as exc:
             self._errors += len(points)
             POINTS_FAILED.inc(len(points))
-            logger.warning("InfluxDB batch write error: %s", exc)
+            logger.warning("InfluxDB write error: %s", exc)
+            return 0
         finally:
             WRITE_SECONDS.observe(time.perf_counter() - started)
+        self._written += len(points)
+        POINTS_WRITTEN.inc(len(points))
+        return len(points)
 
     def close(self) -> None:
         """Flush and close the InfluxDB client."""

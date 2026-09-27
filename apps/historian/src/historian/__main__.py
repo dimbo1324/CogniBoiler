@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parents[4] / "shared" / "generated"))
 from cogniboiler_observability import configure_logging, start_metrics_server
 from cogniboiler_runtime import LivenessFile
 
-from historian.points import build_stats_point
+from historian.stats import STATS_INTERVAL_S, report_stats
 from historian.storage import StoragePolicy, ensure_storage
 from historian.subscriber import HistorianSubscriber
 from historian.writer import InfluxWriter
@@ -34,7 +34,6 @@ logger = logging.getLogger("historian")
 DEFAULT_METRICS_PORT = 9103
 
 TOKEN_ENV = "INFLUXDB_TOKEN"
-STATS_INTERVAL_S = 30.0
 
 
 async def main(args: argparse.Namespace, influx_token: str) -> None:
@@ -67,21 +66,10 @@ async def main(args: argparse.Namespace, influx_token: str) -> None:
         logger.warning("%s is empty: InfluxDB will reject every write", TOKEN_ENV)
     start_metrics_server(args.metrics_port, args.metrics_host)
 
-    async def record_stats() -> None:
-        while True:
-            await asyncio.sleep(STATS_INTERVAL_S)
-            stats = subscriber.stats
-            logger.info(
-                "Stats: received=%d stored=%d skipped=%d writer_errors=%d",
-                stats["received"], stats["stored"], stats["skipped"], writer.errors,
-            )  # fmt: skip
-            point = build_stats_point(stats, writer.errors)
-            await asyncio.to_thread(writer.write_point, point)
-
     tasks: list[Coroutine[Any, Any, None]] = [
         subscriber.run(),
         subscriber.flush_periodically(),
-        record_stats(),
+        report_stats(subscriber, writer, STATS_INTERVAL_S),
     ]
     if args.aggregate_bucket:
         policy = StoragePolicy(

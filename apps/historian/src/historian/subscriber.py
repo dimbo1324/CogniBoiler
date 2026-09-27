@@ -237,11 +237,7 @@ class HistorianSubscriber:
         batch = list(self._buffer)
         self._buffer.clear()
         self._last_flush_at = time.monotonic()
-        if len(batch) == 1:
-            await asyncio.to_thread(self._writer.write_point, batch[0])
-        else:
-            await asyncio.to_thread(self._writer.write_points, batch)
-        self._stored += len(batch)
+        self._stored += await asyncio.to_thread(self._writer.write_points, batch)
 
     async def flush_periodically(self) -> None:
         """Flush a partial batch when messages stop, e.g. while the plant is paused."""

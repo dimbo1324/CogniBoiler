@@ -402,9 +402,9 @@ class TestWriter:
         self, influx: FakeInfluxClient
     ) -> None:
         store = InfluxWriter("http://influx:8086", "t", "org", "sensors")
-        store.write_point(new_point("a"))
-        store.write_points([new_point("b"), new_point("c")])
-        store.write_points([])
+        assert store.write_point(new_point("a")) == 1
+        assert store.write_points([new_point("b"), new_point("c")]) == 2
+        assert store.write_points([]) == 0
         assert [bucket for bucket, _ in influx.api.writes] == ["sensors", "sensors"]
         assert (store.written, store.errors) == (3, 0)
         store.close()
@@ -416,8 +416,7 @@ class TestWriter:
         influx.api.fail = True
         store = InfluxWriter("http://influx:8086", "t", "org", "sensors")
         with caplog.at_level(logging.WARNING, logger="historian.writer"):
-            store.write_point(new_point("a"))
-            store.write_points([new_point("b"), new_point("c")])
+            assert store.write_point(new_point("a")) == 0
+            assert store.write_points([new_point("b"), new_point("c")]) == 0
         assert (store.written, store.errors) == (0, 3)
-        assert "InfluxDB write error" in caplog.text
-        assert "InfluxDB batch write error" in caplog.text
+        assert "InfluxDB write" in caplog.text

@@ -77,7 +77,7 @@ def make_turbine_msg(
 
 def make_mock_writer() -> MagicMock:
     writer = MagicMock(spec=InfluxWriter)
-    writer.write_point = MagicMock()
+    writer.write_points = MagicMock(side_effect=len)
     return writer
 
 
@@ -236,124 +236,71 @@ class TestBuildTurbinePoint:
 # ─── HistorianSubscriber tests ────────────────────────────────────────────────
 
 
+def written(writer: MagicMock) -> list[str]:
+    return [
+        point.to_line_protocol()
+        for call in writer.write_points.call_args_list
+        for point in call.args[0]
+    ]
+
+
 class TestHistorianSubscriber:
-    @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_boiler_topic_calls_write_point(
-        self, subscriber: HistorianSubscriber, writer: MagicMock
+    @pytest.mark.parametrize(
+        ("topic", "payload", "measurement", "field"),
+        [
+            (
+                TOPIC_BOILER,
+                make_boiler_msg(pressure_pa=15_500_000.0).SerializeToString(),
+                MEASUREMENT_BOILER,
+                "pressure_pa=15500000",
+            ),
+            (
+                TOPIC_TURBINE,
+                make_turbine_msg(steam_flow_kg_s=175.5).SerializeToString(),
+                MEASUREMENT_TURBINE,
+                "steam_flow_kg_s=175.5",
+            ),
+        ],
+        ids=["boiler", "turbine"],
+    )
+    async def test_a_message_becomes_one_stored_point(
+        self,
+        subscriber: HistorianSubscriber,
+        writer: MagicMock,
+        topic: str,
+        payload: bytes,
+        measurement: str,
+        field: str,
     ) -> None:
-        payload = make_boiler_msg().SerializeToString()
-        await subscriber._handle_message(TOPIC_BOILER, payload)
-        writer.write_point.assert_called_once()
+        await subscriber._handle_message(topic, payload)
+        writer.write_points.assert_called_once()
+        assert isinstance(writer.write_points.call_args.args[0][0], Point)
+        (line,) = written(writer)
+        assert line.startswith(measurement)
+        assert field in line
+        assert subscriber.stats == {"received": 1, "stored": 1, "skipped": 0}
 
-    @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_boiler_topic_writes_point_instance(
-        self, subscriber: HistorianSubscriber, writer: MagicMock
+    @pytest.mark.parametrize(
+        ("topic", "payload"),
+        [
+            (TOPIC_HEARTBEAT, b"1741000000000"),
+            ("sensors/unknown/xyz", b"\x00\x01\x02"),
+            (TOPIC_BOILER, b"not-protobuf-\xff\xfe"),
+            (TOPIC_TURBINE, b"\xff\xfe\xfd"),
+        ],
+        ids=["heartbeat", "unknown-topic", "bad-boiler", "bad-turbine"],
+    )
+    async def test_what_cannot_be_recorded_is_skipped(
+        self,
+        subscriber: HistorianSubscriber,
+        writer: MagicMock,
+        topic: str,
+        payload: bytes,
     ) -> None:
-        payload = make_boiler_msg().SerializeToString()
-        await subscriber._handle_message(TOPIC_BOILER, payload)
-        arg = writer.write_point.call_args.args[0]
-        assert isinstance(arg, Point)
+        await subscriber._handle_message(topic, payload)
+        writer.write_points.assert_not_called()
+        assert subscriber.stats == {"received": 1, "stored": 0, "skipped": 1}
 
-    @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_boiler_point_has_correct_measurement(
-        self, subscriber: HistorianSubscriber, writer: MagicMock
-    ) -> None:
-        payload = make_boiler_msg().SerializeToString()
-        await subscriber._handle_message(TOPIC_BOILER, payload)
-        arg = writer.write_point.call_args.args[0]
-        assert arg.to_line_protocol().startswith(MEASUREMENT_BOILER)
-
-    @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_turbine_topic_calls_write_point(
-        self, subscriber: HistorianSubscriber, writer: MagicMock
-    ) -> None:
-        payload = make_turbine_msg().SerializeToString()
-        await subscriber._handle_message(TOPIC_TURBINE, payload)
-        writer.write_point.assert_called_once()
-
-    @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_turbine_point_has_correct_measurement(
-        self, subscriber: HistorianSubscriber, writer: MagicMock
-    ) -> None:
-        payload = make_turbine_msg().SerializeToString()
-        await subscriber._handle_message(TOPIC_TURBINE, payload)
-        arg = writer.write_point.call_args.args[0]
-        assert arg.to_line_protocol().startswith(MEASUREMENT_TURBINE)
-
-    @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_heartbeat_skipped(
-        self, subscriber: HistorianSubscriber, writer: MagicMock
-    ) -> None:
-        await subscriber._handle_message(TOPIC_HEARTBEAT, b"1741000000000")
-        writer.write_point.assert_not_called()
-
-    @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_unknown_topic_skipped(
-        self, subscriber: HistorianSubscriber, writer: MagicMock
-    ) -> None:
-        await subscriber._handle_message("sensors/unknown/xyz", b"\x00\x01\x02")
-        writer.write_point.assert_not_called()
-
-    @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_malformed_protobuf_boiler_skipped(
-        self, subscriber: HistorianSubscriber, writer: MagicMock
-    ) -> None:
-        await subscriber._handle_message(TOPIC_BOILER, b"not-protobuf-\xff\xfe")
-        writer.write_point.assert_not_called()
-
-    @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_malformed_protobuf_turbine_skipped(
-        self, subscriber: HistorianSubscriber, writer: MagicMock
-    ) -> None:
-        await subscriber._handle_message(TOPIC_TURBINE, b"not-protobuf-\xff\xfe")
-        writer.write_point.assert_not_called()
-
-    @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_received_counter_increments_on_boiler(
-        self, subscriber: HistorianSubscriber, writer: MagicMock
-    ) -> None:
-        payload = make_boiler_msg().SerializeToString()
-        await subscriber._handle_message(TOPIC_BOILER, payload)
-        assert subscriber.stats["received"] == 1
-
-    @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_stored_counter_increments_on_boiler(
-        self, subscriber: HistorianSubscriber, writer: MagicMock
-    ) -> None:
-        payload = make_boiler_msg().SerializeToString()
-        await subscriber._handle_message(TOPIC_BOILER, payload)
-        assert subscriber.stats["stored"] == 1
-
-    @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_stored_counter_increments_on_turbine(
-        self, subscriber: HistorianSubscriber, writer: MagicMock
-    ) -> None:
-        payload = make_turbine_msg().SerializeToString()
-        await subscriber._handle_message(TOPIC_TURBINE, payload)
-        assert subscriber.stats["stored"] == 1
-
-    @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_skipped_counter_on_heartbeat(
-        self, subscriber: HistorianSubscriber, writer: MagicMock
-    ) -> None:
-        await subscriber._handle_message(TOPIC_HEARTBEAT, b"12345")
-        assert subscriber.stats["skipped"] == 1
-
-    @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_skipped_counter_on_bad_protobuf(
-        self, subscriber: HistorianSubscriber, writer: MagicMock
-    ) -> None:
-        await subscriber._handle_message(TOPIC_BOILER, b"\xff\xfe\xfd")
-        assert subscriber.stats["skipped"] == 1
-
-    @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_skipped_counter_on_unknown_topic(
-        self, subscriber: HistorianSubscriber, writer: MagicMock
-    ) -> None:
-        await subscriber._handle_message("sensors/weird/topic", b"data")
-        assert subscriber.stats["skipped"] == 1
-
-    @pytest.mark.asyncio  # type: ignore[misc]
     async def test_both_topics_stored_independently(
         self, subscriber: HistorianSubscriber, writer: MagicMock
     ) -> None:
@@ -364,28 +311,17 @@ class TestHistorianSubscriber:
             TOPIC_TURBINE, make_turbine_msg().SerializeToString()
         )
         assert subscriber.stats["stored"] == 2
-        assert writer.write_point.call_count == 2
+        assert writer.write_points.call_count == 2
 
-    @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_boiler_roundtrip_pressure_value(
+    async def test_points_the_database_refused_are_not_counted_as_stored(
         self, subscriber: HistorianSubscriber, writer: MagicMock
     ) -> None:
-        """Verify that the exact pressure value survives the protobuf roundtrip."""
-        payload = make_boiler_msg(pressure_pa=15_500_000.0).SerializeToString()
-        await subscriber._handle_message(TOPIC_BOILER, payload)
-        arg = writer.write_point.call_args.args[0]
-        line = arg.to_line_protocol()
-        assert "pressure_pa=15500000" in line
-
-    @pytest.mark.asyncio  # type: ignore[misc]
-    async def test_turbine_roundtrip_steam_flow_value(
-        self, subscriber: HistorianSubscriber, writer: MagicMock
-    ) -> None:
-        payload = make_turbine_msg(steam_flow_kg_s=175.5).SerializeToString()
-        await subscriber._handle_message(TOPIC_TURBINE, payload)
-        arg = writer.write_point.call_args.args[0]
-        line = arg.to_line_protocol()
-        assert "steam_flow_kg_s=175.5" in line
+        # "stored" fed a healthy-looking stats line while InfluxDB refused everything.
+        writer.write_points.side_effect = lambda points: 0
+        await subscriber._handle_message(
+            TOPIC_BOILER, make_boiler_msg().SerializeToString()
+        )
+        assert subscriber.stats == {"received": 1, "stored": 0, "skipped": 0}
 
 
 class TestValuesInfluxDbCannotStore:
