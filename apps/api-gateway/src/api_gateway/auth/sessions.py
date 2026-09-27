@@ -45,11 +45,19 @@ class SessionTokens:
 class RefreshRejectedError(Exception):
     """A refresh token that cannot be exchanged."""
 
-    def __init__(self, code: str, detail: str, *, session_revoked: bool) -> None:
+    def __init__(
+        self,
+        code: str,
+        detail: str,
+        *,
+        session_revoked: bool,
+        user_id: int | None = None,
+    ) -> None:
         super().__init__(detail)
         self.code = code
         self.detail = detail
         self.session_revoked = session_revoked
+        self.user_id = user_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +126,7 @@ async def rotate_session(
     )
     if record is None or str(record.user_id) != str(payload.get("sub")):
         raise invalid
+    invalid.user_id = record.user_id
     current_ms = now_ms()
     if record.revoked_at_ms is not None or record.expires_at_ms <= current_ms:
         raise invalid
@@ -128,6 +137,7 @@ async def rotate_session(
                 "auth.refresh_superseded",
                 "The refresh token was already exchanged; use its successor.",
                 session_revoked=False,
+                user_id=record.user_id,
             )
         revoked = await revoke_family(db, record.family_id, "reuse")
         await db.commit()
@@ -143,6 +153,7 @@ async def rotate_session(
             "auth.refresh_reused",
             "The refresh token was already used; the session has been closed.",
             session_revoked=True,
+            user_id=record.user_id,
         )
 
     account = await load_account(db, user_id=record.user_id)

@@ -5,15 +5,17 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncGenerator
 
+import jwt as pyjwt
 import pytest
 import pytest_asyncio
+from api_gateway.auth.jwt_handler import issue_refresh_token
 from api_gateway.auth.throttle import LoginThrottle, ThrottlePolicy
 from api_gateway.config import settings
 from api_gateway.dependencies import get_db
-from api_gateway.models.user import User
+from api_gateway.models.user import RefreshToken, User
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 NEW_PASSWORD = "Copper-Kettle-Bridge-7"
 
@@ -177,6 +179,55 @@ class TestRefresh:
         )
         assert access.status_code == 401
 
+    async def test_a_refresh_token_unknown_to_the_database_is_401(
+        self, client: AsyncClient
+    ) -> None:
+        # Validly signed, but never stored: a forged or foreign token.
+        token = issue_refresh_token(1, "viewer", "a-family-nobody-opened").token
+        response = await client.post("/auth/refresh", json={"refresh_token": token})
+        assert response.status_code == 401
+        assert response.json()["code"] == "auth.refresh_invalid"
+
+    async def test_a_stored_token_id_under_another_subject_is_401(
+        self, client: AsyncClient
+    ) -> None:
+        tokens = await sign_in(client, "viewer1", "viewer_password")
+        claims = pyjwt.decode(tokens["refresh"], options={"verify_signature": False})
+        claims["sub"] = "999"
+        forged = pyjwt.encode(claims, settings.jwt_private_key, algorithm="RS256")
+        response = await client.post("/auth/refresh", json={"refresh_token": forged})
+        assert response.status_code == 401
+        assert response.json()["code"] == "auth.refresh_invalid"
+        genuine = await client.post(
+            "/auth/refresh", json={"refresh_token": tokens["refresh"]}
+        )
+        assert genuine.status_code == 200
+
+    async def test_refresh_for_a_blocked_account_closes_the_family(
+        self, app: FastAPI, client: AsyncClient
+    ) -> None:
+        tokens = await sign_in(client)
+        sessions = app.dependency_overrides[get_db]()
+        db = await anext(sessions)
+        await db.execute(
+            update(User).where(User.username == "operator1").values(is_active=False)
+        )
+        await db.commit()
+        response = await client.post(
+            "/auth/refresh", json={"refresh_token": tokens["refresh"]}
+        )
+        assert response.status_code == 401
+        assert response.json()["code"] == "auth.refresh_invalid"
+        reasons = (
+            await db.scalars(
+                select(RefreshToken.revoked_reason)
+                .join(User, User.id == RefreshToken.user_id)
+                .where(User.username == "operator1")
+            )
+        ).all()
+        await sessions.aclose()
+        assert reasons and set(reasons) == {"blocked"}
+
     async def test_a_refresh_keeps_the_session_expiry(
         self, client: AsyncClient
     ) -> None:
@@ -211,6 +262,16 @@ class TestSignOut:
             "/auth/logout", headers={"Authorization": "Bearer not.a.token"}
         )
         assert response.status_code == 200
+
+    async def test_a_garbage_refresh_cookie_still_signs_out_cleanly(
+        self, browser: AsyncClient
+    ) -> None:
+        browser.cookies.set(
+            settings.refresh_cookie_name, "not-a-jwt", domain="console.test"
+        )
+        response = await browser.post("/auth/logout")
+        assert response.status_code == 200
+        assert "max-age=0" in response.headers["set-cookie"].lower()
 
     async def test_signing_out_clears_the_cookie(self, browser: AsyncClient) -> None:
         await sign_in(browser)

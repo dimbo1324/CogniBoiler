@@ -15,10 +15,12 @@ from api_gateway.audit import (
     should_audit,
     write_audit_entry,
 )
+from api_gateway.auth.jwt_handler import issue_refresh_token
+from api_gateway.config import settings
 from api_gateway.dependencies import get_db
 from api_gateway.models.user import AuditLog
 from fastapi import FastAPI
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 
 NEW_PASSWORD = "Copper-Kettle-Bridge-7"
 
@@ -229,6 +231,59 @@ class TestWhatIsRecorded:
         )
         row = (await entries(client, admin_tokens, endpoint="/api/v1/users"))[0]
         assert row["detail"] == "active=true"
+
+
+class TestActors:
+    """Rows an investigator filters by user must name the user whenever it is known."""
+
+    async def test_a_sign_out_with_the_cookie_alone_names_the_user(
+        self, app: FastAPI, admin_tokens: dict[str, str]
+    ) -> None:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="https://console.test"
+        ) as browser:
+            signed_in = await browser.post(
+                "/auth/login",
+                json={"username": "operator1", "password": "operator_password"},
+            )
+            assert signed_in.status_code == 200
+            assert (await browser.post("/auth/logout")).status_code == 200
+            row = (await entries(browser, admin_tokens, endpoint="/auth/logout"))[0]
+        assert row["username"] == "operator1"
+        assert row["role"] == "operator"
+        assert row["outcome"] == "signed out"
+
+    async def test_a_sign_out_without_a_session_names_nobody(
+        self, client: AsyncClient, admin_tokens: dict[str, str]
+    ) -> None:
+        await client.post("/auth/logout", json={"refresh_token": "not-a-jwt"})
+        row = (await entries(client, admin_tokens, endpoint="/auth/logout"))[0]
+        assert row["user_id"] is None
+        assert row["outcome"] == "no open session"
+
+    async def test_a_detected_token_reuse_names_the_user(
+        self,
+        client: AsyncClient,
+        viewer_tokens: dict[str, str],
+        admin_tokens: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(settings, "refresh_reuse_grace_s", 0.0)
+        body = {"refresh_token": viewer_tokens["refresh"]}
+        assert (await client.post("/auth/refresh", json=body)).status_code == 200
+        assert (await client.post("/auth/refresh", json=body)).status_code == 401
+        row = (await entries(client, admin_tokens, endpoint="/auth/refresh"))[0]
+        assert row["outcome"] == "refused: token reuse, session closed"
+        assert row["username"] == "viewer1"
+
+    async def test_a_refresh_with_a_forged_token_names_nobody(
+        self, client: AsyncClient, admin_tokens: dict[str, str]
+    ) -> None:
+        forged = issue_refresh_token(1, "admin", "never-stored").token
+        refused = await client.post("/auth/refresh", json={"refresh_token": forged})
+        assert refused.status_code == 401
+        row = (await entries(client, admin_tokens, endpoint="/auth/refresh"))[0]
+        assert row["user_id"] is None
 
 
 class TestReading:

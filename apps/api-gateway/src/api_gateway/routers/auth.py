@@ -108,8 +108,7 @@ def _set_refresh_cookie(response: Response, tokens: SessionTokens) -> None:
     )
 
 
-def _cookie_clearing_headers() -> dict[str, str]:
-    response = Response()
+def _delete_refresh_cookie(response: Response) -> None:
     response.delete_cookie(
         settings.refresh_cookie_name,
         path=settings.refresh_cookie_path,
@@ -117,7 +116,24 @@ def _cookie_clearing_headers() -> dict[str, str]:
         httponly=True,
         samesite="strict",
     )
+
+
+def _cookie_clearing_headers() -> dict[str, str]:
+    """The Set-Cookie header of _delete_refresh_cookie, for a raised problem."""
+    response = Response()
+    _delete_refresh_cookie(response)
     return {"Set-Cookie": response.headers["set-cookie"]}
+
+
+async def _audit_user(request: Request, db: DbSession, user_id: int | None) -> None:
+    """Name the account behind a refresh token in the audit row, if it still exists."""
+    if user_id is None:
+        return
+    account = await load_account(db, user_id=user_id)
+    if account is not None:
+        set_audit_actor(
+            request, AuditActor(account.id, account.username, account.role or None)
+        )
 
 
 def _token_response(tokens: SessionTokens) -> TokenResponse:
@@ -200,6 +216,7 @@ async def refresh(
         tokens = await rotate_session(db, token, _client(request))
     except RefreshRejectedError as exc:
         REFRESH_REJECTIONS.labels(exc.code).inc()
+        await _audit_user(request, db, exc.user_id)
         set_audit_outcome(
             request,
             "refused: token reuse, session closed"
@@ -235,6 +252,7 @@ async def logout(
     )
     if token and (found := session_id_of(token)) is not None:
         sessions.add(found[0])
+        await _audit_user(request, db, found[1])
 
     scheme, bearer = get_authorization_scheme_param(
         request.headers.get("Authorization")
@@ -252,13 +270,7 @@ async def logout(
     for session_id in sessions:
         revoked += await revoke_family(db, session_id, "logout")
     await db.commit()
-    response.delete_cookie(
-        settings.refresh_cookie_name,
-        path=settings.refresh_cookie_path,
-        secure=settings.refresh_cookie_secure,
-        httponly=True,
-        samesite="strict",
-    )
+    _delete_refresh_cookie(response)
     set_audit_outcome(request, "signed out" if revoked else "no open session")
     return MessageResponse(message="Signed out.")
 
