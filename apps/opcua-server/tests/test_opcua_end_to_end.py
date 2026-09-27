@@ -23,6 +23,7 @@ from opcua_server.address_space import (
     NODEID_ROOT,
     NS_IDX,
 )
+from opcua_server.identity import drain_sign_outs
 from opcua_server.security import (
     APPLICATION_URI,
     ServerCertificate,
@@ -73,6 +74,17 @@ async def opc(
 
 def node(client: Client, identifier: int) -> Any:
     return client.get_node(ua.NodeId(identifier, NS_IDX))
+
+
+async def settled(server: CogniBoilerOPCServer) -> None:
+    """Every client connection is gone, its cleanup ran and its sign-out finished."""
+    transport = server._server.bserver
+    assert transport is not None
+    async with asyncio.timeout(5.0):
+        while transport.clients:
+            await asyncio.sleep(0.01)
+    await asyncio.gather(*transport.closing_tasks, return_exceptions=True)
+    await drain_sign_outs(5.0)
 
 
 class TestReading:
@@ -195,9 +207,30 @@ class TestMethods:
         ]
         assert script.calls[0].body == {"username": "operator1", "password": PASSWORD}
         assert script.calls[1].body == {"load_w": 180e6}
-        async with asyncio.timeout(5.0):
-            while "/auth/logout" not in [call.path for call in script.calls]:
-                await asyncio.sleep(0.02)
+        await settled(opc[0])
+        logouts = [call for call in script.calls if call.path == "/auth/logout"]
+        assert [call.body for call in logouts] == [{"refresh_token": "refresh-1"}]
+
+    async def test_each_re_activation_signs_out_the_session_it_replaces(
+        self, opc: tuple[CogniBoilerOPCServer, str], gateway: tuple[str, GatewayScript]
+    ) -> None:
+        server, endpoint = opc
+        _, script = gateway
+        client = Client(url=endpoint)
+        client.set_user("operator1")
+        client.set_password(PASSWORD)
+        async with client:
+            await client.activate_session(username="operator1", password=PASSWORD)
+            await client.activate_session(username="operator1", password=PASSWORD)
+        await settled(server)
+        logins = [call for call in script.calls if call.path == "/auth/login"]
+        signed_out = [
+            call.body["refresh_token"]
+            for call in script.calls
+            if call.path == "/auth/logout"
+        ]
+        assert len(logins) == 3
+        assert sorted(signed_out) == ["refresh-1", "refresh-2", "refresh-3"]
 
     async def test_a_refusal_of_the_plc_is_an_output_not_an_error(
         self, opc: tuple[CogniBoilerOPCServer, str], gateway: tuple[str, GatewayScript]

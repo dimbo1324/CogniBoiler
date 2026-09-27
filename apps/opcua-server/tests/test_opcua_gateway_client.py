@@ -324,6 +324,31 @@ class TestGatewaySession:
         assert client.logouts == ["r1"]
         assert await session.tokens() is None
 
+    async def test_closing_twice_signs_out_once(self) -> None:
+        client = FakeClient(None)
+        session = GatewaySession(client, signed_in(tokens(900_000)))  # type: ignore[arg-type]
+        await session.tokens()
+        await session.close()
+        await session.close()
+        assert client.logouts == ["r1"]
+
+    async def test_closing_twice_after_a_refresh_never_signs_out_the_stale_token(
+        self,
+    ) -> None:
+        renewed = GatewayTokens(
+            access_token="a2",
+            refresh_token="r2",
+            access_expires_at_ms=int(time.time() * 1000) + 900_000,
+            username="operator1",
+            role="operator",
+        )
+        client = FakeClient(renewed)
+        session = GatewaySession(client, signed_in(tokens(10_000)))  # type: ignore[arg-type]
+        assert await session.tokens() is renewed
+        await session.close()
+        await session.close()
+        assert client.logouts == ["r2"]
+
     async def test_closing_after_an_unused_sign_in_still_signs_out(self) -> None:
         client = FakeClient(None)
         login = signed_in(tokens(900_000))
@@ -333,16 +358,35 @@ class TestGatewaySession:
         await session.close()
         assert client.logouts == ["r1"]
 
-    async def test_closing_during_the_sign_in_cancels_it(self) -> None:
-        async def slow() -> GatewayTokens | None:
-            await asyncio.Event().wait()
-            return None
+    async def test_closing_during_the_sign_in_signs_out_once_it_finishes(
+        self,
+    ) -> None:
+        answered = asyncio.Event()
 
+        async def slow() -> GatewayTokens | None:
+            await answered.wait()
+            return tokens(900_000)
+
+        client = FakeClient(None)
         login = asyncio.get_running_loop().create_task(slow())
-        session = GatewaySession(FakeClient(None), login)  # type: ignore[arg-type]
-        await session.close()
+        session = GatewaySession(client, login)  # type: ignore[arg-type]
+        closing = asyncio.create_task(session.close())
         await asyncio.sleep(0)
-        assert login.cancelled()
+        assert client.logouts == []
+        answered.set()
+        await closing
+        assert not login.cancelled()
+        assert client.logouts == ["r1"]
+        assert await session.tokens() is None
+
+    async def test_closing_after_a_failed_sign_in_asks_nothing(self) -> None:
+        client = FakeClient(None)
+        session = GatewaySession(
+            client,  # type: ignore[arg-type]
+            signed_in(GatewayUnavailableError("refused")),
+        )
+        await session.close()
+        assert client.logouts == []
 
     async def test_a_sign_out_without_the_gateway_is_logged(
         self, caplog: pytest.LogCaptureFixture

@@ -10,7 +10,8 @@ same plant data is published on MQTT (authentication of MQTT is hardening work, 
 asyncua does not tell a method callback which session called it. The server's session
 factory is replaced with a subclass whose `call` puts the session's user into a context
 variable for the duration of the call; the callbacks read it from there. When a session
-closes, its gateway session is signed out.
+closes, or a new activation replaces its user, the gateway session of that user is
+signed out, once.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from typing import Any
 from asyncua import ua
 from asyncua.common.utils import ServiceError
 from asyncua.crypto.permission_rules import User, UserRole
-from asyncua.server.internal_session import InternalSession
+from asyncua.server.internal_session import InternalSession, SessionState
 from asyncua.server.server import Server
 from asyncua.server.user_managers import UserManager
 
@@ -90,7 +91,14 @@ class _UserAwareSession(InternalSession):
                 "OPC UA sign-in refused: a password sent in clear on an open channel"
             )
             raise ServiceError(StatusCodes.BadIdentityTokenRejected)
-        return super().activate_session(params, peer_certificate)
+        previous = self.user
+        result = super().activate_session(params, peer_certificate)
+        # OPC UA lets a client activate a live session again, as another user or the
+        # same one; asyncua then simply replaces the user, and the gateway session of
+        # the one replaced would stay open until its refresh token expired.
+        if self.user is not previous:
+            _schedule_sign_out(previous)
+        return result
 
     async def call(self, params: Any) -> Any:
         token = CURRENT_USER.set(self.user)
@@ -100,15 +108,46 @@ class _UserAwareSession(InternalSession):
             CURRENT_USER.reset(token)
 
     async def close_session(self, delete_subs: bool = True) -> None:
+        # asyncua closes a session again when its transport goes away after a
+        # CloseSession; only the first close ends the user's gateway session.
+        was_open = self.state is not SessionState.Closed
         await super().close_session(delete_subs)
-        user = self.user
-        if isinstance(user, GatewayUser) and user.session is not None:
-            closing = asyncio.get_running_loop().create_task(user.session.close())
-            _CLOSING.add(closing)
-            closing.add_done_callback(_CLOSING.discard)
+        if was_open:
+            _schedule_sign_out(self.user)
 
 
 _CLOSING: set[asyncio.Task[None]] = set()
+
+
+def _schedule_sign_out(user: User | None) -> None:
+    if not isinstance(user, GatewayUser) or user.session is None:
+        return
+    closing = asyncio.get_running_loop().create_task(
+        user.session.close(), name="opcua-sign-out"
+    )
+    _CLOSING.add(closing)
+    closing.add_done_callback(_signed_out)
+
+
+def _signed_out(task: asyncio.Task[None]) -> None:
+    _CLOSING.discard(task)
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is not None:
+        logger.warning(
+            "Gateway sign-out failed: %s", type(error).__name__, exc_info=error
+        )
+
+
+async def drain_sign_outs(timeout_s: float) -> None:
+    """Wait at most `timeout_s` for the sign-outs already scheduled to finish."""
+    pending = set(_CLOSING)
+    if not pending:
+        return
+    _, unfinished = await asyncio.wait(pending, timeout=timeout_s)
+    if unfinished:
+        logger.warning("%d gateway sign-outs did not finish in time", len(unfinished))
 
 
 def install_identity(server: Server, gateway: GatewayClient) -> None:

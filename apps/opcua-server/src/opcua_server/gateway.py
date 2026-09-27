@@ -181,18 +181,28 @@ class GatewaySession:
                 )
 
     async def close(self) -> None:
+        """Sign out at the gateway, once: a session already closed has nothing to end."""
         async with self._lock:
-            self._closed = True
-            if not self._login.done():
-                self._login.cancel()
+            if self._closed:
                 return
+            self._closed = True
             tokens = self._tokens
-            if tokens is None and not self._login.cancelled():
-                if self._login.exception() is None:
-                    tokens = self._login.result()
             self._tokens = None
+        if tokens is None:
+            # A sign-in still under way is waited for, not cancelled: its request is
+            # already in a worker thread, and the gateway would open a session that
+            # nobody signs out.
+            tokens = await self._login_result()
         if tokens is not None:
             try:
                 await self._client.logout(tokens.refresh_token)
             except GatewayUnavailableError as exc:
                 logger.info("Gateway sign-out skipped: %s", exc)
+
+    async def _login_result(self) -> GatewayTokens | None:
+        if self._login.cancelled():
+            return None
+        try:
+            return await self._login
+        except Exception:
+            return None
