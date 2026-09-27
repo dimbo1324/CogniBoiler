@@ -196,11 +196,13 @@ class AlarmServicer(pb2_grpc.AlarmServiceServicer):  # type: ignore[misc]
         )
 
 
-async def start_server(servicer: AlarmServicer, port: int) -> grpc.aio.Server:
-    """Start the AlarmService on a port; the caller stops it."""
+async def start_server(
+    servicer: AlarmServicer, port: int
+) -> tuple[grpc.aio.Server, int]:
+    """Start the AlarmService; the server (the caller stops it) and its bound port."""
     server = grpc.aio.server(interceptors=[ServerObservability()])
     pb2_grpc.add_AlarmServiceServicer_to_server(servicer, server)
-    server.add_insecure_port(f"[::]:{port}")
+    bound = server.add_insecure_port(f"[::]:{port}")
     await server.start()
-    logger.info("AlarmService gRPC listening on [::]:%d", port)
-    return server
+    logger.info("AlarmService gRPC listening on [::]:%d", bound)
+    return server, bound

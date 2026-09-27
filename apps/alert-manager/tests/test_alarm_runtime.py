@@ -6,7 +6,6 @@ import argparse
 import asyncio
 import json
 import logging
-import socket
 from collections.abc import AsyncIterator
 from pathlib import Path
 from types import SimpleNamespace
@@ -202,16 +201,16 @@ class TestAlarmService:
                 await call
             assert failed.value.code() == grpc.StatusCode.INVALID_ARGUMENT
 
-    async def test_the_server_starts_on_its_port(
-        self, queries: AlarmQueries, processor: AlarmProcessor
+    async def test_the_server_starts_on_the_port_it_bound(
+        self, processor: AlarmProcessor, queries: AlarmQueries
     ) -> None:
-        with socket.socket() as probe:
-            probe.bind(("127.0.0.1", 0))
-            port = probe.getsockname()[1]
-        server = await start_server(
-            AlarmServicer(processor, queries, is_subscribed=lambda: True), port
+        # Port 0 and the bound port handed back: probing a free port and binding it
+        # later races any other process for it.
+        server, port = await start_server(
+            AlarmServicer(processor, queries, is_subscribed=lambda: True), 0
         )
         try:
+            assert port > 0
             async with grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel:
                 health = await pb2_grpc.AlarmServiceStub(channel).Health(pb2.Empty())
         finally:
@@ -818,9 +817,9 @@ class TestEntryPoint:
             async def stop(self, grace: float) -> None:
                 events.append(f"server stopped {grace}")
 
-        async def start(servicer: AlarmServicer, port: int) -> Server:
+        async def start(servicer: AlarmServicer, port: int) -> tuple[Server, int]:
             events.append(f"server started {port}")
-            return Server()
+            return Server(), 50053
 
         monkeypatch.setattr(entry, "AlarmChangePublisher", Publisher)
         monkeypatch.setattr(entry, "AlertSubscriber", Intake)
@@ -881,8 +880,8 @@ class TestEntryPoint:
             async def stop(self, grace: float) -> None:
                 raise RuntimeError("stop failed")
 
-        async def start(servicer: AlarmServicer, port: int) -> Server:
-            return Server()
+        async def start(servicer: AlarmServicer, port: int) -> tuple[Server, int]:
+            return Server(), 50053
 
         monkeypatch.setattr(entry, "create_engine", Engine)
         monkeypatch.setattr(entry, "start_metrics_server", lambda port, host: None)

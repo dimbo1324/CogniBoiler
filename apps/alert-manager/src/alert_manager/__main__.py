@@ -75,7 +75,7 @@ async def main(args: argparse.Namespace) -> int:
         args.mqtt_host, args.mqtt_port, processor, username=username, password=password
     )
     publisher.start()
-    server = await start_server(
+    server, _ = await start_server(
         AlarmServicer(
             processor,
             AlarmQueries(sessions),
