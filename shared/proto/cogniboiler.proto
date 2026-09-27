@@ -46,7 +46,7 @@ message HealthStatus {
   string service = 1;
   string status = 2; // "running" | "degraded" | "stopped"
   string version = 3;
-  double uptime_seconds = 4;
+  double uptime_seconds = 4; // [s] since the service started
 }
 
 // ─── Sensor / State messages ──────────────────────────────────────────────────
@@ -86,22 +86,22 @@ message TurbineStateMsg {
 }
 
 message ActuatorStateMsg {
-  double fuel_valve_command = 1;
-  double fuel_valve_position = 2;
-  double feedwater_valve_command = 3;
-  double feedwater_valve_position = 4;
-  double steam_valve_command = 5;
-  double steam_valve_position = 6;
-  double spray_valve_command = 7;
-  double spray_valve_position = 8;
+  double fuel_valve_command = 1; // fraction open, 0..1, as commanded
+  double fuel_valve_position = 2; // fraction open, 0..1, as the valve stands
+  double feedwater_valve_command = 3; // fraction open, 0..1
+  double feedwater_valve_position = 4; // fraction open, 0..1
+  double steam_valve_command = 5; // fraction open, 0..1
+  double steam_valve_position = 6; // fraction open, 0..1
+  double spray_valve_command = 7; // fraction open, 0..1
+  double spray_valve_position = 8; // fraction open, 0..1
 }
 
 message EmissionsMsg {
-  double co2_kg_s = 1;
-  double nox_kg_s = 2;
-  double co_kg_s = 3;
-  double nox_ppmv = 4;
-  double co2_intensity_kg_per_mwh = 5; // per MWh of electricity; 0 when not generating
+  double co2_kg_s = 1; // [kg/s]
+  double nox_kg_s = 2; // [kg/s]
+  double co_kg_s = 3; // [kg/s]
+  double nox_ppmv = 4; // [ppmv] in the flue gas
+  double co2_intensity_kg_per_mwh = 5; // [kg/MWh], not SI: per MWh of electricity; 0 when not generating
 }
 
 message CondenserMsg {
@@ -114,13 +114,13 @@ message CondenserMsg {
 }
 
 message EquipmentHealthMsg {
-  double turbine_hours = 1;
-  double turbine_starts = 2;
+  double turbine_hours = 1; // [h], not SI: cumulative running hours
+  double turbine_starts = 2; // count of cold, warm and hot starts
   double turbine_damage = 3; // Miner damage fraction, 1.0 = design life used
-  double boiler_tube_hours = 4;
-  double boiler_tube_damage = 5;
-  double pump_hours = 6;
-  double overall_health_pct = 7;
+  double boiler_tube_hours = 4; // [h], not SI: cumulative hot hours
+  double boiler_tube_damage = 5; // creep damage fraction, 1.0 = design life used
+  double pump_hours = 6; // [h], not SI: feed pump operating hours
+  double overall_health_pct = 7; // [%], 0..100: remaining life of the worst component
   bool maintenance_alarm = 8;
   bool maintenance_critical = 9;
 }
@@ -147,9 +147,9 @@ message SensorStatusMsg {
 message FaultMsg {
   string fault_id = 1;
   FaultKind kind = 2;
-  string target = 3;
-  double severity = 4;
-  double ramp_s = 5;
+  string target = 3; // see FaultKind
+  double severity = 4; // fraction, meaning per FaultKind
+  double ramp_s = 5; // [s] of simulation time to full severity
   double started_at_s = 6; // simulation time
   double intensity = 7; // 0 at onset, 1 once fully developed
   string label = 8; // e.g. "sensor_drift:drum_level"
@@ -157,12 +157,12 @@ message FaultMsg {
 
 message SimulationStatusMsg {
   SimulationRunState run_state = 1;
-  double speed_factor = 2;
-  double simulation_time_s = 3;
+  double speed_factor = 2; // simulation seconds per real second
+  double simulation_time_s = 3; // [s] of simulation time
   int64 step_count = 4;
   string scenario = 5;
   int64 run_id = 6; // changes whenever a scenario is (re)loaded
-  double step_s = 7;
+  double step_s = 7; // [s] of simulation time per step
 }
 
 message SystemStateMsg {
@@ -224,11 +224,11 @@ message ResetRequest {
 
 message SafetyEventMsg {
   int64 timestamp_ms = 1;
-  string parameter = 2;
-  double value = 3;
-  double threshold = 4;
-  string level = 5;
-  string action = 6;
+  string parameter = 2; // process variable, its SI unit in the name, e.g. pressure_pa
+  double value = 3; // [SI unit of parameter]
+  double threshold = 4; // [SI unit of parameter]
+  string level = 5; // normal | warning | trip
+  string action = 6; // none | warn | emergency_stop
 }
 
 // One control loop at the end of the latest AUTO scan.
@@ -243,13 +243,13 @@ message ControlLoopMsg {
 // An alarm condition the PLC currently detects.
 message AlarmConditionMsg {
   string key = 1; // plc-controller:<parameter>:<high|low>:<warning|critical>
-  string parameter = 2;
+  string parameter = 2; // process variable, its SI unit in the name, e.g. water_level_m
   string severity = 3; // warning | critical
   string direction = 4; // high | low
-  double value = 5;
-  double threshold = 6;
+  double value = 5; // [SI unit of parameter]
+  double threshold = 6; // [SI unit of parameter]
   string message = 7;
-  int64 since_ms = 8;
+  int64 since_ms = 8; // UTC epoch milliseconds
 }
 
 message PLCStatusMsg {
