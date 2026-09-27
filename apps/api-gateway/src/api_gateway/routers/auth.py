@@ -40,6 +40,7 @@ from api_gateway.auth.sessions import (
 from api_gateway.auth.throttle import Attempt, LoginThrottle
 from api_gateway.config import settings
 from api_gateway.dependencies import DbSession
+from api_gateway.observability import LOGIN_FAILURES, REFRESH_REJECTIONS
 from api_gateway.problems import ProblemError
 from api_gateway.schemas.auth import (
     LoginRequest,
@@ -74,6 +75,7 @@ def _begin_attempt(
     """Charge an attempt to the throttle, or refuse it with 429 and Retry-After."""
     attempt = _throttle(request).begin_attempt(username, client_ip)
     if not attempt.allowed:
+        LOGIN_FAILURES.labels("throttled").inc()
         set_audit_outcome(request, "refused: too many failed attempts")
         raise ProblemError(
             429,
@@ -163,6 +165,7 @@ async def login(
         body.password, account.hashed_password if account else _DUMMY_HASH
     )
     if account is None or not password_ok or not account.can_sign_in:
+        LOGIN_FAILURES.labels("invalid_credentials").inc()
         set_audit_outcome(request, "refused: invalid credentials")
         raise _invalid_credentials()
 
@@ -189,12 +192,14 @@ async def refresh(
         settings.refresh_cookie_name
     )
     if not token:
+        REFRESH_REJECTIONS.labels("auth.refresh_missing").inc()
         raise ProblemError(
             401, "auth.refresh_missing", "No refresh token was presented."
         )
     try:
         tokens = await rotate_session(db, token, _client(request))
     except RefreshRejectedError as exc:
+        REFRESH_REJECTIONS.labels(exc.code).inc()
         set_audit_outcome(
             request,
             "refused: token reuse, session closed"

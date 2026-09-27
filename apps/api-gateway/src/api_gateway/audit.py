@@ -23,6 +23,7 @@ error log instead, so the trail survives in the service log.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import re
@@ -35,6 +36,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from api_gateway.dependencies import session_scope
 from api_gateway.models.user import AuditLog
+from api_gateway.observability import AUDIT_WRITE_FAILURES
 
 logger = logging.getLogger(__name__)
 
@@ -100,29 +102,39 @@ def client_address(scope: Scope) -> str:
     return str(client[0]) if client else "unknown"
 
 
+def _log_unstored(entry: AuditLog) -> None:
+    AUDIT_WRITE_FAILURES.inc()
+    logger.error(
+        "Audit record NOT stored: %s %s status=%d user=%s(%s) role=%s ip=%s "
+        "at_ms=%d outcome=%r detail=%r body_sha256=%s",
+        entry.method,
+        entry.endpoint,
+        entry.response_status,
+        entry.username,
+        entry.user_id,
+        entry.role,
+        entry.ip_address,
+        entry.timestamp_ms,
+        entry.outcome,
+        entry.detail,
+        entry.request_body_hash,
+        exc_info=True,
+    )
+
+
 async def write_audit_entry(app: FastAPI, entry: AuditLog) -> None:
     """Store one audit row; on failure log the whole record as an error."""
     try:
         async with session_scope(app) as session:
             session.add(entry)
             await session.commit()
+    except asyncio.CancelledError:
+        # Shutdown can cancel the write after the response went out: keep the record
+        # in the log, then let the cancellation proceed.
+        _log_unstored(entry)
+        raise
     except Exception:
-        logger.error(
-            "Audit record NOT stored: %s %s status=%d user=%s(%s) role=%s ip=%s "
-            "at_ms=%d outcome=%r detail=%r body_sha256=%s",
-            entry.method,
-            entry.endpoint,
-            entry.response_status,
-            entry.username,
-            entry.user_id,
-            entry.role,
-            entry.ip_address,
-            entry.timestamp_ms,
-            entry.outcome,
-            entry.detail,
-            entry.request_body_hash,
-            exc_info=True,
-        )
+        _log_unstored(entry)
 
 
 class AuditMiddleware:

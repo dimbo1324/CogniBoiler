@@ -5,7 +5,11 @@ Every HTTP request and WebSocket connection runs under a correlation id: the cal
 `X-Correlation-ID` when it has a safe shape, otherwise a new one. The id is returned in the
 response header, stamped on every log line written while the request runs, and passed on
 in gRPC metadata to the PLC, physics and alarm services. Requests are counted and timed by
-route template, so an id in a path never becomes a metric label.
+route template, so an id in a path never becomes a metric label, and by method, with any
+method outside the HTTP standard set counted as "other" for the same reason.
+
+Security events have counters of their own, for alerting: audit records that could not
+be stored, refused sign-ins by reason, and refused token refreshes by problem code.
 """
 
 from __future__ import annotations
@@ -37,6 +41,22 @@ TELEMETRY_AGE = Gauge(
     "gateway_telemetry_age_seconds",
     "Seconds since the gateway last received a plant state; -1 before the first.",
 )
+AUDIT_WRITE_FAILURES = Counter(
+    "gateway_audit_write_failures",
+    "Audit records that could not be stored and went to the error log instead.",
+)
+LOGIN_FAILURES = Counter(
+    "gateway_login_failures",
+    "Refused sign-in attempts, by reason: invalid_credentials or throttled.",
+    ["reason"],
+)
+REFRESH_REJECTIONS = Counter(
+    "gateway_refresh_rejections",
+    "Refused token refreshes, by problem code (auth.refresh_reused: a replayed token).",
+    ["code"],
+)
+
+_KNOWN_METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
 
 _HEADER = CORRELATION_HEADER.lower().encode("latin-1")
 
@@ -54,6 +74,11 @@ def _caller_id(scope: Scope) -> str | None:
         if name == _HEADER:
             return bytes(value).decode("latin-1")
     return None
+
+
+def _method(scope: Scope) -> str:
+    method = str(scope["method"])
+    return method if method in _KNOWN_METHODS else "other"
 
 
 def _route(scope: Scope) -> str:
@@ -90,7 +115,7 @@ class ObservabilityMiddleware:
             try:
                 await self.app(scope, receive, send_with_id)
             finally:
-                method = str(scope["method"])
+                method = _method(scope)
                 route = _route(scope)
                 HTTP_REQUESTS.labels(method, route, str(status)).inc()
                 HTTP_SECONDS.labels(method, route).observe(

@@ -54,3 +54,17 @@ async def test_the_metrics_endpoint_is_not_part_of_the_api_contract(
 ) -> None:
     schema = (await client.get("/openapi.json")).json()
     assert "/metrics" not in schema["paths"]
+
+
+async def test_an_invented_http_method_is_counted_as_other(
+    client: AsyncClient,
+) -> None:
+    # The method comes from the client: labelling it as sent would let anyone create
+    # series without bound.
+    for method in ("JUNK0", "JUNK1"):
+        await client.request(method, "/health")
+    await client.get("/health")
+    body = (await client.get("/metrics")).text
+    assert "JUNK" not in body
+    assert 'http_requests_total{method="other",route="/health"' in body
+    assert 'http_requests_total{method="GET",route="/health",status="200"}' in body
