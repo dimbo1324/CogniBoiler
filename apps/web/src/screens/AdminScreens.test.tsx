@@ -15,7 +15,7 @@ import {
 import { ApiError } from "../api/http";
 import type { AuditEntry, User } from "../api/types";
 import { AuditScreen } from "./AuditScreen";
-import { UsersScreen } from "./UsersScreen";
+import { PASSWORD_MIN_LENGTH, USERNAME_PATTERN, UsersScreen } from "./UsersScreen";
 
 vi.mock("../api/endpoints", async (importOriginal) => {
   const original = await importOriginal<typeof import("../api/endpoints")>();
@@ -284,5 +284,14 @@ describe("UsersScreen", () => {
     );
     expect(vi.mocked(revokeUserSessions)).toHaveBeenCalledWith(2);
     expect((await screen.findByRole("alert")).textContent).toBe("User 2 does not exist.");
+  });
+});
+
+describe("user administration", () => {
+  it("follows the gateway's username pattern and password length", () => {
+    expect(USERNAME_PATTERN.test("shift.operator")).toBe(true);
+    expect(USERNAME_PATTERN.test("ab")).toBe(false);
+    expect(USERNAME_PATTERN.test("with space")).toBe(false);
+    expect(PASSWORD_MIN_LENGTH).toBe(12);
   });
 });

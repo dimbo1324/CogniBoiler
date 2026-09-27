@@ -19,7 +19,7 @@ import type { Fault, PlantState, SimulationAck } from "../api/types";
 import { useLive } from "../live/LiveProvider";
 import type { LiveSnapshot } from "../live/store";
 import { plantState } from "../test/fixtures";
-import { EngineerScreen } from "./EngineerScreen";
+import { EngineerScreen, FAULT_KINDS } from "./EngineerScreen";
 
 vi.mock("../api/endpoints", async (importOriginal) => {
   const original = await importOriginal<typeof import("../api/endpoints")>();
@@ -318,5 +318,24 @@ describe("run log", () => {
     expect(row.textContent).toContain("fault injected");
     expect(row.textContent).toContain("steam_leak");
     expect(row.textContent).toContain("1:02:05");
+  });
+});
+
+describe("fault kinds", () => {
+  it("offer every kind the physics engine accepts, with its admissible severity", () => {
+    expect(FAULT_KINDS.map((spec) => spec.kind).sort()).toEqual([
+      "burner_fouling",
+      "feedwater_pump_failure",
+      "sensor_drift",
+      "sensor_failure",
+      "steam_leak",
+      "valve_stuck",
+    ]);
+    for (const spec of FAULT_KINDS) {
+      if (spec.severity) {
+        expect(spec.severity.initial).toBeGreaterThanOrEqual(spec.severity.min);
+        expect(spec.severity.initial).toBeLessThanOrEqual(spec.severity.max);
+      }
+    }
   });
 });
