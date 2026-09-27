@@ -213,7 +213,8 @@ class RefreshToken(Base):
     revoked_reason: Mapped[str | None] = mapped_column(
         String(32),
         nullable=True,
-        comment="logout | reuse | password_change | role_change | blocked | admin",
+        comment="logout | reuse | password_change | role_change | blocked | "
+        "unblocked | admin",
     )
     client_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(String(256), nullable=True)

@@ -16,9 +16,9 @@ exhausting memory.
 from __future__ import annotations
 
 import asyncio
-import time
 import weakref
 
+from cogniboiler_runtime import now_ms
 from sqlalchemy import Select, delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,11 +35,6 @@ from api_gateway.schemas.users import (
     UserResponse,
     UserUpdateRequest,
 )
-
-
-def _now_ms() -> int:
-    return int(time.time() * 1000)
-
 
 _hash_slots: weakref.WeakKeyDictionary[
     asyncio.AbstractEventLoop, tuple[int, asyncio.Semaphore]
@@ -94,11 +89,22 @@ async def _role_row(db: AsyncSession, name: str) -> Role:
     return role
 
 
+def _not_found(user_id: int) -> ProblemError:
+    return ProblemError(404, "users.not_found", f"User {user_id} does not exist.")
+
+
 async def _account_or_404(db: AsyncSession, user_id: int) -> Account:
     account = await load_account(db, user_id=user_id)
     if account is None:
-        raise ProblemError(404, "users.not_found", f"User {user_id} does not exist.")
+        raise _not_found(user_id)
     return account
+
+
+async def _user_row_or_404(db: AsyncSession, user_id: int) -> User:
+    user = await db.get(User, user_id)
+    if user is None:
+        raise _not_found(user_id)
+    return user
 
 
 def active_admins_statement() -> Select[tuple[int]]:
@@ -202,7 +208,7 @@ async def create_user(db: AsyncSession, request: UserCreateRequest) -> UserRespo
         raise ProblemError(
             409, "users.username_taken", "An account with this username exists."
         )
-    now = _now_ms()
+    now = now_ms()
     user = User(
         username=request.username,
         hashed_password=await hash_password_async(request.password),
@@ -251,16 +257,19 @@ async def update_user(
             "The last active administrator cannot be demoted or blocked.",
         )
 
-    user = await db.get(User, user_id)
-    if user is None:
-        raise ProblemError(404, "users.not_found", f"User {user_id} does not exist.")
+    user = await _user_row_or_404(db, user_id)
     if role_changes and request.role is not None:
         role = await _role_row(db, request.role)
         await db.execute(delete(UserRole).where(UserRole.user_id == user_id))
-        db.add(UserRole(user_id=user_id, role_id=role.id, granted_at_ms=_now_ms()))
+        db.add(UserRole(user_id=user_id, role_id=role.id, granted_at_ms=now_ms()))
     if activity_changes and request.is_active is not None:
         user.is_active = request.is_active
-    reason = "blocked" if request.is_active is False else "role_change"
+    if request.is_active is False:
+        reason = "blocked"
+    elif activity_changes and not role_changes:
+        reason = "unblocked"
+    else:
+        reason = "role_change"
     await revoke_user_sessions(db, user_id, reason)
     await db.commit()
     return await get_user(db, user_id)
@@ -269,9 +278,7 @@ async def update_user(
 async def reset_password(db: AsyncSession, user_id: int, new_password: str) -> None:
     account = await _account_or_404(db, user_id)
     check_password_policy(account.username, new_password)
-    user = await db.get(User, user_id)
-    if user is None:
-        raise ProblemError(404, "users.not_found", f"User {user_id} does not exist.")
+    user = await _user_row_or_404(db, user_id)
     user.hashed_password = await hash_password_async(new_password)
     await revoke_user_sessions(db, user_id, "admin")
     await db.commit()
@@ -293,9 +300,7 @@ async def change_own_password(
             "The new password must differ from the current one.",
         )
     check_password_policy(account.username, new_password)
-    user = await db.get(User, actor.id)
-    if user is None:
-        raise ProblemError(404, "users.not_found", f"User {actor.id} does not exist.")
+    user = await _user_row_or_404(db, actor.id)
     user.hashed_password = await hash_password_async(new_password)
     await revoke_user_sessions(db, actor.id, "password_change")
     await db.commit()

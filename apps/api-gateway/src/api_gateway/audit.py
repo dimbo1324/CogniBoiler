@@ -31,6 +31,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from cogniboiler_runtime import now_ms
 from fastapi import FastAPI, Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -148,7 +149,7 @@ class AuditMiddleware:
             await self.app(scope, receive, send)
             return
 
-        received_at_ms = int(time.time() * 1000)
+        received_at_ms = now_ms()
         started = time.perf_counter()
         digest = None if carries_credentials(str(scope["path"])) else hashlib.sha256()
         body_bytes = 0

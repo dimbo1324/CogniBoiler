@@ -9,12 +9,12 @@ import pytest
 from api_gateway import accounts
 from api_gateway.auth.identity import CurrentUser, load_account
 from api_gateway.dependencies import get_db
-from api_gateway.models.user import Role, User
+from api_gateway.models.user import RefreshToken, Role, User
 from api_gateway.problems import ProblemError
 from api_gateway.schemas.users import UserUpdateRequest
 from fastapi import FastAPI
 from httpx import AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, select, update
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -268,6 +268,37 @@ class TestRoleAndBlocking:
         )
         assert unblocked.json()["is_active"] is True
         assert await login(client, "viewer1", "viewer_password") == 200
+
+    async def test_closing_sessions_on_an_unblock_says_so(
+        self,
+        app: FastAPI,
+        client: AsyncClient,
+        admin_tokens: dict[str, str],
+        viewer_tokens: dict[str, str],
+    ) -> None:
+        target = await user_id(app, "viewer1")
+        async with database(app) as db:
+            await db.execute(
+                update(User).where(User.id == target).values(is_active=False)
+            )
+            await db.commit()
+        unblocked = await client.patch(
+            f"/api/v1/users/{target}",
+            json={"is_active": True},
+            headers=bearer(admin_tokens),
+        )
+        assert unblocked.status_code == 200
+        async with database(app) as db:
+            reasons = set(
+                (
+                    await db.scalars(
+                        select(RefreshToken.revoked_reason).where(
+                            RefreshToken.user_id == target
+                        )
+                    )
+                ).all()
+            )
+        assert reasons == {"unblocked"}
 
     async def test_an_unchanged_role_keeps_the_sessions(
         self,
