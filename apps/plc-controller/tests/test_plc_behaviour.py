@@ -270,6 +270,13 @@ class TestConnection:
                     while "PLC scan stream failed" not in caplog.text:
                         await asyncio.sleep(0.01)
                 assert await plc.physics_status() == "degraded"
+                link = {
+                    sample.name: sample.value
+                    for family in PlcCollector(plc).collect()
+                    for sample in family.samples
+                }
+                assert link["plc_plant_link_up"] == 0.0
+                assert link["plc_plant_stream_failures_total"] >= 1.0
             finally:
                 await plc.close()
         assert caplog.text.count("PLC scan stream failed") == 1

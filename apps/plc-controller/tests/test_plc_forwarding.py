@@ -11,12 +11,15 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from unittest.mock import MagicMock
 
 import cogniboiler_pb2 as pb2
 import grpc
 import pytest
-from plc_controller.client import PhysicsClientConfig
+from plc_controller import client as client_module
+from plc_controller.client import PhysicsClient, PhysicsClientConfig
 from plc_controller.measurements import ProcessMeasurements
+from plc_controller.metrics import PlcCollector
 from plc_controller.service import PLCService, RuntimeMode
 from plc_fakes import FakePhysics, plc, rpc_error, state
 
@@ -247,3 +250,67 @@ class TestScanLoop:
             async with asyncio.timeout(5.0):
                 await physics.command_waiting.wait()
         assert physics.streams_closed == 1
+
+
+def link_metrics(svc: PLCService) -> dict[str, float]:
+    return {
+        sample.name: sample.value
+        for family in PlcCollector(svc).collect()
+        for sample in family.samples
+        if sample.name.startswith(("plc_plant_", "plc_command_forward", "plc_scan_f"))
+    }
+
+
+class TestPlantLink:
+    async def test_the_link_is_reported_up_while_states_arrive(self) -> None:
+        physics = FakePhysics()
+        async with scanning(physics) as svc:
+            assert link_metrics(svc)["plc_plant_link_up"] == 0.0
+            await physics.feed.put(state(step=0))
+            await scans(svc, 1)
+            assert link_metrics(svc)["plc_plant_link_up"] == 1.0
+            await physics.feed.put(rpc_error())
+            async with asyncio.timeout(5.0):
+                while svc.stats["stream_failures"] < 1:
+                    await asyncio.sleep(0.001)
+            metrics = link_metrics(svc)
+            assert metrics["plc_plant_link_up"] == 0.0
+            assert metrics["plc_plant_stream_failures_total"] >= 1.0
+
+    async def test_forward_and_scan_failures_are_counted(self) -> None:
+        svc, physics = plc()
+        await svc.process_state(state(step=0))
+        physics.fail_with = rpc_error()
+        await svc.process_state(state(step=1))
+        metrics = link_metrics(svc)
+        assert metrics["plc_command_forward_failures_total"] == 1.0
+        assert metrics["plc_scan_failures_total"] == 0.0
+
+    async def test_a_failed_health_call_is_degraded_and_says_why_at_debug(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        svc, physics = plc()
+        physics.health_error = rpc_error()
+        with caplog.at_level(logging.DEBUG, logger="plc_controller.service"):
+            assert await svc.physics_status() == "degraded"
+        assert "UNAVAILABLE" in caplog.text
+
+    def test_keepalive_is_configured_within_what_the_plant_server_allows(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        def insecure_channel(target: str, **kwargs: object) -> object:
+            captured.update(kwargs, target=target)
+            return MagicMock()
+
+        monkeypatch.setattr(
+            client_module.grpc.aio, "insecure_channel", insecure_channel
+        )
+        PhysicsClient(PhysicsClientConfig(target="plant:1"))._connected_stub()
+        options = dict(captured["options"])  # type: ignore[call-overload]
+        # A gRPC server with default options answers pings more often than every
+        # 5 minutes on an idle stream (a paused plant) with GOAWAY "too_many_pings".
+        assert options["grpc.keepalive_time_ms"] > 300_000
+        assert options["grpc.keepalive_timeout_ms"] > 0
+        assert options["grpc.keepalive_permit_without_calls"] == 0

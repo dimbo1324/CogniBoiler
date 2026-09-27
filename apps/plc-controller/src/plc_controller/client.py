@@ -18,6 +18,16 @@ DEFAULT_PHYSICS_TARGET: str = "localhost:50052"
 # to the plant and then send its own, so each plant call must take under half of it.
 DEFAULT_PHYSICS_TIMEOUT_S: float = 0.75
 
+# HTTP/2 keepalive finds a plant that vanished without closing the connection, which
+# would otherwise leave the state stream waiting forever. A paused plant sends no data,
+# and a gRPC server with default options answers pings on such an idle stream more often
+# than every 5 minutes with GOAWAY "too_many_pings", so the interval stays above that.
+KEEPALIVE_OPTIONS: tuple[tuple[str, int], ...] = (
+    ("grpc.keepalive_time_ms", 360_000),
+    ("grpc.keepalive_timeout_ms", 20_000),
+    ("grpc.keepalive_permit_without_calls", 0),
+)
+
 
 @dataclass
 class PhysicsClientConfig:
@@ -39,7 +49,9 @@ class PhysicsClient:
         """The stub, creating the gRPC channel lazily."""
         if self._channel is None or self._stub is None:
             self._channel = grpc.aio.insecure_channel(
-                self.config.target, interceptors=client_interceptors()
+                self.config.target,
+                options=list(KEEPALIVE_OPTIONS),
+                interceptors=client_interceptors(),
             )
             self._stub = pb2_grpc.PhysicsServiceStub(self._channel)
         return self._stub

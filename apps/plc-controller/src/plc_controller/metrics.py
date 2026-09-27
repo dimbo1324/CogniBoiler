@@ -48,6 +48,17 @@ class PlcCollector(Collector):
             ),
             ("plc_warnings", "warnings", "Interlock warnings raised."),
             ("plc_trips", "trips", "Interlock trips."),
+            ("plc_scan_failures", "scan_failures", "Scans a fault of the PLC broke."),
+            (
+                "plc_plant_stream_failures",
+                "stream_failures",
+                "Times the plant's state stream failed or ended.",
+            ),
+            (
+                "plc_command_forward_failures",
+                "forward_failures",
+                "Commands the plant did not acknowledge: link failures.",
+            ),
         ):
             counter = CounterMetricFamily(name, documentation)
             counter.add_metric([], float(stats[key]))
@@ -60,6 +71,12 @@ class PlcCollector(Collector):
         for value in _MODES:
             mode.add_metric([value], 1.0 if value == current else 0.0)
         yield mode
+
+        link = GaugeMetricFamily(
+            "plc_plant_link_up", "1 while the plant's state stream is delivering."
+        )
+        link.add_metric([], 1.0 if self._service.plant_link_up else 0.0)
+        yield link
 
         conditions = GaugeMetricFamily(
             "plc_alarm_conditions_active", "Alarm conditions standing now."

@@ -164,6 +164,8 @@ class PLCService:
         self._forward_failing = False
         self._forward_failures = 0
         self._scan_failures = 0
+        self._stream_failures = 0
+        self._link_up = False
         self._faults_logged: set[type[Exception]] = set()
         self._holding_non_finite = False
 
@@ -213,8 +215,14 @@ class PLCService:
             "trips": self._interlock.trip_count,
             "scans": self._scans_completed,
             "scan_failures": self._scan_failures,
+            "stream_failures": self._stream_failures,
             "forward_failures": self._forward_failures,
         }
+
+    @property
+    def plant_link_up(self) -> bool:
+        """True while the plant's state stream is open and delivering."""
+        return self._link_up
 
     @property
     def active_condition_count(self) -> int:
@@ -231,7 +239,8 @@ class PLCService:
             return "degraded"
         try:
             health = await self._physics.health()
-        except Exception:
+        except Exception as exc:
+            logger.debug("PhysicsService health check failed: %s", link_error(exc))
             return "degraded"
         return str(health.status)
 
@@ -482,6 +491,7 @@ class PLCService:
                 stream = self._physics.stream_system_state()
                 async with contextlib.aclosing(stream) as states:
                     async for state in states:
+                        self._link_up = True
                         await self._scan(state)
                 raise ConnectionError("physics state stream ended")
             except LINK_ERRORS as exc:
@@ -512,6 +522,8 @@ class PLCService:
         self._task_error = ""
 
     def _stream_failed(self, reason: str) -> None:
+        self._link_up = False
+        self._stream_failures += 1
         self._task_error = reason
         if not self._stream_failing:
             logger.warning(
