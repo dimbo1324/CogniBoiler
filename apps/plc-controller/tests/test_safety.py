@@ -367,6 +367,9 @@ class TestEmergencyScenarios:
             dt=1.0,
         )
         assert status.level == SafetyLevel.TRIP
+        # Carry-over into the turbine: the feed stops along with the fuel.
+        assert status.feedwater_valve_override == pytest.approx(0.0)
+        assert status.fuel_valve_override == pytest.approx(0.0)
 
     # ── Scenario 5: High water temp trip ──────────────────────────────────────
 
@@ -446,6 +449,23 @@ class TestEmergencyScenarios:
         )
         assert status.level == SafetyLevel.TRIP
         assert status.fuel_valve_override == pytest.approx(0.0)
+
+    # ── Scenario 11: High steam temperature trip ──────────────────────────────
+
+    def test_scenario_11_high_steam_temperature_trips(self) -> None:
+        """Turbine inlet above 580 °C -> TRIP (armed on line)."""
+        interlock = make_interlock()
+        status = interlock.check(
+            pressure=NOMINAL_PRESSURE,
+            water_level=NOMINAL_LEVEL,
+            water_temp=NOMINAL_WATER_TEMP,
+            flue_gas_temp=NOMINAL_FLUE_TEMP,
+            dt=1.0,
+            steam_temp=STEAM_TEMP_LIMITS.trip_high + 2.0,
+            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
+        )
+        assert status.level == SafetyLevel.TRIP
+        assert status.steam_valve_override == pytest.approx(0.0)
 
     # ── Scenario 9: E-stop locks system ──────────────────────────────────────
 

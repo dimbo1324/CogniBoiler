@@ -14,6 +14,7 @@ import grpc
 import grpc.aio
 import pytest
 from aiomqtt import MqttError
+from physics_engine.faults import FaultKind, FaultSpec
 from physics_engine.models import BoilerParameters
 from physics_engine.scenarios import ScenarioName
 from plc_controller import events as plc_events
@@ -241,6 +242,27 @@ class TestRuns:
             assert plant.runtime.snapshot.controls.fuel_valve_command > 0.0
             await plant.advance(2)
             assert plant.plc.mode is RuntimeMode.ESTOP
+            assert plant.runtime.snapshot.controls.fuel_valve_command == 0.0
+
+    async def test_an_overflow_trip_shuts_feedwater_while_latched(self) -> None:
+        overflow = replace(BoilerParameters().nominal_initial_state(), water_level=7.9)
+        async with rig(initial_state=overflow) as plant:
+            await plant.advance(2)
+            command = plant.plc.latest_command()
+            assert command.source == pb2.CommandSource.SAFETY
+            assert (command.fuel_valve, command.feedwater_valve) == (0.0, 0.0)
+            assert plant.runtime.snapshot.controls.feedwater_valve_command == 0.0
+
+    async def test_a_failed_drum_level_transmitter_trips_the_unit(self) -> None:
+        async with rig() as plant:
+            await plant.advance(2)
+            await plant.runtime.inject_fault(
+                FaultSpec(FaultKind.SENSOR_FAILURE, target="drum_level")
+            )
+            await plant.advance(3)
+            status = await plant.stub.GetControlStatus(pb2.Empty())
+            assert status.mode == pb2.ControlMode.ESTOP
+            assert status.active_trip.parameter == "drum_level_quality"
             assert plant.runtime.snapshot.controls.fuel_valve_command == 0.0
 
     async def test_a_new_plant_run_reseeds_the_load_demand(self) -> None:
