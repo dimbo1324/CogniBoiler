@@ -225,14 +225,14 @@ class HistorianSubscriber:
         """Append to the current batch and flush when needed."""
         self._buffer.append(point)
         if len(self._buffer) >= self._batch_size:
-            await self._flush()
+            await self.flush()
             return
 
         if time.monotonic() - self._last_flush_at >= self._flush_interval_s:
-            await self._flush()
+            await self.flush()
             return
 
-    async def _flush(self) -> None:
+    async def flush(self) -> None:
         """Flush the current batch to InfluxDB without blocking the event loop.
 
         One flush at a time: the periodic flush and a full batch would otherwise
@@ -251,7 +251,7 @@ class HistorianSubscriber:
         while True:
             await asyncio.sleep(self._flush_interval_s)
             if time.monotonic() - self._last_flush_at >= self._flush_interval_s:
-                await self._flush()
+                await self.flush()
 
     def _open_client(self) -> Client:
         return Client(
@@ -279,4 +279,4 @@ class HistorianSubscriber:
         Whatever was buffered for a connection that just died is flushed before the next
         attempt, so a broker outage costs no points already taken in.
         """
-        await self._session.run(self._consume, on_failure=self._flush)
+        await self._session.run(self._consume, on_failure=self.flush)

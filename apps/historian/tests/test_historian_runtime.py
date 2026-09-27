@@ -415,10 +415,10 @@ class TestSubscriber:
         store = SlowWriter()
         sub = HistorianSubscriber(store, batch_size=50, flush_interval_s=3600)  # type: ignore[arg-type]
         await sub._handle_message("status/physics-engine", b"online")
-        first = asyncio.create_task(sub._flush())
+        first = asyncio.create_task(sub.flush())
         await asyncio.to_thread(entered.wait, 5.0)
         await sub._handle_message("status/plc-controller", b"online")
-        second = asyncio.create_task(sub._flush())
+        second = asyncio.create_task(sub.flush())
         for _ in range(5):
             await asyncio.sleep(0)
         assert not second.done()
@@ -440,6 +440,7 @@ class TestSubscriber:
 
 
 class FakeBroker:
+    hold = False
     connections: list[dict[str, Any]] = []
     subscriptions: list[tuple[str, int]] = []
     deliveries: list[SimpleNamespace] = []
@@ -463,6 +464,8 @@ class FakeBroker:
         async def deliver() -> AsyncIterator[SimpleNamespace]:
             for message in pending:
                 yield message
+            if FakeBroker.hold:
+                await asyncio.Event().wait()
             raise MqttError("connection lost")
 
         return deliver()
@@ -470,6 +473,7 @@ class FakeBroker:
 
 @pytest.fixture
 def broker(monkeypatch: pytest.MonkeyPatch) -> type[FakeBroker]:
+    FakeBroker.hold = False
     FakeBroker.connections = []
     FakeBroker.subscriptions = []
     FakeBroker.deliveries = []
@@ -593,6 +597,9 @@ class TestEntryPoint:
             async def flush_periodically(self) -> None:
                 await asyncio.Event().wait()
 
+            async def flush(self) -> None:
+                return None
+
         async def storage_policy(url: str, token: str, policy: StoragePolicy) -> None:
             made["policy"] = policy
 
@@ -624,6 +631,49 @@ class TestEntryPoint:
         assert store.lines[0].startswith("historian_stats")
         assert "INFLUXDB_TOKEN is empty" in caplog.text
 
+    async def test_stopping_flushes_the_partial_batch_and_closes_the_writer(
+        self, broker: type[FakeBroker], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Up to batch_size - 1 points (about 2 s of data) were lost on every stop.
+        broker.hold = True
+        broker.deliveries = [
+            SimpleNamespace(topic="status/physics-engine", payload=b"online")
+        ]
+        store = RecordingWriter()
+        made: list[HistorianSubscriber] = []
+
+        class Recorded(HistorianSubscriber):
+            def __init__(self, *args: Any, **options: Any) -> None:
+                super().__init__(*args, **options)
+                made.append(self)
+
+        async def no_policy(*_: Any) -> None:
+            return None
+
+        monkeypatch.setattr(entry, "InfluxWriter", lambda **_: store)
+        monkeypatch.setattr(entry, "HistorianSubscriber", Recorded)
+        monkeypatch.setattr(entry, "ensure_storage", no_policy)
+        monkeypatch.setattr(entry, "start_metrics_server", lambda port, host: None)
+        monkeypatch.setattr(entry, "STATS_INTERVAL_S", 3600.0)
+        monkeypatch.setattr(
+            "sys.argv",
+            ["historian", "--flush-interval-s", "3600", "--batch-size", "50"],
+        )
+        task = asyncio.create_task(entry.main(entry.parse_args(), "token"))
+        try:
+            async with asyncio.timeout(5.0):
+                while not made or made[0].stats["received"] < 1:
+                    await asyncio.sleep(0.001)
+            assert store.batches == []
+        finally:
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        assert [line.split(" ")[0] for line in store.lines] == [
+            "service_availability,service=physics-engine"
+        ]
+        assert store.closed is True
+
     async def test_an_empty_aggregate_bucket_disables_the_policy(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -640,6 +690,9 @@ class TestEntryPoint:
                 return None
 
             async def flush_periodically(self) -> None:
+                return None
+
+            async def flush(self) -> None:
                 return None
 
         async def storage_policy(*_: Any) -> None:

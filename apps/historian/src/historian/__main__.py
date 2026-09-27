@@ -83,7 +83,13 @@ async def main(args: argparse.Namespace, influx_token: str) -> None:
         tasks.append(ensure_storage(args.influx_url, influx_token, policy))
     if args.liveness_file is not None:
         tasks.append(LivenessFile(args.liveness_file).run(lambda: subscriber.connected))
-    await asyncio.gather(*tasks)
+    try:
+        await asyncio.gather(*tasks)
+    finally:
+        try:
+            await subscriber.flush()
+        finally:
+            await asyncio.to_thread(writer.close)
 
 
 def parse_args() -> argparse.Namespace:
