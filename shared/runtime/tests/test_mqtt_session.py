@@ -16,6 +16,7 @@ import pytest
 from cogniboiler_runtime.mqtt import (
     DEFAULT_RECONNECT_DELAY_S,
     MqttSession,
+    reconnect_jitter,
     subscribe_all,
 )
 
@@ -295,3 +296,245 @@ class TestWithARealAsyncContextManager:
 
         await run_until(session, work, done)
         assert entered == ["in", "out"]
+
+
+def no_wait() -> float:
+    """A jitter of zero: the loop still goes through its wait, but it lasts no time."""
+    return 0.0
+
+
+class ManualClock:
+    """Monotonic time that moves only when a test says so."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def failing_work(*errors: BaseException) -> Work:
+    """Work that raises each of `errors` in turn, then ends the test by cancelling."""
+    pending = iter(errors)
+
+    async def work(client: FakeClient) -> None:
+        raise next(pending, asyncio.CancelledError())
+
+    return work
+
+
+def records(
+    caplog: pytest.LogCaptureFixture, level: int, text: str = ""
+) -> list[logging.LogRecord]:
+    return [r for r in caplog.records if r.levelno == level and text in r.getMessage()]
+
+
+class TestAnOutageThatReconnectsAndFailsAgain:
+    async def test_a_failure_right_after_connect_warns_once(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # The broker accepts the connection and drops it at once, three times over: one
+        # outage, not three, because no session lived long enough to count as healthy.
+        open_client, made = opener(None, None, None, None)
+        session: MqttSession[FakeClient] = MqttSession(
+            open_client,
+            name="historian",
+            reconnect_delay_s=5.0,
+            jitter=no_wait,
+            clock=ManualClock(),
+        )
+        work = failing_work(*(OSError("connection lost") for _ in range(3)))
+        with caplog.at_level(logging.DEBUG, logger="cogniboiler_runtime.mqtt"):
+            with pytest.raises(asyncio.CancelledError):
+                await session.run(work)
+
+        assert len(made) == 4
+        assert len(records(caplog, logging.WARNING)) == 1
+        assert len(records(caplog, logging.INFO, "connection is back")) == 1
+        assert len(records(caplog, logging.INFO, "connected to MQTT")) == 1
+        assert session.failures == 3
+
+    async def test_a_failure_after_a_healthy_session_is_a_new_outage(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        clock = ManualClock()
+        open_client, _ = opener(None, None, None)
+        session: MqttSession[FakeClient] = MqttSession(
+            open_client,
+            name="historian",
+            reconnect_delay_s=5.0,
+            jitter=no_wait,
+            clock=clock,
+        )
+        sessions = 0
+
+        async def work(client: FakeClient) -> None:
+            nonlocal sessions
+            sessions += 1
+            if sessions > 2:
+                raise asyncio.CancelledError
+            clock.now += 60.0
+            raise OSError("connection lost")
+
+        with caplog.at_level(logging.DEBUG, logger="cogniboiler_runtime.mqtt"):
+            with pytest.raises(asyncio.CancelledError):
+                await session.run(work)
+
+        assert len(records(caplog, logging.WARNING, "MQTT error")) == 2
+
+
+class TestAFailureThatIsABug:
+    async def test_a_non_broker_error_is_logged_with_its_traceback(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        open_client, made = opener(None, None, None, None)
+        session: MqttSession[FakeClient] = MqttSession(
+            open_client, name="gateway", reconnect_delay_s=0.0
+        )
+        work = failing_work(*(TypeError("a handler bug") for _ in range(3)))
+        with caplog.at_level(logging.DEBUG, logger="cogniboiler_runtime.mqtt"):
+            with pytest.raises(asyncio.CancelledError):
+                await session.run(work)
+
+        [error] = records(caplog, logging.ERROR)
+        assert error.exc_info is not None
+        assert error.exc_info[0] is TypeError
+        assert "gateway" in error.getMessage()
+        assert records(caplog, logging.WARNING) == []
+        # The plant keeps running: the session is opened again after each failure.
+        assert len(made) == 4
+        assert session.failures == 3
+
+    async def test_each_distinct_bug_gets_one_traceback(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        open_client, _ = opener(None, None, None, None, None)
+        session: MqttSession[FakeClient] = MqttSession(
+            open_client, name="gateway", reconnect_delay_s=0.0
+        )
+        work = failing_work(
+            TypeError("one"), KeyError("two"), TypeError("three"), KeyError("four")
+        )
+        with caplog.at_level(logging.DEBUG, logger="cogniboiler_runtime.mqtt"):
+            with pytest.raises(asyncio.CancelledError):
+                await session.run(work)
+
+        errors = records(caplog, logging.ERROR)
+        assert [r.exc_info[0] for r in errors if r.exc_info] == [TypeError, KeyError]
+
+    async def test_a_repeating_bug_does_not_log_a_connect_line_every_cycle(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # A retained message the handler cannot process comes back on every connect.
+        open_client, _ = opener(*(None for _ in range(6)))
+        session: MqttSession[FakeClient] = MqttSession(
+            open_client,
+            name="gateway",
+            reconnect_delay_s=5.0,
+            jitter=no_wait,
+            clock=ManualClock(),
+        )
+        work = failing_work(*(ValueError("NaN in payload") for _ in range(5)))
+        with caplog.at_level(logging.INFO, logger="cogniboiler_runtime.mqtt"):
+            with pytest.raises(asyncio.CancelledError):
+                await session.run(work)
+
+        assert len(records(caplog, logging.INFO)) == 1
+        assert len(records(caplog, logging.ERROR)) == 1
+
+    async def test_the_mqtt_librarys_own_error_is_a_broker_failure_by_default(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from aiomqtt import MqttError
+
+        open_client, _ = opener(None, None)
+        session: MqttSession[FakeClient] = MqttSession(
+            open_client, name="plc", reconnect_delay_s=0.0
+        )
+        with caplog.at_level(logging.DEBUG, logger="cogniboiler_runtime.mqtt"):
+            with pytest.raises(asyncio.CancelledError):
+                await session.run(failing_work(MqttError("broker gone")))
+
+        assert len(records(caplog, logging.WARNING, "MQTT error")) == 1
+        assert records(caplog, logging.ERROR) == []
+
+    async def test_the_caller_names_its_broker_errors(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        class LinkError(Exception):
+            pass
+
+        open_client, _ = opener(None, None, None)
+        session: MqttSession[FakeClient] = MqttSession(
+            open_client,
+            name="plc",
+            reconnect_delay_s=0.0,
+            broker_errors=(LinkError,),
+        )
+        work = failing_work(LinkError("link down"), OSError("not a broker error here"))
+        with caplog.at_level(logging.DEBUG, logger="cogniboiler_runtime.mqtt"):
+            with pytest.raises(asyncio.CancelledError):
+                await session.run(work)
+
+        assert len(records(caplog, logging.WARNING, "link down")) == 1
+        [error] = records(caplog, logging.ERROR)
+        assert error.exc_info is not None
+        assert error.exc_info[0] is OSError
+
+
+class TestAFailingHook:
+    async def test_a_failing_hook_does_not_end_the_session(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        open_client, made = opener(None, None, None)
+        session: MqttSession[FakeClient] = MqttSession(
+            open_client, name="historian", reconnect_delay_s=0.0
+        )
+        calls = 0
+
+        async def on_failure() -> None:
+            nonlocal calls
+            calls += 1
+            raise RuntimeError("hook failed")
+
+        work = failing_work(OSError("lost"), OSError("lost"))
+        with caplog.at_level(logging.ERROR, logger="cogniboiler_runtime.mqtt"):
+            with pytest.raises(asyncio.CancelledError):
+                await session.run(work, on_failure=on_failure)
+
+        assert calls == 2
+        assert len(made) == 3
+        hook_errors = records(caplog, logging.ERROR, "on_failure")
+        assert hook_errors
+        assert hook_errors[0].exc_info is not None
+        assert hook_errors[0].exc_info[0] is RuntimeError
+
+
+class TestJitter:
+    async def test_the_wait_is_the_delay_scaled_by_the_jitter(self) -> None:
+        # An hour of delay scaled by zero: the second session opens at once, which it
+        # could not if the delay were slept as configured.
+        open_client, made = opener(OSError("refused"), None)
+        factors: list[float] = []
+
+        def jitter() -> float:
+            factors.append(0.0)
+            return 0.0
+
+        session: MqttSession[FakeClient] = MqttSession(
+            open_client, name="test", reconnect_delay_s=3600.0, jitter=jitter
+        )
+        done = asyncio.Event()
+
+        async def work(client: FakeClient) -> None:
+            done.set()
+            await asyncio.sleep(3600)
+
+        await run_until(session, work, done)
+        assert len(made) == 1
+        assert factors == [0.0]
+
+    def test_the_default_jitter_spreads_retries_within_twenty_percent(self) -> None:
+        samples = [reconnect_jitter() for _ in range(500)]
+        assert all(0.8 <= sample <= 1.2 for sample in samples)
+        assert len(set(samples)) > 1
