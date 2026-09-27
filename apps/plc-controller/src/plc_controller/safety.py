@@ -517,7 +517,8 @@ class SafetyInterlock:
 
         # ── Instruments the unit cannot be protected without ──────────────────
         for sensor in TRIP_SENSORS:
-            quality = (sensor_qualities or {}).get(sensor, 0)
+            # An instrument the plant does not report may be fine or dead: doubtful.
+            quality = (sensor_qualities or {}).get(sensor, QUALITY_UNCERTAIN)
             if quality >= QUALITY_BAD:
                 instrument_failed(sensor)
             elif quality >= QUALITY_UNCERTAIN:

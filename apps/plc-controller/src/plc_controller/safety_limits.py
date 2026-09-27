@@ -15,14 +15,25 @@ burner management system — this is protection logic, not a way to switch it of
     low drum pressure        armed while the turbine is on line
     low furnace temperature  armed once the flame is proven (firing for 10 s)
     high steam temperature   armed while the turbine is on line
-A failed drum pressure or level instrument trips the unit: it can no longer be protected.
+
+What a failed instrument does depends on the instrument:
+    drum pressure, drum level  BAD trips the unit: it can no longer be protected.
+                               UNCERTAIN, or not reported by the plant at all, warns.
+    every other instrument     BAD degrades its protection to a warning. Physics holds
+                               a failed instrument's last value, and the interlock keeps
+                               judging that frozen value; the alarm layer drops it from
+                               the limit alarms and raises the instrument's quality
+                               warning instead. Tripping on these is a policy decision
+                               that has not been taken.
+    any reading that is not a number trips, as a failed instrument, whatever its kind.
 
 What a trip does depends on its cause. Fuel and spray always shut. The turbine valve
 opens fully only to relieve high drum pressure; otherwise it closes to keep the water
 and heat in the boiler. Feedwater stops only for a high drum level; otherwise level
 control keeps the drum wet.
 
-Thresholds are code constants covered by tests; no configuration changes them.
+Thresholds are code constants covered by tests; no configuration changes them, and the
+limit objects are frozen, so no code can change them at runtime either.
 """
 
 from __future__ import annotations
@@ -54,7 +65,7 @@ class SafetyAction(StrEnum):
 # ─── Data classes ─────────────────────────────────────────────────────────────
 
 
-@dataclass
+@dataclass(frozen=True)
 class ParameterLimits:
     """
     Four-level protection limits for a single process parameter.

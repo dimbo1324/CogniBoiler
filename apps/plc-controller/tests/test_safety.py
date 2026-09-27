@@ -24,7 +24,9 @@ Additional unit tests:
 
 from __future__ import annotations
 
+import dataclasses
 import logging
+import math
 
 import pytest
 from plc_controller.safety import (
@@ -33,9 +35,14 @@ from plc_controller.safety import (
     SafetyInterlock,
 )
 from plc_controller.safety_limits import (
+    FLUE_GAS_TEMP_LIMITS,
     PRESSURE_LIMITS,
+    PRESSURE_RATE_LIMITS,
     PRESSURE_RATE_TRIP,
     PRESSURE_RATE_WARN,
+    STEAM_TEMP_LIMITS,
+    WATER_LEVEL_LIMITS,
+    WATER_TEMP_LIMITS,
     ParameterLimits,
     SafetyEvent,
     SafetyLevel,
@@ -56,14 +63,19 @@ def make_interlock() -> SafetyInterlock:
     return SafetyInterlock()
 
 
+# Both trip instruments reported and healthy.
+TRIP_INSTRUMENTS_GOOD = {"drum_pressure": 0, "drum_level": 0}
+
+
 def nominal_check(interlock: SafetyInterlock, dt: float = 1.0) -> SafetyStatus:
-    """Run one check with all nominal values."""
+    """Run one check with all nominal values and healthy trip instruments."""
     return interlock.check(
         pressure=NOMINAL_PRESSURE,
         water_level=NOMINAL_LEVEL,
         water_temp=NOMINAL_WATER_TEMP,
         flue_gas_temp=NOMINAL_FLUE_TEMP,
         dt=dt,
+        sensor_qualities=TRIP_INSTRUMENTS_GOOD,
     )
 
 
@@ -267,6 +279,7 @@ class TestEmergencyScenarios:
             water_level=NOMINAL_LEVEL,
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
+            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
         )
         assert status.level == SafetyLevel.TRIP
         assert status.safe is False
@@ -278,6 +291,7 @@ class TestEmergencyScenarios:
             water_level=NOMINAL_LEVEL,
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
+            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
         )
         assert status.fuel_valve_override == pytest.approx(0.0)
 
@@ -288,6 +302,7 @@ class TestEmergencyScenarios:
             water_level=NOMINAL_LEVEL,
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
+            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
         )
         assert status.steam_valve_override == pytest.approx(1.0)
 
@@ -301,6 +316,7 @@ class TestEmergencyScenarios:
             water_level=NOMINAL_LEVEL,
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
+            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
         )
         assert status.level == SafetyLevel.TRIP
 
@@ -314,6 +330,7 @@ class TestEmergencyScenarios:
             water_level=0.2,  # 0.2 m — below trip_low 0.5 m
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
+            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
         )
         assert status.level == SafetyLevel.TRIP
 
@@ -324,6 +341,7 @@ class TestEmergencyScenarios:
             water_level=0.2,
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
+            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
         )
         assert status.fuel_valve_override == pytest.approx(0.0)
 
@@ -337,6 +355,7 @@ class TestEmergencyScenarios:
             water_level=7.9,  # above trip_high 7.8 m
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
+            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
         )
         assert status.level == SafetyLevel.TRIP
 
@@ -350,6 +369,7 @@ class TestEmergencyScenarios:
             water_level=NOMINAL_LEVEL,
             water_temp=650.0,  # above trip_high 648 K
             flue_gas_temp=NOMINAL_FLUE_TEMP,
+            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
         )
         assert status.level == SafetyLevel.TRIP
 
@@ -363,6 +383,7 @@ class TestEmergencyScenarios:
             water_level=NOMINAL_LEVEL,
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=1750.0,  # above trip_high 1700 K
+            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
         )
         assert status.level == SafetyLevel.TRIP
 
@@ -377,6 +398,7 @@ class TestEmergencyScenarios:
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
             dt=1.0,
+            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
         )
         # Next step: +15 bar in 1 second = 15 bar/s > trip (10 bar/s)
         status = interlock.check(
@@ -385,6 +407,7 @@ class TestEmergencyScenarios:
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
             dt=1.0,
+            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
         )
         assert status.level == SafetyLevel.TRIP
 
@@ -407,6 +430,7 @@ class TestEmergencyScenarios:
             water_level=0.3,  # below trip_low — fuel permissive denied
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
+            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
         )
         assert status.level == SafetyLevel.TRIP
         assert status.fuel_valve_override == pytest.approx(0.0)
@@ -422,6 +446,7 @@ class TestEmergencyScenarios:
             water_level=NOMINAL_LEVEL,
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
+            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
         )
         assert interlock.emergency_stop.is_active
 
@@ -440,6 +465,7 @@ class TestEmergencyScenarios:
             water_level=NOMINAL_LEVEL,
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
+            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
         )
         assert interlock.emergency_stop.is_active
 
@@ -465,6 +491,7 @@ class TestWarningConditions:
             water_level=NOMINAL_LEVEL,
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
+            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
         )
         assert status.level == SafetyLevel.WARNING
         assert status.safe is False
@@ -480,6 +507,7 @@ class TestWarningConditions:
             water_level=NOMINAL_LEVEL,
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
+            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
         )
         assert status.level == SafetyLevel.WARNING
         assert status.fuel_valve_override is None
@@ -493,6 +521,7 @@ class TestWarningConditions:
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
             dt=1.0,
+            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
         )
         status = interlock.check(
             pressure=147.0e5,
@@ -500,6 +529,7 @@ class TestWarningConditions:
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
             dt=1.0,
+            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
         )
         assert status.level == SafetyLevel.WARNING
         assert not interlock.emergency_stop.is_active
@@ -516,6 +546,7 @@ class TestStatsCounters:
             water_level=NOMINAL_LEVEL,
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
+            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
         )
         assert interlock.warning_count == 1
 
@@ -526,6 +557,7 @@ class TestStatsCounters:
             water_level=NOMINAL_LEVEL,
             water_temp=NOMINAL_WATER_TEMP,
             flue_gas_temp=NOMINAL_FLUE_TEMP,
+            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
         )
         assert interlock.trip_count == 1
 
@@ -534,3 +566,79 @@ class TestStatsCounters:
         nominal_check(interlock)
         assert interlock.warning_count == 0
         assert interlock.trip_count == 0
+
+
+# ─── Instrument quality policy (PLC-17) ───────────────────────────────────────
+
+
+class TestInstrumentPolicy:
+    """A failed trip instrument trips; a failed other one degrades to a warning.
+
+    The interlock keeps judging a BAD non-trip instrument's last value (physics holds
+    it); the alarm layer raises its quality warning. A trip instrument the plant does
+    not report at all is doubtful, not good.
+    """
+
+    def check(self, qualities: dict[str, int] | None) -> tuple[SafetyStatus, bool]:
+        interlock = make_interlock()
+        status = interlock.check(
+            pressure=NOMINAL_PRESSURE,
+            water_level=NOMINAL_LEVEL,
+            water_temp=NOMINAL_WATER_TEMP,
+            flue_gas_temp=NOMINAL_FLUE_TEMP,
+            dt=1.0,
+            steam_temp=811.0,
+            sensor_qualities=qualities,
+        )
+        return status, interlock.emergency_stop.is_active
+
+    @pytest.mark.parametrize("missing", ["drum_pressure", "drum_level"])
+    def test_an_unreported_trip_instrument_is_a_warning(self, missing: str) -> None:
+        qualities = {"drum_pressure": 0, "drum_level": 0}
+        del qualities[missing]
+        status, latched = self.check(qualities)
+        assert status.level is SafetyLevel.WARNING
+        assert not latched
+        assert [e.parameter for e in status.events] == [f"{missing}_quality"]
+
+    def test_no_qualities_at_all_warn_for_both_trip_instruments(self) -> None:
+        status, latched = self.check(None)
+        assert status.level is SafetyLevel.WARNING
+        assert not latched
+        assert {e.parameter for e in status.events} == {
+            "drum_pressure_quality",
+            "drum_level_quality",
+        }
+
+    def test_a_bad_non_trip_instrument_does_not_trip(self) -> None:
+        status, latched = self.check(
+            {"drum_pressure": 0, "drum_level": 0, "steam_temp": 2}
+        )
+        assert status.level is SafetyLevel.NORMAL
+        assert not latched
+
+
+# ─── Thresholds are constants (ARCH-13) ───────────────────────────────────────
+
+
+class TestThresholdsAreConstants:
+    def test_a_limit_cannot_be_changed_at_runtime(self) -> None:
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            PRESSURE_LIMITS.trip_high = math.inf  # type: ignore[misc]
+
+    @pytest.mark.parametrize(
+        ("limits", "low_protected"),
+        [
+            (PRESSURE_LIMITS, True),
+            (WATER_LEVEL_LIMITS, True),
+            (WATER_TEMP_LIMITS, True),
+            (FLUE_GAS_TEMP_LIMITS, True),
+            (STEAM_TEMP_LIMITS, False),
+            (PRESSURE_RATE_LIMITS, False),
+        ],
+    )
+    def test_every_protected_side_has_a_finite_trip(
+        self, limits: ParameterLimits, low_protected: bool
+    ) -> None:
+        assert math.isfinite(limits.trip_high)
+        assert math.isfinite(limits.trip_low) is low_protected
