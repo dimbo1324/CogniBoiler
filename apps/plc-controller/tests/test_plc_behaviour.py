@@ -294,7 +294,7 @@ class TestConnection:
             retry_delay_s=0.05,
             enable_alert_publishing=False,
         )
-        with caplog.at_level(logging.INFO, logger="plc_controller.service"):
+        with caplog.at_level(logging.INFO, logger="plc_controller"):
             await plc.start()
             try:
                 async with asyncio.timeout(10.0):

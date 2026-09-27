@@ -220,7 +220,7 @@ class TestScanLoop:
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         physics = FakePhysics()
-        with caplog.at_level(logging.INFO, logger="plc_controller.service"):
+        with caplog.at_level(logging.INFO, logger="plc_controller"):
             async with scanning(physics) as svc:
                 await physics.feed.put(rpc_error())
                 await physics.feed.put(ConnectionError("still down"))
@@ -291,7 +291,7 @@ class TestPlantLink:
     ) -> None:
         svc, physics = plc()
         physics.health_error = rpc_error()
-        with caplog.at_level(logging.DEBUG, logger="plc_controller.service"):
+        with caplog.at_level(logging.DEBUG, logger="plc_controller"):
             assert await svc.physics_status() == "degraded"
         assert "UNAVAILABLE" in caplog.text
 

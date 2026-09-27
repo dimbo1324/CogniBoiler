@@ -14,13 +14,11 @@ is active any more; the reset hands the unit back to AUTO without a bump.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import math
 import time
 
 import cogniboiler_pb2 as pb2
-import grpc.aio
 from cogniboiler_runtime import now_ms
 
 from plc_controller.alarms import (
@@ -39,12 +37,11 @@ from plc_controller.commands import (
     CommandSnapshot,
     Setpoints,
     ValidationResult,
-    check_load_demand,
     check_operator,
-    check_setpoints,
     check_valves,
+    refuse,
 )
-from plc_controller.control import ControlTargets, UnitController
+from plc_controller.control import UnitController
 from plc_controller.events import (
     DEFAULT_MQTT_HOST,
     DEFAULT_MQTT_PORT,
@@ -52,22 +49,24 @@ from plc_controller.events import (
     PlcEventKind,
     PlcPublisher,
 )
-from plc_controller.measurements import ProcessMeasurements, ValveSet
-from plc_controller.metrics import SCAN_SECONDS
+from plc_controller.forwarding import CommandForwarder, link_error, plant_holds
+from plc_controller.measurements import ProcessMeasurements
 from plc_controller.modes import RuntimeMode, to_proto
+from plc_controller.runs import PlantRun
 from plc_controller.safety import (
     ArmingTracker,
     SafetyInterlock,
 )
 from plc_controller.safety_limits import (
-    ON_LINE_STEAM_FLOW_KG_S,
     WATER_LEVEL_LIMITS,
     ArmingState,
     SafetyEvent,
     SafetyLevel,
     trip_overrides,
 )
-from plc_controller.status import SafetySnapshot, command_msg, control_status
+from plc_controller.scan_loop import ScanLoop
+from plc_controller.status import SafetySnapshot, control_status
+from plc_controller.targets import OperatorTargets
 
 logger = logging.getLogger(__name__)
 
@@ -77,49 +76,10 @@ __all__ = ["PLCService", "RuntimeMode"]
 # broken state stream is opened again.
 STREAM_RETRY_DELAY_S: float = 0.2
 
-# Commands are compared at the precision they are deduplicated at.
-COMMAND_TOLERANCE: float = 1.0e-4
-
-# Failures of the plant link, as opposed to faults of the PLC itself.
-LINK_ERRORS: tuple[type[Exception], ...] = (grpc.aio.AioRpcError, ConnectionError)
-PLANT_DID_NOT_ACKNOWLEDGE: str = "plant did not acknowledge the command"
 NO_PLANT_STATE: str = "no plant state received yet"
 ESTOP_UNSENT: str = (
     "E-Stop latched; the plant has not yet acknowledged the trip command"
 )
-
-
-def link_error(exc: BaseException) -> str:
-    """A one-line reason for a failed call to the plant."""
-    if isinstance(exc, grpc.aio.AioRpcError):
-        return f"{exc.code().name}: {exc.details()}"
-    return str(exc) or type(exc).__name__
-
-
-def _plant_holds(reported: ValveSet, command: CommandSnapshot) -> bool:
-    """Does the plant report this command as the one in force?"""
-    pairs = (
-        (reported.fuel, command.fuel_valve),
-        (reported.feedwater, command.feedwater_valve),
-        (reported.steam, command.steam_valve),
-        (reported.spray, command.spray_valve),
-    )
-    return all(abs(held - sent) <= COMMAND_TOLERANCE for held, sent in pairs)
-
-
-def _refuse(reason: str) -> ValidationResult:
-    logger.info("Refused: %s", reason)
-    return ValidationResult(accepted=False, reason=reason)
-
-
-def _warn_if_tripped(m: ProcessMeasurements) -> None:
-    """The latch lives in memory only: say so when the PLC starts on a tripped unit."""
-    if m.commands.fuel <= 0.0 and m.steam_flow_kg_s < ON_LINE_STEAM_FLOW_KG_S:
-        logger.warning(
-            "The first plant state looks tripped (fuel command 0, turbine off line). "
-            "The PLC starts in AUTO without a latched E-Stop: a trip latched before a "
-            "PLC restart is not restored"
-        )
 
 
 class PLCService:
@@ -140,11 +100,15 @@ class PLCService:
         mqtt_password: str | None = None,
     ) -> None:
         self._physics = physics_client or PhysicsClient()
-        self._retry_delay_s = max(retry_delay_s, 0.05)
         self._enable_control_loop = enable_control_loop
+        self._forwarder = CommandForwarder(self._physics)
+        self._loop = ScanLoop(
+            self._physics,
+            self.process_state,
+            retry_delay_s=max(retry_delay_s, 0.05),
+            on_new_stream=self._forwarder.invalidate,
+        )
 
-        self._setpoints = Setpoints()
-        self._load_demand_w: float | None = None
         self._mode = RuntimeMode.AUTO
         self._controller = UnitController()
         self._interlock = SafetyInterlock()
@@ -158,55 +122,29 @@ class PLCService:
             username=mqtt_username,
             password=mqtt_password,
         )
+        self._targets = OperatorTargets(
+            lambda event: self._publisher.publish_event(event)
+        )
+        self._run = PlantRun()
 
         self._lock = asyncio.Lock()
         self._start_time = time.monotonic()
         self._commands_received = 0
         self._commands_rejected = 0
-        self._commands_forwarded = 0
-        self._latest_command = CommandSnapshot()
-        self._last_sent_key: tuple[float, float, float, float, int, str] | None = None
         self._latest_measurements: ProcessMeasurements | None = None
         self._trip_cause: SafetySnapshot | None = None
-        self._run_id: int | None = None
-        self._last_simulation_time_s: float | None = None
-        self._scans_completed = 0
-        self._last_scanned_step = -1
-
-        self._control_task: asyncio.Task[None] | None = None
-        self._task_error = ""
-        self._stream_failing = False
-        self._forward_failing = False
-        self._forward_failures = 0
-        self._scan_failures = 0
-        self._stream_failures = 0
-        self._link_up = False
-        self._faults_logged: set[type[Exception]] = set()
-        self._holding_non_finite = False
 
     # ─── Lifecycle ──────────────────────────────────────────────────────────
 
     async def start(self) -> None:
         """Start publishing and, if enabled, the scan loop."""
         self._publisher.start()
-        if not self._enable_control_loop:
-            return
-        if self._control_task is not None and not self._control_task.done():
-            return
-        self._control_task = asyncio.create_task(
-            self._run_control_loop(), name="plc-scan-loop"
-        )
+        if self._enable_control_loop:
+            self._loop.start()
 
     async def close(self) -> None:
         """Stop background work and close remote connections."""
-        task = self._control_task
-        if task is not None:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-            self._control_task = None
+        await self._loop.close()
         await self._publisher.aclose()
         await self._physics.close()
 
@@ -224,14 +162,14 @@ class PLCService:
     def stats(self) -> dict[str, int]:
         return {
             "commands_received": self._commands_received,
-            "commands_rejected": self._commands_rejected,
-            "commands_forwarded": self._commands_forwarded,
+            "commands_rejected": self._commands_rejected + self._forwarder.refused,
+            "commands_forwarded": self._forwarder.forwarded,
             "warnings": self._interlock.warning_count,
             "trips": self._interlock.trip_count,
-            "scans": self._scans_completed,
-            "scan_failures": self._scan_failures,
-            "stream_failures": self._stream_failures,
-            "forward_failures": self._forward_failures,
+            "scans": self._loop.scans,
+            "scan_failures": self._loop.scan_failures,
+            "stream_failures": self._loop.stream_failures,
+            "forward_failures": self._forwarder.failures,
         }
 
     @property
@@ -243,7 +181,7 @@ class PLCService:
     @property
     def plant_link_up(self) -> bool:
         """True while the plant's state stream is open and delivering."""
-        return self._link_up
+        return self._loop.link_up
 
     @property
     def active_condition_count(self) -> int:
@@ -252,11 +190,11 @@ class PLCService:
     @property
     def last_scanned_step(self) -> int:
         """Plant step count of the latest state the scan loop finished; -1 before any."""
-        return self._last_scanned_step
+        return self._loop.last_scanned_step
 
     async def physics_status(self) -> str:
         """Overall PLC status: degraded while tripped or cut off from the plant."""
-        if self._task_error or self._mode is RuntimeMode.ESTOP:
+        if self._loop.error or self._mode is RuntimeMode.ESTOP:
             return "degraded"
         try:
             health = await self._physics.health()
@@ -269,7 +207,7 @@ class PLCService:
 
     def get_setpoints(self) -> Setpoints:
         """Return current setpoints (copy)."""
-        return self._setpoints.copy()
+        return self._targets.setpoints
 
     def update_setpoints(
         self,
@@ -279,54 +217,18 @@ class PLCService:
         operator_id: str,
     ) -> ValidationResult:
         """Validate and store new targets; the working setpoints ramp toward them."""
-        operator = operator_id.strip()
-        refusal = check_setpoints(pressure_pa, water_level_m, steam_temp_k)
-        if refusal.accepted:
-            refusal = check_operator(operator)
-        if not refusal.accepted:
-            return _refuse(refusal.reason)
-        self._setpoints = Setpoints(
-            pressure_pa=pressure_pa,
-            water_level_m=water_level_m,
-            steam_temp_k=steam_temp_k,
-            updated_at_ms=now_ms(),
+        return self._targets.update_setpoints(
+            pressure_pa, water_level_m, steam_temp_k, operator_id
         )
-        self._publisher.publish_event(
-            PlcEvent(
-                PlcEventKind.SETPOINTS_CHANGED,
-                operator,
-                {
-                    "pressure_pa": pressure_pa,
-                    "water_level_m": water_level_m,
-                    "steam_temp_k": steam_temp_k,
-                },
-            )
-        )
-        return ValidationResult(accepted=True)
 
     @property
     def load_demand_w(self) -> float | None:
         """Operator's load target; None until the PLC has seen the plant."""
-        return self._load_demand_w
+        return self._targets.load_demand_w
 
     def set_load_demand(self, load_w: float, operator_id: str) -> ValidationResult:
         """Set the electrical load target; the load setpoint ramps toward it."""
-        operator = operator_id.strip()
-        refusal = check_load_demand(load_w)
-        if refusal.accepted:
-            refusal = check_operator(operator)
-        if not refusal.accepted:
-            return _refuse(refusal.reason)
-        previous = self._load_demand_w
-        self._load_demand_w = load_w
-        self._publisher.publish_event(
-            PlcEvent(
-                PlcEventKind.LOAD_DEMAND_CHANGED,
-                operator,
-                {"load_w": load_w, "previous_load_w": previous},
-            )
-        )
-        return ValidationResult(accepted=True)
+        return self._targets.set_load_demand(load_w, operator_id)
 
     # ─── Commands ───────────────────────────────────────────────────────────
 
@@ -345,8 +247,8 @@ class PLCService:
         return result
 
     def latest_command(self) -> CommandSnapshot:
-        """Return the most recently accepted command."""
-        return self._latest_command.copy()
+        """Return the command most recently in force."""
+        return self._forwarder.latest
 
     async def send_command(
         self,
@@ -416,7 +318,7 @@ class PLCService:
             )
             # The mode follows the command only once the plant has it: a command that
             # never arrived must not leave the unit in MANUAL with nobody driving it.
-            result = await self._forward(snapshot)
+            result = await self._forwarder.forward(snapshot)
             if result.accepted:
                 self._change_mode(RuntimeMode.MANUAL, operator)
             return result
@@ -436,7 +338,7 @@ class PLCService:
                     event = self._interlock.trip("manual_trip", 1.0, 1.0)
                     self._enter_estop(event, operator, PlcEventKind.MANUAL_TRIP)
                     if self._latest_measurements is not None:
-                        sent = await self._forward(
+                        sent = await self._forwarder.forward(
                             self._trip_command(self._latest_measurements, 0.0)
                         )
                         if not sent.accepted:
@@ -465,7 +367,7 @@ class PLCService:
         operator = operator_id.strip()
         attributed = check_operator(operator)
         if not attributed.accepted:
-            return _refuse(attributed.reason)
+            return refuse(attributed.reason)
         async with self._lock:
             if not self._interlock.emergency_stop.is_active:
                 return ValidationResult(
@@ -480,7 +382,7 @@ class PLCService:
                         {"blockers": blockers},
                     )
                 )
-                return _refuse("Reset refused: " + "; ".join(blockers))
+                return refuse("Reset refused: " + "; ".join(blockers))
 
             cause = self._trip_cause
             self._interlock.reset(operator_id=operator)
@@ -513,7 +415,7 @@ class PLCService:
             warning_count=self._interlock.warning_count,
             trip_count=self._interlock.trip_count,
             trip_cause=self._trip_cause,
-            load_demand_w=self._load_demand_w or 0.0,
+            load_demand_w=self._targets.load_demand_w or 0.0,
             working=working,
             reset_blockers=(
                 self._reset_blockers()
@@ -522,77 +424,16 @@ class PLCService:
             ),
             conditions=self._alarms.active(),
             loops=output.loops if output is not None else (),
-            run_id=self._run_id or 0,
+            run_id=self._run.run_id or 0,
         )
 
     # ─── Scan ───────────────────────────────────────────────────────────────
-
-    async def _run_control_loop(self) -> None:
-        """Scan on every plant state; reconnect with a delay when the stream breaks."""
-        while True:
-            # A new stream may reach a restarted plant, whose valves are not ours.
-            self._last_sent_key = None
-            try:
-                stream = self._physics.stream_system_state()
-                async with contextlib.aclosing(stream) as states:
-                    async for state in states:
-                        self._link_up = True
-                        await self._scan(state)
-                raise ConnectionError("physics state stream ended")
-            except LINK_ERRORS as exc:
-                self._stream_failed(link_error(exc))
-            except Exception as exc:
-                self._stream_failed(type(exc).__name__)
-                self._log_fault_once("PLC scan stream broke", exc)
-            await asyncio.sleep(self._retry_delay_s)
-
-    async def _scan(self, state: pb2.SystemStateMsg) -> None:
-        """One scan; a fault in it is logged and the stream carries on."""
-        started = time.perf_counter()
-        try:
-            await self.process_state(state)
-        except Exception as exc:
-            self._scan_failures += 1
-            self._task_error = f"scan failed: {type(exc).__name__}"
-            self._log_fault_once(
-                f"PLC scan failed on plant step {state.simulation.step_count}", exc
-            )
-            return
-        SCAN_SECONDS.observe(time.perf_counter() - started)
-        self._scans_completed += 1
-        self._last_scanned_step = state.simulation.step_count
-        if self._stream_failing:
-            logger.info("PLC scan stream restored")
-        self._stream_failing = False
-        self._task_error = ""
-
-    def _stream_failed(self, reason: str) -> None:
-        self._link_up = False
-        self._stream_failures += 1
-        self._task_error = reason
-        if not self._stream_failing:
-            logger.warning(
-                "PLC scan stream failed: %s — retrying every %.2fs",
-                reason,
-                self._retry_delay_s,
-            )
-        self._stream_failing = True
-
-    def _log_fault_once(self, message: str, exc: Exception) -> None:
-        """A fault of the PLC itself: an error with its traceback, once per kind."""
-        kind = type(exc)
-        if kind in self._faults_logged:
-            logger.debug("%s: %s (logged before)", message, kind.__name__)
-            return
-        self._faults_logged.add(kind)
-        logger.error("%s", message, exc_info=exc)
 
     async def process_state(self, state: pb2.SystemStateMsg) -> None:
         """One PLC scan for one published plant state."""
         measurements = ProcessMeasurements.from_proto(state)
         async with self._lock:
             now = now_ms()
-            self._note_non_finite(measurements)
             dt = self._advance(measurements, now)
             self._latest_measurements = measurements
             arming = self._arming.update(
@@ -622,13 +463,13 @@ class PLCService:
 
             self._evaluate_alarms(measurements, arming, now)
 
-            targets = self._targets(measurements)
+            targets = self._targets.for_scan(measurements)
             if self._mode is RuntimeMode.ESTOP:
                 self._controller.track(measurements, targets, keep_level=True)
                 command = self._trip_command(measurements, dt or 0.0)
-                if not _plant_holds(measurements.commands, command):
-                    self._last_sent_key = None
-                await self._forward(command)
+                if not plant_holds(measurements.commands, command):
+                    self._forwarder.invalidate()
+                await self._forwarder.forward(command)
                 return
             if self._mode is RuntimeMode.MANUAL:
                 self._controller.track(measurements, targets)
@@ -636,7 +477,7 @@ class PLCService:
             if dt is None or dt <= 0.0 or not measurements.finite:
                 return
             output = self._controller.scan(measurements, targets, dt)
-            await self._forward(
+            await self._forwarder.forward(
                 CommandSnapshot(
                     fuel_valve=output.valves.fuel,
                     feedwater_valve=output.valves.feedwater,
@@ -650,19 +491,14 @@ class PLCService:
 
     def _advance(self, m: ProcessMeasurements, now: int) -> float | None:
         """Scan interval in plant time, or None on the first scan of a plant run."""
-        time_s = m.simulation_time_s if math.isfinite(m.simulation_time_s) else None
-        if self._run_id != m.run_id:
-            first_run = self._run_id is None
-            self._run_id = m.run_id
-            self._last_simulation_time_s = time_s
+        step = self._run.advance(m)
+        if step.new_run:
             # A new run starts from the scenario's own valves, not from ours.
-            self._last_sent_key = None
+            self._forwarder.invalidate()
             self._controller.invalidate()
             self._interlock.reset_rate_history()
             self._arming.reset()
-            if first_run:
-                _warn_if_tripped(m)
-            else:
+            if not step.first_run:
                 for transition in self._alarms.clear_all(now):
                     self._publisher.publish_alarm(transition)
                 self._publisher.publish_event(
@@ -670,29 +506,10 @@ class PLCService:
                         PlcEventKind.RUN_CHANGED, OPERATOR_PHYSICS, {"run_id": m.run_id}
                     )
                 )
-            seed = not first_run or self._load_demand_w is None
-            if seed and math.isfinite(m.electrical_power_w):
-                self._load_demand_w = m.electrical_power_w
-            return None
-        if time_s is None:
-            return None
-        previous = self._last_simulation_time_s
-        self._last_simulation_time_s = time_s
-        if previous is None:
-            return None
-        return max(time_s - previous, 0.0)
-
-    def _targets(self, m: ProcessMeasurements) -> ControlTargets:
-        return ControlTargets(
-            load_w=(
-                self._load_demand_w
-                if self._load_demand_w is not None
-                else m.electrical_power_w
-            ),
-            pressure_pa=self._setpoints.pressure_pa,
-            water_level_m=self._setpoints.water_level_m,
-            steam_temp_k=self._setpoints.steam_temp_k,
-        )
+            self._targets.seed_load_demand(
+                m.electrical_power_w, keep_existing=step.first_run
+            )
+        return step.interval_s
 
     def _evaluate_alarms(
         self, m: ProcessMeasurements, arming: ArmingState, now: int
@@ -756,10 +573,10 @@ class PLCService:
             feedwater = overrides.feedwater
         elif m.finite:
             feedwater = self._controller.hold_level(
-                m, self._setpoints.water_level_m, dt
+                m, self._targets.setpoints.water_level_m, dt
             )
         else:
-            feedwater = self._latest_command.feedwater_valve
+            feedwater = self._forwarder.latest.feedwater_valve
         return CommandSnapshot(
             fuel_valve=overrides.fuel,
             feedwater_valve=feedwater,
@@ -775,74 +592,13 @@ class PLCService:
     def _reject(self, reason: str) -> ValidationResult:
         """Refuse a command or mode change; it counts as a rejected command."""
         self._commands_rejected += 1
-        return _refuse(reason)
+        return refuse(reason)
 
     def _current_spray_command(self) -> float:
         measurements = self._latest_measurements
         if measurements is not None and math.isfinite(measurements.commands.spray):
             return measurements.commands.spray
-        return self._latest_command.spray_valve
-
-    def _note_non_finite(self, m: ProcessMeasurements) -> None:
-        """Say once, when it starts, that a reading is not a number."""
-        finite = m.finite
-        if not finite and not self._holding_non_finite:
-            logger.warning(
-                "A plant reading is not a number: its instrument counts as failed and "
-                "the control loops hold their valves until every reading is a number"
-            )
-        elif finite and self._holding_non_finite:
-            logger.info("Every plant reading is a number again")
-        self._holding_non_finite = not finite
-
-    def _forward_failed(self, snapshot: CommandSnapshot, exc: Exception) -> None:
-        """A person's command is reported every time; the PLC's own once per outage."""
-        self._forward_failures += 1
-        reason = link_error(exc)
-        if int(snapshot.source) in EXTERNAL_COMMAND_SOURCES:
-            logger.warning(
-                "Command from %s did not reach the plant: %s",
-                snapshot.operator_id,
-                reason,
-            )
-        elif not self._forward_failing:
-            logger.warning(
-                "PhysicsService did not acknowledge the PLC's command: %s — "
-                "the next scan sends it again",
-                reason,
-            )
-        self._forward_failing = True
-
-    async def _forward(self, snapshot: CommandSnapshot) -> ValidationResult:
-        """Send a command to PhysicsService, skipping exact repeats."""
-        key = (
-            round(snapshot.fuel_valve, 4),
-            round(snapshot.feedwater_valve, 4),
-            round(snapshot.steam_valve, 4),
-            round(snapshot.spray_valve, 4),
-            int(snapshot.source),
-            snapshot.operator_id,
-        )
-        if self._last_sent_key == key:
-            self._latest_command = snapshot
-            return ValidationResult(accepted=True)
-
-        try:
-            ack = await self._physics.apply_command(command_msg(snapshot))
-        except LINK_ERRORS as exc:
-            self._forward_failed(snapshot, exc)
-            return ValidationResult(accepted=False, reason=PLANT_DID_NOT_ACKNOWLEDGE)
-        if self._forward_failing:
-            logger.info("PhysicsService acknowledges commands again")
-            self._forward_failing = False
-        if not ack.accepted:
-            logger.warning("PhysicsService refused a command: %s", ack.reason)
-            return self._reject(ack.reason)
-
-        self._commands_forwarded += 1
-        self._latest_command = snapshot
-        self._last_sent_key = key
-        return ValidationResult(accepted=True)
+        return self._forwarder.latest.spray_valve
 
     @staticmethod
     def _log_alarm(transition: AlarmTransition) -> None:

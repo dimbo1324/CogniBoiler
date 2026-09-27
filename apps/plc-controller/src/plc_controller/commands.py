@@ -13,12 +13,15 @@ parks the unit in a standing alarm: pressure below the 160 bar warning, level in
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 import cogniboiler_pb2 as pb2
 from cogniboiler_runtime import now_ms
 
 from plc_controller.plant_design import RATED_POWER_W
+
+logger = logging.getLogger(__name__)
 
 # Valve position limits.
 VALVE_MIN: float = 0.0
@@ -114,6 +117,12 @@ class CommandSnapshot:
 
 def _refuse(reason: str) -> ValidationResult:
     return ValidationResult(accepted=False, reason=reason)
+
+
+def refuse(reason: str) -> ValidationResult:
+    """A refusal of a request, logged so every refusal leaves a line."""
+    logger.info("Refused: %s", reason)
+    return _refuse(reason)
 
 
 def check_operator(operator_id: str) -> ValidationResult:

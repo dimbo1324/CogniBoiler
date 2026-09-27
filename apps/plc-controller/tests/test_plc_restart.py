@@ -135,7 +135,7 @@ class TestAPlcRestartWhileTripped:
                 retry_delay_s=0.05,
                 enable_alert_publishing=False,
             )
-            with caplog.at_level(logging.WARNING, logger="plc_controller.service"):
+            with caplog.at_level(logging.WARNING, logger="plc_controller"):
                 await restarted.start()
                 try:
                     for _ in range(60):
@@ -158,7 +158,7 @@ class TestAPlcRestartWhileTripped:
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         svc, _ = plc()
-        with caplog.at_level(logging.WARNING, logger="plc_controller.service"):
+        with caplog.at_level(logging.WARNING, logger="plc_controller"):
             await svc.process_state(state(step=0))
             await svc.process_state(state(step=0, run_id=2, fuel_command=0.0))
         assert svc.mode is RuntimeMode.AUTO

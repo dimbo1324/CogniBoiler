@@ -50,7 +50,7 @@ class TestRefusalsAreLogged:
         svc, _ = plc()
         await svc.process_state(state(step=0, water_level_m=0.4))
         assert svc.mode is RuntimeMode.ESTOP
-        with caplog.at_level(logging.INFO, logger="plc_controller.service"):
+        with caplog.at_level(logging.INFO, logger="plc_controller"):
             assert not (await svc.reset_emergency_stop("eng")).accepted
             assert not (await svc.set_mode(RuntimeMode.AUTO, "eng")).accepted
             assert not svc.update_setpoints(999.0e5, 4.8, 811.0, "eng").accepted
