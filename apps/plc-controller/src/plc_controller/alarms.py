@@ -27,7 +27,6 @@ from plc_controller.measurements import (
     SENSOR_STEAM_FLOW,
     SENSOR_STEAM_TEMP,
     ProcessMeasurements,
-    SignalQuality,
 )
 from plc_controller.safety_limits import (
     ALARM_DEADBAND_FLUE_GAS_TEMP_K,
@@ -45,6 +44,7 @@ from plc_controller.safety_limits import (
     WATER_TEMP_LIMITS,
     ArmingState,
     ParameterLimits,
+    SignalQuality,
 )
 
 SOURCE_SERVICE: str = "plc-controller"

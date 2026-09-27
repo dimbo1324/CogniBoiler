@@ -29,8 +29,6 @@ from plc_controller.safety_limits import (
     PRESSURE_LIMITS,
     PRESSURE_RATE_TRIP,
     PRESSURE_RATE_WARN,
-    QUALITY_BAD,
-    QUALITY_UNCERTAIN,
     STEAM_TEMP_LIMITS,
     TRIP_SENSORS,
     WATER_LEVEL_LIMITS,
@@ -41,6 +39,7 @@ from plc_controller.safety_limits import (
     SafetyEvent,
     SafetyLevel,
     SafetyStatus,
+    SignalQuality,
     trip_overrides,
 )
 
@@ -420,7 +419,8 @@ class SafetyInterlock:
         def instrument_failed(sensor: str) -> None:
             if sensor not in failed_instruments:
                 failed_instruments.add(sensor)
-                record(f"{sensor}_quality", QUALITY_BAD, QUALITY_BAD, SafetyLevel.TRIP)
+                bad = float(SignalQuality.BAD)
+                record(f"{sensor}_quality", bad, bad, SafetyLevel.TRIP)
 
         def evaluate(
             parameter: str,
@@ -499,12 +499,15 @@ class SafetyInterlock:
         # ── Instruments the unit cannot be protected without ──────────────────
         for sensor in TRIP_SENSORS:
             # An instrument the plant does not report may be fine or dead: doubtful.
-            quality = (sensor_qualities or {}).get(sensor, QUALITY_UNCERTAIN)
-            if quality >= QUALITY_BAD:
+            quality = (sensor_qualities or {}).get(sensor, SignalQuality.UNCERTAIN)
+            if quality >= SignalQuality.BAD:
                 instrument_failed(sensor)
-            elif quality >= QUALITY_UNCERTAIN:
+            elif quality >= SignalQuality.UNCERTAIN:
                 record(
-                    f"{sensor}_quality", quality, QUALITY_UNCERTAIN, SafetyLevel.WARNING
+                    f"{sensor}_quality",
+                    quality,
+                    float(SignalQuality.UNCERTAIN),
+                    SafetyLevel.WARNING,
                 )
 
         # ── Permissive: block fuel if drum is dry ─────────────────────────────

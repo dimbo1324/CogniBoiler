@@ -15,19 +15,13 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from enum import IntEnum
 
 import cogniboiler_pb2 as pb2
 
 from plc_controller.numeric import all_finite
+from plc_controller.safety_limits import SignalQuality
 
-
-class SignalQuality(IntEnum):
-    """Instrument quality; values match `SensorQuality` in the protobuf contract."""
-
-    GOOD = 0
-    UNCERTAIN = 1
-    BAD = 2
+__all__ = ["SignalQuality"]
 
 
 SENSOR_DRUM_PRESSURE: str = "drum_pressure"

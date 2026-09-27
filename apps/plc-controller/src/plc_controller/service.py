@@ -18,7 +18,6 @@ import contextlib
 import logging
 import math
 import time
-from enum import StrEnum
 
 import cogniboiler_pb2 as pb2
 import grpc.aio
@@ -32,6 +31,11 @@ from plc_controller.alarms import (
 )
 from plc_controller.client import PhysicsClient
 from plc_controller.commands import (
+    EXTERNAL_COMMAND_SOURCES,
+    OPERATOR_AUTO,
+    OPERATOR_INTERLOCK,
+    OPERATOR_PHYSICS,
+    OPERATOR_UNATTRIBUTED,
     CommandSnapshot,
     Setpoints,
     ValidationResult,
@@ -41,9 +45,16 @@ from plc_controller.commands import (
     check_valves,
 )
 from plc_controller.control import ControlTargets, UnitController
-from plc_controller.events import PlcEvent, PlcEventKind, PlcPublisher
+from plc_controller.events import (
+    DEFAULT_MQTT_HOST,
+    DEFAULT_MQTT_PORT,
+    PlcEvent,
+    PlcEventKind,
+    PlcPublisher,
+)
 from plc_controller.measurements import ProcessMeasurements, ValveSet
 from plc_controller.metrics import SCAN_SECONDS
+from plc_controller.modes import RuntimeMode, to_proto
 from plc_controller.safety import (
     ArmingTracker,
     SafetyInterlock,
@@ -56,22 +67,15 @@ from plc_controller.safety_limits import (
     SafetyLevel,
     trip_overrides,
 )
-from plc_controller.status import SafetySnapshot, control_status
+from plc_controller.status import SafetySnapshot, command_msg, control_status
 
 logger = logging.getLogger(__name__)
+
+__all__ = ["PLCService", "RuntimeMode"]
 
 # The scan is event-driven (one per plant state); this is only the pause before a
 # broken state stream is opened again.
 STREAM_RETRY_DELAY_S: float = 0.2
-DEFAULT_ALERT_MQTT_HOST: str = "localhost"
-DEFAULT_ALERT_MQTT_PORT: int = 1883
-
-# Only people and schedules send commands from outside. PID and SAFETY name the PLC's
-# own outputs; accepting them from a caller would let it pass for the interlock.
-EXTERNAL_COMMAND_SOURCES: frozenset[int] = frozenset(
-    {int(pb2.CommandSource.OPERATOR), int(pb2.CommandSource.SCHEDULER)}
-)
-
 
 # Commands are compared at the precision they are deduplicated at.
 COMMAND_TOLERANCE: float = 1.0e-4
@@ -80,7 +84,6 @@ COMMAND_TOLERANCE: float = 1.0e-4
 LINK_ERRORS: tuple[type[Exception], ...] = (grpc.aio.AioRpcError, ConnectionError)
 PLANT_DID_NOT_ACKNOWLEDGE: str = "plant did not acknowledge the command"
 NO_PLANT_STATE: str = "no plant state received yet"
-OPERATOR_UNATTRIBUTED: str = "unattributed"
 ESTOP_UNSENT: str = (
     "E-Stop latched; the plant has not yet acknowledged the trip command"
 )
@@ -119,14 +122,6 @@ def _warn_if_tripped(m: ProcessMeasurements) -> None:
         )
 
 
-class RuntimeMode(StrEnum):
-    """PLC operating mode."""
-
-    AUTO = "auto"
-    MANUAL = "manual"
-    ESTOP = "estop"
-
-
 class PLCService:
     """Virtual PLC business logic with an event-driven scan loop."""
 
@@ -137,8 +132,8 @@ class PLCService:
         physics_client: PhysicsClient | None = None,
         *,
         retry_delay_s: float = STREAM_RETRY_DELAY_S,
-        mqtt_host: str = DEFAULT_ALERT_MQTT_HOST,
-        mqtt_port: int = DEFAULT_ALERT_MQTT_PORT,
+        mqtt_host: str = DEFAULT_MQTT_HOST,
+        mqtt_port: int = DEFAULT_MQTT_PORT,
         enable_control_loop: bool = True,
         enable_alert_publishing: bool = True,
         mqtt_username: str | None = None,
@@ -511,7 +506,7 @@ class PLCService:
             self._controller.working_setpoints() if self._controller.primed else None
         )
         return control_status(
-            mode=self._mode_to_proto(self._mode),
+            mode=to_proto(self._mode),
             emergency_stop_active=self._interlock.emergency_stop.is_active,
             setpoints=self.get_setpoints(),
             latest_command=self.latest_command(),
@@ -622,7 +617,7 @@ class PLCService:
                 and trigger is not None
             ):
                 self._enter_estop(
-                    trigger, "safety-interlock", PlcEventKind.INTERLOCK_TRIPPED
+                    trigger, OPERATOR_INTERLOCK, PlcEventKind.INTERLOCK_TRIPPED
                 )
 
             self._evaluate_alarms(measurements, arming, now)
@@ -648,7 +643,7 @@ class PLCService:
                     steam_valve=output.valves.steam,
                     spray_valve=output.valves.spray,
                     source=pb2.CommandSource.PID,
-                    operator_id="plc-auto",
+                    operator_id=OPERATOR_AUTO,
                     timestamp_ms=now,
                 )
             )
@@ -672,7 +667,7 @@ class PLCService:
                     self._publisher.publish_alarm(transition)
                 self._publisher.publish_event(
                     PlcEvent(
-                        PlcEventKind.RUN_CHANGED, "physics-engine", {"run_id": m.run_id}
+                        PlcEventKind.RUN_CHANGED, OPERATOR_PHYSICS, {"run_id": m.run_id}
                     )
                 )
             seed = not first_run or self._load_demand_w is None
@@ -771,7 +766,7 @@ class PLCService:
             steam_valve=overrides.steam,
             spray_valve=overrides.spray,
             source=pb2.CommandSource.SAFETY,
-            operator_id="safety-interlock",
+            operator_id=OPERATOR_INTERLOCK,
             timestamp_ms=now_ms(),
         )
 
@@ -833,17 +828,7 @@ class PLCService:
             return ValidationResult(accepted=True)
 
         try:
-            ack = await self._physics.apply_command(
-                pb2.ControlCommandMsg(
-                    fuel_valve=snapshot.fuel_valve,
-                    feedwater_valve=snapshot.feedwater_valve,
-                    steam_valve=snapshot.steam_valve,
-                    spray_valve=snapshot.spray_valve,
-                    timestamp_ms=snapshot.timestamp_ms,
-                    source=snapshot.source,
-                    operator_id=snapshot.operator_id,
-                )
-            )
+            ack = await self._physics.apply_command(command_msg(snapshot))
         except LINK_ERRORS as exc:
             self._forward_failed(snapshot, exc)
             return ValidationResult(accepted=False, reason=PLANT_DID_NOT_ACKNOWLEDGE)
@@ -866,12 +851,3 @@ class PLCService:
             logger.warning("Alarm raised: %s", condition.message)
         else:
             logger.info("Alarm cleared: %s", condition.key)
-
-    @staticmethod
-    def _mode_to_proto(mode: RuntimeMode) -> int:
-        """Map internal runtime mode to protobuf enum."""
-        if mode is RuntimeMode.MANUAL:
-            return int(pb2.ControlMode.MANUAL)
-        if mode is RuntimeMode.ESTOP:
-            return int(pb2.ControlMode.ESTOP)
-        return int(pb2.ControlMode.AUTO)

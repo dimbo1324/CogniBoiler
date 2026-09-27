@@ -18,11 +18,17 @@ import grpc.aio
 from cogniboiler_observability import ServerObservability, start_metrics_server
 from cogniboiler_runtime import now_ms
 
-from plc_controller.client import PhysicsClient, PhysicsClientConfig
+from plc_controller.client import (
+    DEFAULT_PHYSICS_TARGET,
+    PhysicsClient,
+    PhysicsClientConfig,
+)
 from plc_controller.commands import ValidationResult
+from plc_controller.events import DEFAULT_MQTT_HOST, DEFAULT_MQTT_PORT
 from plc_controller.metrics import observe_service
-from plc_controller.service import PLCService, RuntimeMode
-from plc_controller.status import command_msg
+from plc_controller.modes import from_proto
+from plc_controller.service import PLCService
+from plc_controller.status import command_msg, setpoints_msg
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +42,6 @@ DEFAULT_HOST: str = "127.0.0.1"
 MIN_COMMAND_STREAM_INTERVAL_S: float = 0.1
 MAX_COMMAND_STREAM_INTERVAL_S: float = 60.0
 MAX_COMMAND_STREAMS: int = 8
-
-_MODES: dict[int, RuntimeMode] = {
-    int(pb2.ControlMode.AUTO): RuntimeMode.AUTO,
-    int(pb2.ControlMode.MANUAL): RuntimeMode.MANUAL,
-    int(pb2.ControlMode.ESTOP): RuntimeMode.ESTOP,
-}
 
 
 def command_stream_interval(requested_s: float) -> float:
@@ -109,13 +109,7 @@ class PLCServicer(pb2_grpc.PLCServiceServicer):  # type: ignore[misc]
         request: pb2.Empty,
         context: grpc.aio.ServicerContext,
     ) -> pb2.SetpointsMsg:
-        sp = self._svc.get_setpoints()
-        return pb2.SetpointsMsg(
-            pressure_pa=sp.pressure_pa,
-            water_level_m=sp.water_level_m,
-            steam_temp_k=sp.steam_temp_k,
-            timestamp_ms=sp.updated_at_ms,
-        )
+        return setpoints_msg(self._svc.get_setpoints())
 
     async def UpdateSetpoints(  # noqa: N802
         self,
@@ -149,7 +143,7 @@ class PLCServicer(pb2_grpc.PLCServiceServicer):  # type: ignore[misc]
         request: pb2.ControlModeRequest,
         context: grpc.aio.ServicerContext,
     ) -> pb2.CommandAck:
-        mode = _MODES.get(int(request.mode))
+        mode = from_proto(request.mode)
         if mode is None:
             return _ack(ValidationResult(False, f"unknown control mode {request.mode}"))
         return _ack(await self._svc.set_mode(mode, request.operator_id))
@@ -205,9 +199,9 @@ async def serve(
     port: int = DEFAULT_PORT,
     *,
     host: str = DEFAULT_HOST,
-    physics_target: str = "localhost:50052",
-    mqtt_host: str = "localhost",
-    mqtt_port: int = 1883,
+    physics_target: str = DEFAULT_PHYSICS_TARGET,
+    mqtt_host: str = DEFAULT_MQTT_HOST,
+    mqtt_port: int = DEFAULT_MQTT_PORT,
     mqtt_username: str | None = None,
     mqtt_password: str | None = None,
     metrics_port: int = 0,

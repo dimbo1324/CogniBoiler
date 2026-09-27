@@ -34,6 +34,19 @@ TEMP_SETPOINT_MAX_K: float = 835.0
 LOAD_DEMAND_MIN_W: float = 0.0
 LOAD_DEMAND_MAX_W: float = RATED_POWER_W
 
+# The names the PLC's own actions are recorded under.
+OPERATOR_AUTO: str = "plc-auto"
+OPERATOR_INTERLOCK: str = "safety-interlock"
+OPERATOR_PHYSICS: str = "physics-engine"
+# An E-Stop is honoured without a name; this is the name it is recorded under.
+OPERATOR_UNATTRIBUTED: str = "unattributed"
+
+# Only people and schedules send commands from outside. PID and SAFETY name the PLC's
+# own outputs; accepting them from a caller would let it pass for the interlock.
+EXTERNAL_COMMAND_SOURCES: frozenset[int] = frozenset(
+    {int(pb2.CommandSource.OPERATOR), int(pb2.CommandSource.SCHEDULER)}
+)
+
 # The gateway's usernames, which it sends as operator_id, are at most 64 characters.
 MAX_OPERATOR_ID_LENGTH: int = 64
 

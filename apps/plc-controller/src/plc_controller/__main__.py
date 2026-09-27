@@ -13,6 +13,8 @@ sys.path.insert(0, str(Path(__file__).parents[4] / "shared" / "generated"))
 
 from cogniboiler_observability import configure_logging
 
+from plc_controller.client import DEFAULT_PHYSICS_TARGET
+from plc_controller.events import DEFAULT_MQTT_HOST, DEFAULT_MQTT_PORT
 from plc_controller.server import DEFAULT_HOST, DEFAULT_PORT, serve
 
 DEFAULT_METRICS_PORT = 9102
@@ -30,11 +32,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--physics-target",
-        default="localhost:50052",
+        default=DEFAULT_PHYSICS_TARGET,
         help="PhysicsService host:port target",
     )
-    parser.add_argument("--mqtt-host", default="localhost", help="MQTT broker host")
-    parser.add_argument("--mqtt-port", type=int, default=1883, help="MQTT broker port")
+    parser.add_argument(
+        "--mqtt-host", default=DEFAULT_MQTT_HOST, help="MQTT broker host"
+    )
+    parser.add_argument(
+        "--mqtt-port", type=int, default=DEFAULT_MQTT_PORT, help="MQTT broker port"
+    )
     parser.add_argument(
         "--metrics-port",
         type=int,

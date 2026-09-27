@@ -44,6 +44,9 @@ TOPIC_ALERT_SNAPSHOT: str = "alerts/snapshot"
 TOPIC_PLC_EVENTS: str = "plc/events"
 TOPIC_AVAILABILITY: str = "status/plc-controller"
 
+DEFAULT_MQTT_HOST: str = "localhost"
+DEFAULT_MQTT_PORT: int = 1883
+
 QUEUE_LIMIT: int = 1000
 RECONNECT_DELAY_S: float = 5.0
 SNAPSHOT_INTERVAL_S: float = 10.0

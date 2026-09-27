@@ -40,12 +40,20 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 from typing import Any
 
 from plc_controller.plant_design import RATED_STEAM_FLOW_KG_S
 
 # ─── Enums ────────────────────────────────────────────────────────────────────
+
+
+class SignalQuality(IntEnum):
+    """Instrument quality; values match `SensorQuality` in the protobuf contract."""
+
+    GOOD = 0
+    UNCERTAIN = 1
+    BAD = 2
 
 
 class SafetyLevel(StrEnum):
@@ -270,10 +278,8 @@ ALARM_DEADBAND_PRESSURE_RATE_PA_S: float = 1.0e5  # a rate is a noisy difference
 # An instrument's quality is a code (0, 1, 2); half a step separates two codes.
 ALARM_DEADBAND_QUALITY: float = 0.5
 
-# Instruments whose failure trips the unit, and their quality codes (SensorQuality).
+# Instruments whose failure trips the unit.
 TRIP_SENSORS: tuple[str, ...] = ("drum_pressure", "drum_level")
-QUALITY_UNCERTAIN: int = 1
-QUALITY_BAD: int = 2
 
 
 def trip_overrides(event: SafetyEvent | None) -> TripOverrides:

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 
+from plc_controller.numeric import clamp
+
 
 class RampedSetpoint:
     """A working setpoint that approaches its target at a bounded rate.
@@ -35,5 +37,5 @@ class RampedSetpoint:
             return self.value
         max_move = self.rate_per_s * max(dt, 0.0)
         error = self.target - self.value
-        self.value += max(-max_move, min(max_move, error))
+        self.value += clamp(error, -max_move, max_move)
         return self.value

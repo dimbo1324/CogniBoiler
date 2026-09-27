@@ -15,6 +15,8 @@ from prometheus_client import REGISTRY, Histogram
 from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily, Metric
 from prometheus_client.registry import Collector
 
+from plc_controller.modes import RuntimeMode
+
 if TYPE_CHECKING:
     from plc_controller.service import PLCService
 
@@ -23,8 +25,6 @@ SCAN_SECONDS = Histogram(
     "Time of one scan: measurements, interlocks, alarms, control and the command sent.",
     buckets=(0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5),
 )
-
-_MODES = ("auto", "manual", "estop")
 
 
 class PlcCollector(Collector):
@@ -68,7 +68,7 @@ class PlcCollector(Collector):
             "plc_mode", "1 for the PLC's current mode.", labels=["mode"]
         )
         current = self._service.mode.value
-        for value in _MODES:
+        for value in RuntimeMode:
             mode.add_metric([value], 1.0 if value == current else 0.0)
         yield mode
 
