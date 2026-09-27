@@ -17,6 +17,9 @@ Usage:
 
 from __future__ import annotations
 
+from typing import Literal
+
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -40,26 +43,26 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
     ]
 
-    # JWT
-    jwt_algorithm: str = "RS256"
-    jwt_access_token_expire_minutes: int = 15
+    # JWT: the private key signs, the public key verifies; no other algorithm.
+    jwt_algorithm: Literal["RS256"] = "RS256"
+    jwt_access_token_expire_minutes: int = Field(default=15, ge=1, le=60)
     jwt_refresh_token_expire_days: int = 7
     jwt_private_key: str = ""
     jwt_public_key: str = ""
 
     # Sessions: a refresh token presented again after this grace period closes its
     # whole session; within it (two browser tabs refreshing at once) it is only refused.
-    refresh_reuse_grace_s: float = 5.0
+    refresh_reuse_grace_s: float = Field(default=5.0, ge=0.0, le=30.0)
     refresh_cookie_name: str = "cogniboiler_refresh"
     refresh_cookie_path: str = "/auth"
     refresh_cookie_secure: bool = True
 
     # Sign-in throttling, per account name and per client address.
-    login_max_failures_per_account: int = 5
-    login_max_failures_per_client: int = 20
-    login_failure_window_s: float = 900.0
+    login_max_failures_per_account: int = Field(default=5, ge=1)
+    login_max_failures_per_client: int = Field(default=20, ge=1)
+    login_failure_window_s: float = Field(default=900.0, gt=0.0)
     # Argon2 runs allowed at once (64 MiB each); further sign-ins wait their turn.
-    login_max_concurrent_hashes: int = 4
+    login_max_concurrent_hashes: int = Field(default=4, ge=1)
 
     # Database
     database_url: str = (

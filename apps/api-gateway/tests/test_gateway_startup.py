@@ -238,3 +238,20 @@ class TestLifespan:
         monkeypatch.setattr(settings, "auto_init_db", True)
         async with main.lifespan(main.create_app()):
             assert seeded == [True]
+
+    async def test_missing_signing_keys_stop_start_up_before_anything_starts(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        made: list[str] = []
+
+        def refuse(config: object) -> Any:
+            made.append("client")
+            return FakePhysicsClient()
+
+        monkeypatch.setattr(main, "PhysicsGatewayClient", refuse)
+        monkeypatch.setattr(settings, "auto_init_db", False)
+        monkeypatch.setattr(settings, "jwt_private_key", "")
+        with pytest.raises(RuntimeError, match="jwt_private_key"):
+            async with main.lifespan(main.create_app()):
+                pass
+        assert made == []

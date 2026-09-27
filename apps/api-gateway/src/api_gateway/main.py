@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api_gateway.audit import AuditMiddleware
+from api_gateway.auth.jwt_handler import validate_signing_keys
 from api_gateway.auth.throttle import LoginThrottle, ThrottlePolicy
 from api_gateway.clients import (
     AlarmGatewayClient,
@@ -55,6 +56,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Upstream clients and realtime sources live exactly as long as the application."""
+    validate_signing_keys()
     if settings.auto_init_db:
         await seed_roles_and_demo_users()
 
