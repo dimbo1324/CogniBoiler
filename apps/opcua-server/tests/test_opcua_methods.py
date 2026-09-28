@@ -19,6 +19,11 @@ import pytest_asyncio
 from aiomqtt import MqttError
 from asyncua import ua
 from asyncua.crypto.permission_rules import UserRole
+from cogniboiler_observability import (
+    CORRELATION_METADATA_KEY,
+    correlation_scope,
+    current_correlation_id,
+)
 from opcua_fakes import PASSWORD, GatewayScript, RecordingOPC, gateway_server
 from opcua_server import __main__ as entry
 from opcua_server import subscriber, upstreams
@@ -314,8 +319,10 @@ class TestMethods:
 class FakePLC:
     def __init__(self) -> None:
         self.down = False
+        self.correlation_ids: list[str | None] = []
 
     async def get_control_status(self) -> pb.PLCStatusMsg:
+        self.correlation_ids.append(current_correlation_id())
         if self.down:
             raise grpc.RpcError("PLCService unreachable")
         return pb.PLCStatusMsg(mode=pb.ControlMode.MANUAL)
@@ -357,8 +364,43 @@ class TestProjections:
             finally:
                 task.cancel()
         assert 2712 not in opc.stale
-        assert caplog.text.count("PLCService unreachable for the PLC folder") == 1
-        assert "PLCService reachable again" in caplog.text
+        assert caplog.text.count("PLCService for the PLC folder unavailable") == 1
+        assert "PLCService for the PLC folder available again" in caplog.text
+
+    async def test_each_poll_runs_under_its_own_correlation_id(self) -> None:
+        opc, plc = RecordingOPC(), FakePLC()
+        task = asyncio.create_task(upstreams.run_plc_projection(opc, plc, 0.001))  # type: ignore[arg-type]
+        try:
+            await until(lambda: len(plc.correlation_ids) >= 2)
+        finally:
+            task.cancel()
+        first, second = plc.correlation_ids[:2]
+        assert first and second and first != second
+
+    async def test_a_defect_in_a_projection_does_not_end_the_loop(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        class BrokenOnce(RecordingOPC):
+            broken = True
+
+            async def update_variable(
+                self, node_id: int, value: Any, **kw: Any
+            ) -> None:
+                if self.broken:
+                    raise RuntimeError("defect in a projection")
+                await super().update_variable(node_id, value, **kw)
+
+        opc, plc = BrokenOnce(), FakePLC()
+        with caplog.at_level(logging.ERROR, logger="opcua_server.upstreams"):
+            task = asyncio.create_task(upstreams.run_plc_projection(opc, plc, 0.001))  # type: ignore[arg-type]
+            try:
+                await until(lambda: len(plc.correlation_ids) >= 3)
+                opc.broken = False
+                await until(lambda: any(nid == 2700 for nid, _, _ in opc.updates))
+            finally:
+                task.cancel()
+        assert opc.latest(2700) == "manual"
+        assert caplog.text.count("PLC folder") == 1
 
     async def test_the_alarm_folder_refreshes_at_once_on_a_change(self) -> None:
         opc, alarms = RecordingOPC(), FakeAlarms()
@@ -656,6 +698,38 @@ class TestEntryPoint:
 
 
 class TestReadClients:
+    async def test_a_read_carries_the_correlation_id(self) -> None:
+        seen: list[str | None] = []
+
+        class PLC(pb2_grpc.PLCServiceServicer):
+            async def GetControlStatus(self, request: Any, context: Any) -> Any:  # noqa: N802
+                metadata = dict(context.invocation_metadata())
+                seen.append(metadata.get(CORRELATION_METADATA_KEY))
+                return pb.PLCStatusMsg()
+
+        class Alarms(pb2_grpc.AlarmServiceServicer):
+            async def ListAlarms(self, request: Any, context: Any) -> Any:  # noqa: N802
+                metadata = dict(context.invocation_metadata())
+                seen.append(metadata.get(CORRELATION_METADATA_KEY))
+                return pb.AlarmListMsg()
+
+        server = grpc.aio.server()
+        pb2_grpc.add_PLCServiceServicer_to_server(PLC(), server)
+        pb2_grpc.add_AlarmServiceServicer_to_server(Alarms(), server)
+        port = server.add_insecure_port("127.0.0.1:0")
+        await server.start()
+        plc = PLCStatusClient(f"127.0.0.1:{port}")
+        alarms = AlarmReadClient(f"127.0.0.1:{port}")
+        try:
+            with correlation_scope("poll-7"):
+                await plc.get_control_status()
+                await alarms.open_alarms()
+        finally:
+            await plc.close()
+            await alarms.close()
+            await server.stop(grace=None)
+        assert seen == ["poll-7", "poll-7"]
+
     async def test_the_plc_status_and_open_alarms_are_read_over_grpc(self) -> None:
         requests: list[pb.ListAlarmsRequest] = []
 

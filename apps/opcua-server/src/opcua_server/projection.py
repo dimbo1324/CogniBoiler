@@ -90,6 +90,14 @@ def sensor_qualities(msg: pb.PlantStatusMsg) -> dict[int, int]:
     }
 
 
+def _control_mode(mode: int) -> str:
+    """The mode's name; proto3 enums are open, and a newer PLC may send a value unknown here."""
+    try:
+        return str(pb.ControlMode.Name(mode)).lower()
+    except ValueError:
+        return "unknown"
+
+
 def plc_updates(status: pb.PLCStatusMsg) -> list[Update]:
     trip = status.active_trip
     trip_cause = (
@@ -98,7 +106,7 @@ def plc_updates(status: pb.PLCStatusMsg) -> list[Update]:
         else ""
     )
     return [
-        (NODEID_PLC_MODE, pb.ControlMode.Name(status.mode).lower()),
+        (NODEID_PLC_MODE, _control_mode(status.mode)),
         (NODEID_EMERGENCY_STOP_ACTIVE, status.emergency_stop_active),
         (NODEID_TRIP_CAUSE, trip_cause),
         (NODEID_RESET_PERMITTED, status.reset_permitted),
@@ -130,7 +138,8 @@ def alarm_updates(alarms: pb.AlarmListMsg) -> list[Update]:
         in (pb.AlarmState.ALARM_ACTIVE_UNACK, pb.AlarmState.ALARM_ACTIVE_ACK)
     )
     return [
-        (NODEID_OPEN_ALARM_COUNT, len(open_alarms)),
+        # The list is one page (client.OPEN_ALARMS_LISTED); total counts them all.
+        (NODEID_OPEN_ALARM_COUNT, max(int(alarms.total), len(open_alarms))),
         (NODEID_UNACKNOWLEDGED_COUNT, unacknowledged),
         (NODEID_CRITICAL_ACTIVE_COUNT, critical_active),
         (

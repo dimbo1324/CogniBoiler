@@ -123,6 +123,17 @@ class TestProjections:
         assert updates[2704] == ["pressure high"]
         assert (updates[2707], updates[2710], updates[2712]) == (140e5, 4, True)
 
+    def test_an_unknown_control_mode_is_named_unknown(self) -> None:
+        updates = dict(plc_updates(pb.PLCStatusMsg(mode=99)))
+        assert updates[2700] == "unknown"
+
+    def test_the_open_alarm_count_is_the_total_not_the_page(self) -> None:
+        listed = [pb.AlarmMsg(alarm_id=n, severity="warning") for n in (1, 2, 3)]
+        updates = dict(alarm_updates(pb.AlarmListMsg(total=250, alarms=listed)))
+        assert (updates[2800], len(updates[2803])) == (250, 3)
+        unset = dict(alarm_updates(pb.AlarmListMsg(alarms=listed)))
+        assert unset[2800] == 3
+
     def test_no_trip_cause_while_running(self) -> None:
         updates = dict(plc_updates(pb.PLCStatusMsg(mode=pb.ControlMode.AUTO)))
         assert (updates[2700], updates[2702]) == ("auto", "")

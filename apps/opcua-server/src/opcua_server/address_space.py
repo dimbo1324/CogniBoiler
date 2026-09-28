@@ -312,8 +312,8 @@ PLC_VARIABLES: list[VariableDescriptor] = [
 
 ALARM_VARIABLES: list[VariableDescriptor] = [
     _d(NODEID_OPEN_ALARM_COUNT, "OpenAlarmCount", "Open Alarms", "1", "Alarms not both cleared and acknowledged [1]", A, 0, INT),
-    _d(NODEID_UNACKNOWLEDGED_COUNT, "UnacknowledgedCount", "Unacknowledged Alarms", "1", "Open alarms waiting for acknowledgement [1]", A, 0, INT),
-    _d(NODEID_CRITICAL_ACTIVE_COUNT, "CriticalActiveCount", "Critical Active Alarms", "1", "Critical alarms whose condition is present [1]", A, 0, INT),
+    _d(NODEID_UNACKNOWLEDGED_COUNT, "UnacknowledgedCount", "Unacknowledged Alarms", "1", "Listed open alarms waiting for acknowledgement [1]", A, 0, INT),
+    _d(NODEID_CRITICAL_ACTIVE_COUNT, "CriticalActiveCount", "Critical Active Alarms", "1", "Listed critical alarms whose condition is present [1]", A, 0, INT),
     _d(NODEID_OPEN_ALARMS, "OpenAlarms", "Open Alarm List", "-", "id | severity | state | message of each open alarm", A, [], TEXTS),
     _d(NODEID_ALARM_COMMUNICATION, "AlarmServiceCommunication", "Alarm Service Communication", "-", "The OPC UA server reaches AlarmService", A, False, BOOL),
 ]  # fmt: skip
