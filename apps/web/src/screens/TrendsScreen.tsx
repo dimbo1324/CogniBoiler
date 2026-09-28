@@ -21,6 +21,7 @@ import { DEFAULT_TREND_IDS, TREND_PARAMETERS, type TrendParameter } from "../tre
 import { buildColumns } from "../trends/series";
 import {
   co2PerJouleToKilogramsPerMegawattHour,
+  formatConverted,
   formatDateTime,
   formatReading,
   fractionToPercent,
@@ -65,32 +66,32 @@ function KpiPanel({ kpi, isError }: { kpi: Kpi | undefined; isError: boolean }) 
   const items: [string, string, IconGlyph][] = [
     [
       "Mean output",
-      `${formatReading(kpi.mean_electrical_power_w === null ? null : wattsToMegawatts(kpi.mean_electrical_power_w), 1)} MW`,
+      `${formatConverted(kpi.mean_electrical_power_w, wattsToMegawatts, 1)} MW`,
       PowerIcon,
     ],
     [
       "Net efficiency",
-      `${formatReading(kpi.net_efficiency === null ? null : fractionToPercent(kpi.net_efficiency), 2)} %`,
+      `${formatConverted(kpi.net_efficiency, fractionToPercent, 2)} %`,
       EfficiencyIcon,
     ],
     [
       "Boiler efficiency",
-      `${formatReading(kpi.boiler_efficiency === null ? null : fractionToPercent(kpi.boiler_efficiency), 2)} %`,
+      `${formatConverted(kpi.boiler_efficiency, fractionToPercent, 2)} %`,
       EfficiencyIcon,
     ],
     [
       "Plant heat rate",
-      `${formatReading(kpi.plant_heat_rate_j_per_j === null ? null : heatRateToKilojoulesPerKilowattHour(kpi.plant_heat_rate_j_per_j), 0)} kJ/kWh`,
+      `${formatConverted(kpi.plant_heat_rate_j_per_j, heatRateToKilojoulesPerKilowattHour, 0)} kJ/kWh`,
       FuelIcon,
     ],
     [
       "Turbine heat rate",
-      `${formatReading(kpi.turbine_heat_rate_j_per_j === null ? null : heatRateToKilojoulesPerKilowattHour(kpi.turbine_heat_rate_j_per_j), 0)} kJ/kWh`,
+      `${formatConverted(kpi.turbine_heat_rate_j_per_j, heatRateToKilojoulesPerKilowattHour, 0)} kJ/kWh`,
       FuelIcon,
     ],
     [
       "CO2 intensity",
-      `${formatReading(kpi.co2_intensity_kg_per_j === null ? null : co2PerJouleToKilogramsPerMegawattHour(kpi.co2_intensity_kg_per_j), 0)} kg/MWh`,
+      `${formatConverted(kpi.co2_intensity_kg_per_j, co2PerJouleToKilogramsPerMegawattHour, 0)} kg/MWh`,
       EmissionsIcon,
     ],
     [

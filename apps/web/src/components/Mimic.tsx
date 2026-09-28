@@ -105,7 +105,7 @@ function Valve({
       points={points}
       className="valve"
       style={{
-        fill: `color-mix(in srgb, var(--ok) ${String(Math.round(open * 100))}%, var(--surface))`,
+        fill: `color-mix(in srgb, var(--ok) ${String(Math.round(fractionToPercent(open)))}%, var(--surface))`,
       }}
     />
   );

@@ -104,6 +104,15 @@ export function formatReading(value: number | null | undefined, fractionDigits =
   return typeof value === "number" && Number.isFinite(value) ? value.toFixed(fractionDigits) : "—";
 }
 
+/** A value that may be missing, converted for display: "—" when there is none. */
+export function formatConverted(
+  value: number | null | undefined,
+  convert: (value: number) => number,
+  fractionDigits: number,
+): string {
+  return formatReading(typeof value === "number" ? convert(value) : null, fractionDigits);
+}
+
 export interface DisplayQuantity {
   value: string;
   unit: string;

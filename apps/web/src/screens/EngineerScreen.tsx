@@ -32,7 +32,14 @@ import {
 } from "../components/ui/icons";
 import { Panel } from "../components/ui/Panel";
 import { useLive } from "../live/LiveProvider";
-import { formatDateTime, formatDuration, formatReading, parseDecimal } from "../units";
+import {
+  formatConverted,
+  formatDateTime,
+  formatDuration,
+  formatReading,
+  fractionToPercent,
+  parseDecimal,
+} from "../units";
 import { GATEWAY_LIMITS } from "../api/limits";
 import { queryKeys } from "../api/queryKeys";
 
@@ -378,7 +385,9 @@ function FaultSection({ ask }: { ask: (action: PendingAction<Answer>) => void })
                 <td>{fault.label}</td>
                 <td>{fault.target || "—"}</td>
                 <td className="number">{formatReading(fault.severity, 2)}</td>
-                <td className="number">{formatReading(fault.intensity * 100, 0)} %</td>
+                <td className="number">
+                  {formatConverted(fault.intensity, fractionToPercent, 0)} %
+                </td>
                 <td>
                   <button
                     type="button"

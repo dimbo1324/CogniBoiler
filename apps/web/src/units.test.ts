@@ -6,6 +6,7 @@ import {
   co2PerJouleToKilogramsPerMegawattHour,
   displayQuantity,
   formatDateTime,
+  formatConverted,
   formatDuration,
   formatQuantity,
   formatReading,
@@ -149,5 +150,14 @@ describe("percentToFraction", () => {
     expect(percentToFraction(50)).toBe(0.5);
     expect(percentToFraction(0)).toBe(0);
     expect(percentToFraction(fractionToPercent(0.25))).toBeCloseTo(0.25);
+  });
+});
+
+describe("formatConverted", () => {
+  it("converts a value for display and shows a dash for a missing one", () => {
+    expect(formatConverted(250e6, wattsToMegawatts, 1)).toBe("250.0");
+    expect(formatConverted(0.4, fractionToPercent, 2)).toBe("40.00");
+    expect(formatConverted(null, wattsToMegawatts, 1)).toBe("—");
+    expect(formatConverted(undefined, wattsToMegawatts, 1)).toBe("—");
   });
 });
