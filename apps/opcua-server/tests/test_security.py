@@ -4,16 +4,22 @@ from __future__ import annotations
 
 import pytest
 from asyncua import ua
+from asyncua.common.utils import ServiceError
 from cryptography import x509
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
-from opcua_server.identity import sends_password_in_clear
+from opcua_server.identity import (
+    _UserAwareSession,
+    sends_password_in_clear,
+    uses_refused_password_encryption,
+)
 from opcua_server.security import (
     APPLICATION_URI,
     SECURITY_POLICIES,
     certificate_from_environment,
     self_signed_certificate,
 )
+from opcua_server.ua_types import StatusCodes
 
 
 def test_a_password_in_clear_on_an_open_channel_is_detected() -> None:
@@ -31,6 +37,36 @@ def test_an_encrypted_password_or_an_encrypted_channel_is_accepted() -> None:
     in_clear = ua.UserNameIdentityToken(UserName="operator", Password=b"plain")
     assert not sends_password_in_clear(in_clear, b"client certificate")
     assert not sends_password_in_clear(ua.AnonymousIdentityToken(), None)
+
+
+def test_a_session_refuses_a_password_in_clear() -> None:
+    params = ua.ActivateSessionParameters()
+    params.UserIdentityToken = ua.UserNameIdentityToken(
+        UserName="operator1", Password=b"pw", EncryptionAlgorithm=None
+    )
+    session = object.__new__(_UserAwareSession)
+    with pytest.raises(ServiceError) as refused:
+        session.activate_session(params, None)
+    assert refused.value.code == StatusCodes.BadIdentityTokenRejected
+
+
+def test_only_oaep_password_encryption_is_accepted() -> None:
+    def token(algorithm: str | None) -> ua.UserNameIdentityToken:
+        return ua.UserNameIdentityToken(
+            UserName="operator", Password=b"x", EncryptionAlgorithm=algorithm
+        )
+
+    assert uses_refused_password_encryption(
+        token("http://www.w3.org/2001/04/xmlenc#rsa-1_5")
+    )
+    assert not uses_refused_password_encryption(
+        token("http://www.w3.org/2001/04/xmlenc#rsa-oaep")
+    )
+    assert not uses_refused_password_encryption(
+        token("http://opcfoundation.org/UA/security/rsa-oaep-sha2-256")
+    )
+    assert not uses_refused_password_encryption(token(None))
+    assert not uses_refused_password_encryption(ua.AnonymousIdentityToken())
 
 
 def test_only_the_open_and_the_encrypted_endpoints_are_offered() -> None:

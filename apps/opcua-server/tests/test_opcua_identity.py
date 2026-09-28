@@ -149,6 +149,69 @@ class TestClientAddress:
         assert harness.gateway.logins == [("operator1", forwarded)]
 
 
+class TestAuthenticationToken:
+    async def test_tokens_are_random_secrets_registered_in_place_of_the_counter(
+        self, harness: Harness
+    ) -> None:
+        first, second = harness.session(), harness.session()
+        for session in (first, second):
+            assert session.auth_token.NodeIdType == ua.NodeIdType.ByteString
+            assert len(session.auth_token.Identifier) == 32
+            assert harness.iserver.sessions[session.auth_token] is session
+        assert first.auth_token != second.auth_token
+        assert len(harness.iserver.sessions) == 2
+
+    async def test_a_re_activation_from_the_same_channel_certificate_is_accepted(
+        self, harness: Harness
+    ) -> None:
+        session = harness.session()
+        session.activate_session(anonymous_token(), CERTIFICATE)
+        session.activate_session(anonymous_token(), CERTIFICATE)
+        assert session.is_activated()
+
+    @pytest.mark.parametrize(
+        ("first", "then"),
+        [(CERTIFICATE, None), (None, CERTIFICATE), (CERTIFICATE, b"another client")],
+    )
+    async def test_a_re_activation_from_another_channel_certificate_is_refused(
+        self, harness: Harness, first: bytes | None, then: bytes | None
+    ) -> None:
+        session = harness.session()
+        session.activate_session(anonymous_token(), first)
+        with pytest.raises(ServiceError) as refused:
+            session.activate_session(anonymous_token(), then)
+        assert refused.value.code == StatusCodes.BadSecurityChecksFailed
+
+
+class TestPasswordEncryption:
+    @pytest.mark.parametrize(
+        "algorithm",
+        [
+            "http://www.w3.org/2001/04/xmlenc#rsa-oaep",
+            "http://opcfoundation.org/UA/security/rsa-oaep-sha2-256",
+        ],
+    )
+    async def test_an_oaep_encrypted_password_is_accepted(
+        self, harness: Harness, algorithm: str
+    ) -> None:
+        session = harness.session()
+        session.activate_session(username_token(encryption=algorithm), None)
+        await signed_in(session)
+
+    @pytest.mark.parametrize(
+        "algorithm",
+        ["http://www.w3.org/2001/04/xmlenc#rsa-1_5", "urn:unknown"],
+    )
+    async def test_legacy_or_unknown_password_encryption_is_refused(
+        self, harness: Harness, algorithm: str
+    ) -> None:
+        session = harness.session()
+        with pytest.raises(ServiceError) as refused:
+            session.activate_session(username_token(encryption=algorithm), CERTIFICATE)
+        assert refused.value.code == StatusCodes.BadIdentityTokenRejected
+        assert harness.gateway.logins == []
+
+
 class TestSignOut:
     async def test_closing_a_session_signs_its_user_out_once(
         self, harness: Harness

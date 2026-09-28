@@ -16,11 +16,15 @@ Usage:
 from __future__ import annotations
 
 import logging
+import math
+import urllib.parse
 from collections.abc import Awaitable, Callable, Iterable
 from datetime import UTC, datetime
 
 from asyncua import ua
+from asyncua.common.connection import TransportLimits
 from asyncua.common.node import Node
+from asyncua.server.internal_session import InternalSession
 from asyncua.server.server import Server
 
 from opcua_server.address_space import (
@@ -57,8 +61,29 @@ from opcua_server.units import engineering_units
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_ENDPOINT: str = "opc.tcp://0.0.0.0:4840/cogniboiler"
+ENDPOINT_PATH = "/cogniboiler"
+DEFAULT_PORT = 4840
+
+
+def endpoint_url(host: str, port: int) -> str:
+    return f"opc.tcp://{host}:{port}{ENDPOINT_PATH}"
+
+
+DEFAULT_ENDPOINT: str = endpoint_url("0.0.0.0", DEFAULT_PORT)
 EU_PROPERTY_OFFSET = 100_000
+
+# Limits well below asyncua's defaults (100 MiB messages, 1000 connections, sessions
+# and subscriptions), which let a few anonymous clients exhaust memory. The whole
+# address space is under a hundred variables and six methods.
+TRANSPORT_BUFFER_BYTES = 65_535
+# A Read or Browse of every node, or a subscription to all of them, is a few hundred KiB.
+MAX_MESSAGE_BYTES = 4 * 1024 * 1024
+MAX_CHUNKS = math.ceil(MAX_MESSAGE_BYTES / TRANSPORT_BUFFER_BYTES)
+# A control room's clients, not a fleet: each connection may hold one session.
+MAX_CONNECTIONS = 50
+MAX_SESSIONS = 50
+# A few subscriptions per session are plenty for one address space this size.
+MAX_SUBSCRIPTIONS = 100
 
 QUALITY_GOOD = 0
 QUALITY_UNCERTAIN = 1
@@ -136,6 +161,7 @@ class CogniBoilerOPCServer:
         )
         install_identity(self._server, self._gateway)
         await secure(self._server, self._certificate)
+        self._apply_limits()
 
         self._ns = await self._server.register_namespace(NAMESPACE_URI)
         root = await self._server.nodes.objects.add_folder(
@@ -156,9 +182,36 @@ class CogniBoilerOPCServer:
         self._started = True
         logger.info(
             "OPC UA server started at %s with %d variables",
-            self._endpoint,
+            self.bound_endpoint,
             len(self._nodes),
         )
+
+    def _apply_limits(self) -> None:
+        """Transport, connection, session and subscription limits; before start()."""
+        self._server.limits = TransportLimits(
+            max_recv_buffer=TRANSPORT_BUFFER_BYTES,
+            max_send_buffer=TRANSPORT_BUFFER_BYTES,
+            max_chunk_count=MAX_CHUNKS,
+            max_message_size=MAX_MESSAGE_BYTES,
+        )
+        iserver = self._server.iserver
+        iserver.max_connections = MAX_CONNECTIONS
+        iserver.max_subscriptions = MAX_SUBSCRIPTIONS
+        # asyncua counts activated sessions on the class, for the whole process; a
+        # single connection can otherwise create and activate session after session.
+        InternalSession.max_connections = MAX_SESSIONS
+
+    @property
+    def bound_endpoint(self) -> str:
+        """The endpoint URL with the port actually bound (differs when asked for 0)."""
+        transport = self._server.bserver
+        if transport is None:
+            return self._endpoint
+        parts = urllib.parse.urlsplit(self._endpoint)
+        host = parts.hostname or ""
+        if ":" in host:
+            host = f"[{host}]"
+        return parts._replace(netloc=f"{host}:{transport.port}").geturl()
 
     async def stop(self) -> None:
         """Gracefully shut down the OPC UA server."""

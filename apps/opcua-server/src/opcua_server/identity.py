@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
+import secrets
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
@@ -98,15 +99,76 @@ def sends_password_in_clear(token: object, peer_certificate: bytes | None) -> bo
     )
 
 
+AUTH_TOKEN_BYTES = 32
+ACCEPTED_PASSWORD_ENCRYPTION = frozenset(
+    {
+        "http://www.w3.org/2001/04/xmlenc#rsa-oaep",
+        "http://opcfoundation.org/UA/security/rsa-oaep-sha2-256",
+    }
+)
+
+
+def uses_refused_password_encryption(token: object) -> bool:
+    """
+    A username token encrypted with anything but RSA-OAEP. asyncua would also decrypt
+    PKCS#1 v1.5 (rsa-1_5), whose padding errors are the shape of a Bleichenbacher
+    oracle; the advertised policy, Basic256Sha256, uses OAEP.
+    """
+    return (
+        isinstance(token, ua.UserNameIdentityToken)
+        and bool(token.EncryptionAlgorithm)
+        and token.EncryptionAlgorithm not in ACCEPTED_PASSWORD_ENCRYPTION
+    )
+
+
 class _UserAwareSession(InternalSession):
+    def __init__(
+        self,
+        internal_server: Any,
+        aspace: Any,
+        submgr: Any,
+        name: str,
+        user: User,
+        external: bool = False,
+    ) -> None:
+        super().__init__(internal_server, aspace, submgr, name, user, external)
+        # asyncua numbers AuthenticationTokens 1000, 1001, ... and lets any new
+        # SecureChannel re-activate a live session by its token; OPC UA Part 4 wants a
+        # secret. The session is registered under the counter first, so it moves.
+        if external:
+            internal_server.unregister_external_session(self)
+        self.auth_token = ua.NodeId(
+            ua.ByteString(secrets.token_bytes(AUTH_TOKEN_BYTES)),
+            ua.Int16(0),
+            ua.NodeIdType.ByteString,
+        )
+        if external:
+            internal_server.register_external_session(self)
+        self._channel_certificate: bytes | None = None
+
     def activate_session(
         self, params: ua.ActivateSessionParameters, peer_certificate: bytes | None
     ) -> ua.ActivateSessionResult:
-        if sends_password_in_clear(params.UserIdentityToken, peer_certificate):
+        token = params.UserIdentityToken
+        if sends_password_in_clear(token, peer_certificate):
             logger.warning(
                 "OPC UA sign-in refused: a password sent in clear on an open channel"
             )
             raise ServiceError(StatusCodes.BadIdentityTokenRejected)
+        if uses_refused_password_encryption(token):
+            logger.warning(
+                "OPC UA sign-in refused: password encryption %r is not accepted",
+                str(token.EncryptionAlgorithm)[:100],
+            )
+            raise ServiceError(StatusCodes.BadIdentityTokenRejected)
+        # Part 4 §5.6.3: a later activation, possibly on a new SecureChannel, must come
+        # with the certificate of the channel the session was first activated on.
+        if self.is_activated() and peer_certificate != self._channel_certificate:
+            logger.warning(
+                "OPC UA session re-activation refused: another channel certificate"
+            )
+            raise ServiceError(StatusCodes.BadSecurityChecksFailed)
+        first_activation = not self.is_activated()
         previous = self.user
         peer = _ACTIVATING_PEER.set(peer_address(self.name))
         try:
@@ -116,6 +178,8 @@ class _UserAwareSession(InternalSession):
         # OPC UA lets a client activate a live session again, as another user or the
         # same one; asyncua then simply replaces the user, and the gateway session of
         # the one replaced would stay open until its refresh token expired.
+        if first_activation:
+            self._channel_certificate = peer_certificate
         if self.user is not previous:
             _schedule_sign_out(previous)
         return result

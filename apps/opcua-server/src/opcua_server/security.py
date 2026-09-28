@@ -3,7 +3,8 @@ The server's security: an application certificate and two endpoints.
 
 - `None`: anonymous reading, as before. A username may sign in here too, but its password
   travels encrypted with the server's public key (the user token policy names
-  Basic256Sha256); a password sent in clear on this endpoint is refused.
+  Basic256Sha256); a password sent in clear on this endpoint is refused, and so is one
+  encrypted with anything but RSA-OAEP.
 - `Basic256Sha256 / SignAndEncrypt`: the whole channel is encrypted.
 
 Sign-only is not offered, so a channel with a client certificate is always encrypted,

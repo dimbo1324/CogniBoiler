@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import socket
 from collections.abc import AsyncIterator, Iterator
 from functools import cache
 from pathlib import Path
@@ -12,11 +11,14 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from asyncua import Client, ua
+from asyncua.common.utils import ServiceError
+from asyncua.server.internal_session import InternalSession
 from opcua_fakes import PASSWORD, GatewayScript, gateway_server
 from opcua_server.address_space import (
     NODEID_ALARMS_FOLDER,
     NODEID_ELECTRICAL_POWER,
     NODEID_METHOD_ACKNOWLEDGE_ALARM,
+    NODEID_METHOD_ACKNOWLEDGE_ALL_ALARMS,
     NODEID_METHOD_SET_LOAD_DEMAND,
     NODEID_PLC_FOLDER,
     NODEID_PRESSURE,
@@ -31,9 +33,16 @@ from opcua_server.security import (
 )
 from opcua_server.server import (
     EU_PROPERTY_OFFSET,
+    MAX_CHUNKS,
+    MAX_CONNECTIONS,
+    MAX_MESSAGE_BYTES,
+    MAX_SESSIONS,
+    MAX_SUBSCRIPTIONS,
     QUALITY_BAD,
     QUALITY_UNCERTAIN,
+    TRANSPORT_BUFFER_BYTES,
     CogniBoilerOPCServer,
+    endpoint_url,
 )
 from opcua_server.ua_types import StatusCodes
 
@@ -41,13 +50,6 @@ from opcua_server.ua_types import StatusCodes
 @cache
 def server_certificate() -> ServerCertificate:
     return self_signed_certificate()
-
-
-def free_port() -> int:
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        port: int = probe.getsockname()[1]
-    return port
 
 
 @pytest.fixture
@@ -61,15 +63,18 @@ async def opc(
     gateway: tuple[str, GatewayScript],
 ) -> AsyncIterator[tuple[CogniBoilerOPCServer, str]]:
     url, _ = gateway
-    endpoint = f"opc.tcp://127.0.0.1:{free_port()}/cogniboiler"
     server = CogniBoilerOPCServer(
-        endpoint, gateway_url=url, certificate=server_certificate()
+        endpoint_url("127.0.0.1", 0), gateway_url=url, certificate=server_certificate()
     )
     await server.start()
     try:
-        yield server, endpoint
+        yield server, server.bound_endpoint
     finally:
         await server.stop()
+
+
+# asyncua enforces the chunk count on receive; this is one byte past what it admits.
+MAX_REQUEST_BYTES = MAX_CHUNKS * TRANSPORT_BUFFER_BYTES + 1
 
 
 def node(client: Client, identifier: int) -> Any:
@@ -282,3 +287,84 @@ class TestEncryptedChannel:
             ua.MessageSecurityMode.SignAndEncrypt,
         }
         assert {item.Server.ApplicationUri for item in endpoints} == {APPLICATION_URI}
+
+
+class TestLimits:
+    async def test_the_server_revises_the_transport_and_session_limits(
+        self, opc: tuple[CogniBoilerOPCServer, str]
+    ) -> None:
+        server, _ = opc
+        limits = server._server.limits
+        iserver = server._server.iserver
+        assert limits.max_message_size == MAX_MESSAGE_BYTES
+        assert limits.max_chunk_count * limits.max_recv_buffer >= MAX_MESSAGE_BYTES
+        assert (iserver.max_connections, iserver.max_subscriptions) == (
+            MAX_CONNECTIONS,
+            MAX_SUBSCRIPTIONS,
+        )
+        assert InternalSession.max_connections == MAX_SESSIONS
+        assert MAX_MESSAGE_BYTES < 100 * 1024 * 1024
+
+    async def test_a_request_over_the_message_limit_is_refused(
+        self, opc: tuple[CogniBoilerOPCServer, str], gateway: tuple[str, GatewayScript]
+    ) -> None:
+        _, endpoint = opc
+        _, script = gateway
+        client = Client(url=endpoint)
+        client.set_user("operator1")
+        client.set_password(PASSWORD)
+        async with client:
+            accepted = await node(client, NODEID_ALARMS_FOLDER).call_method(
+                ua.NodeId(NODEID_METHOD_ACKNOWLEDGE_ALL_ALARMS, NS_IDX),
+                ua.Variant("x" * 1000, ua.VariantType.String),
+            )
+            with pytest.raises(ua.UaStatusCodeError) as refused:
+                await node(client, NODEID_ALARMS_FOLDER).call_method(
+                    ua.NodeId(NODEID_METHOD_ACKNOWLEDGE_ALL_ALARMS, NS_IDX),
+                    ua.Variant("x" * MAX_REQUEST_BYTES, ua.VariantType.String),
+                )
+        assert accepted == [True, ""]
+        assert refused.value.code == StatusCodes.BadRequestTooLarge
+        commands = [c for c in script.calls if not c.path.startswith("/auth/")]
+        assert len(commands) == 1
+
+
+class TestInstalledIdentity:
+    async def test_the_server_builds_user_aware_sessions_with_random_tokens(
+        self, opc: tuple[CogniBoilerOPCServer, str]
+    ) -> None:
+        server, _ = opc
+        iserver = server._server.iserver
+        first = iserver.create_session(("127.0.0.1", 1), external=True)
+        second = iserver.create_session(("127.0.0.1", 2), external=True)
+        try:
+            assert type(first).__name__ == "_UserAwareSession"
+            assert first.auth_token.NodeIdType == ua.NodeIdType.ByteString
+            assert first.auth_token != second.auth_token
+            assert iserver.lookup_external_session(first.auth_token) is first
+        finally:
+            await first.close_session()
+            await second.close_session()
+
+    async def test_a_password_in_clear_on_the_open_endpoint_is_refused(
+        self, opc: tuple[CogniBoilerOPCServer, str], gateway: tuple[str, GatewayScript]
+    ) -> None:
+        server, _ = opc
+        _, script = gateway
+        session = server._server.iserver.create_session(("127.0.0.1", 1), external=True)
+        params = ua.ActivateSessionParameters()
+        params.UserIdentityToken = ua.UserNameIdentityToken(
+            UserName="operator1", Password=PASSWORD.encode(), EncryptionAlgorithm=None
+        )
+        try:
+            with pytest.raises(ServiceError) as refused:
+                session.activate_session(params, None)
+            assert refused.value.code == StatusCodes.BadIdentityTokenRejected
+            assert not session.is_activated()
+            session.activate_session(params, b"client certificate")
+            assert session.is_activated()
+        finally:
+            await session.close_session()
+            await drain_sign_outs(5.0)
+        logins = [call for call in script.calls if call.path == "/auth/login"]
+        assert len(logins) == 1
