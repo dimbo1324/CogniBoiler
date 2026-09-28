@@ -51,6 +51,37 @@ describe("ConfirmDialog", () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
+  it("cannot be dismissed while the command is on its way", async () => {
+    const { onCancel } = renderDialog(true);
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(document.querySelector(".modal-backdrop") as HTMLElement);
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it("cancels on a click on the backdrop, not on the dialog", async () => {
+    const { onCancel } = renderDialog();
+    await userEvent.click(screen.getByRole("dialog"));
+    expect(onCancel).not.toHaveBeenCalled();
+    await userEvent.click(document.querySelector(".modal-backdrop") as HTMLElement);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the keyboard focus inside the dialog", async () => {
+    render(<button type="button">Emergency stop…</button>);
+    renderDialog();
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    const confirm = screen.getByRole("button", { name: "Set 300.0 MW" });
+    expect(document.activeElement).toBe(confirm);
+    await userEvent.tab();
+    expect(document.activeElement).toBe(cancel);
+    await userEvent.tab();
+    expect(document.activeElement).toBe(confirm);
+    await userEvent.tab({ shift: true });
+    expect(document.activeElement).toBe(cancel);
+    await userEvent.tab({ shift: true });
+    expect(document.activeElement).toBe(confirm);
+  });
+
   it("cannot be confirmed twice while the command is on its way", () => {
     renderDialog(true);
     expect(

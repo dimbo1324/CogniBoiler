@@ -1,8 +1,31 @@
 import { useEffect, useEffectEvent, useId, useRef, type ReactNode } from "react";
 
+const FOCUSABLE =
+  'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])';
+
+/** Tab and Shift+Tab cycle inside the dialog, so no control behind it can be reached. */
+function trapTab(event: KeyboardEvent, dialog: HTMLElement): void {
+  const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE));
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  if (first === undefined || last === undefined) {
+    event.preventDefault();
+    return;
+  }
+  const inside = active instanceof Node && dialog.contains(active);
+  if (event.shiftKey && (!inside || active === first)) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (!inside || active === last)) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 /**
  * Every command that reaches the plant asks first. The dialog says what will change;
- * Escape or the backdrop cancels.
+ * Escape or the backdrop cancels, except while the command is on its way.
  */
 export function ConfirmDialog({
   title,
@@ -22,16 +45,23 @@ export function ConfirmDialog({
   onCancel: () => void;
 }) {
   const titleId = useId();
+  const dialog = useRef<HTMLDivElement>(null);
   const confirmButton = useRef<HTMLButtonElement>(null);
   // Live data re-renders the screen twice a second; the key listener and the initial focus
-  // are set up once and always call the latest handler.
-  const cancel = useEffectEvent(onCancel);
+  // are set up once and always read the latest props.
+  const cancel = useEffectEvent(() => {
+    if (!busy) {
+      onCancel();
+    }
+  });
 
   useEffect(() => {
     confirmButton.current?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         cancel();
+      } else if (event.key === "Tab" && dialog.current !== null) {
+        trapTab(event, dialog.current);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -41,8 +71,16 @@ export function ConfirmDialog({
   }, []);
 
   return (
-    <div className="modal-backdrop" onClick={onCancel}>
+    <div
+      className="modal-backdrop"
+      onClick={() => {
+        if (!busy) {
+          onCancel();
+        }
+      }}
+    >
       <div
+        ref={dialog}
         className="modal panel"
         role="dialog"
         aria-modal="true"
