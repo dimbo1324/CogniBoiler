@@ -16,6 +16,7 @@ from asyncua.common.utils import ServiceError
 from asyncua.server.internal_session import InternalSession
 from opcua_fakes import PASSWORD, GatewayScript, gateway_server
 from opcua_server.address_space import (
+    ALL_VARIABLES,
     NODEID_ALARMS_FOLDER,
     NODEID_ELECTRICAL_POWER,
     NODEID_METHOD_ACKNOWLEDGE_ALARM,
@@ -26,6 +27,7 @@ from opcua_server.address_space import (
     NODEID_ROOT,
     NODEID_RUN_ID,
     NS_IDX,
+    VARIABLES_BY_NODE_ID,
 )
 from opcua_server.identity import drain_sign_outs
 from opcua_server.security import (
@@ -47,6 +49,7 @@ from opcua_server.server import (
     endpoint_url,
 )
 from opcua_server.ua_types import StatusCodes
+from opcua_server.units import engineering_units
 
 
 @cache
@@ -203,6 +206,57 @@ class TestReading:
         async with Client(url=endpoint) as client:
             with pytest.raises(ua.UaStatusCodeError):
                 await node(client, NODEID_PRESSURE).write_value(1.0)
+
+    async def test_no_variable_or_property_is_writable(
+        self, opc: tuple[CogniBoilerOPCServer, str]
+    ) -> None:
+        _, endpoint = opc
+        identifiers = [
+            *VARIABLES_BY_NODE_ID,
+            *(
+                descriptor.node_id + EU_PROPERTY_OFFSET
+                for descriptor in ALL_VARIABLES
+                if engineering_units(descriptor.unit) is not None
+            ),
+        ]
+        async with Client(url=endpoint) as client:
+            nodes = [node(client, identifier) for identifier in identifiers]
+            values = await client.read_attributes(nodes)
+            levels = [
+                *await client.read_attributes(nodes, ua.AttributeIds.AccessLevel),
+                *await client.read_attributes(nodes, ua.AttributeIds.UserAccessLevel),
+            ]
+        assert len(identifiers) > len(VARIABLES_BY_NODE_ID)
+        assert all(value.StatusCode.is_good() for value in values)
+        read = ua.AccessLevel.CurrentRead.mask
+        write = ua.AccessLevel.CurrentWrite.mask
+        assert all(level.Value.Value & read for level in levels)
+        assert not [level for level in levels if level.Value.Value & write]
+
+    @pytest.mark.parametrize("signed_in", [False, True])
+    async def test_a_write_is_refused_for_anonymous_and_signed_in_users(
+        self, opc: tuple[CogniBoilerOPCServer, str], signed_in: bool
+    ) -> None:
+        _, endpoint = opc
+        client = Client(url=endpoint)
+        if signed_in:
+            client.set_user("operator1")
+            client.set_password(PASSWORD)
+        async with client:
+            pressure = node(client, NODEID_PRESSURE)
+            before = await pressure.read_value()
+            with pytest.raises(ua.UaStatusCodeError) as refused:
+                await pressure.write_value(ua.Variant(1.0, ua.VariantType.Double))
+            with pytest.raises(ua.UaStatusCodeError):
+                await node(client, NODEID_ROOT).add_variable(
+                    ua.NodeId(99_999, NS_IDX), "Injected", 1.0
+                )
+            with pytest.raises(ua.UaStatusCodeError) as not_deleted:
+                await client.delete_nodes([pressure])
+            after = await pressure.read_value()
+        assert refused.value.code == StatusCodes.BadUserAccessDenied
+        assert not_deleted.value.code == StatusCodes.BadUserAccessDenied
+        assert after == before
 
 
 class TestMethods:

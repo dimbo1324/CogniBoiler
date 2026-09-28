@@ -458,9 +458,12 @@ class TestGatewaySession:
         assert client.refreshes == ["r1"]
 
     async def test_invalidating_before_sign_in_changes_nothing(self) -> None:
-        session = GatewaySession(FakeClient(None), signed_in(tokens(900_000)))  # type: ignore[arg-type]
+        client = FakeClient(None)
+        original = tokens(900_000)
+        session = GatewaySession(client, signed_in(original))  # type: ignore[arg-type]
         await session.invalidate_access()
-        assert await session.tokens() is not None
+        assert await session.tokens() == original
+        assert client.refreshes == []
 
     async def test_closing_signs_out(self) -> None:
         client = FakeClient(None)
