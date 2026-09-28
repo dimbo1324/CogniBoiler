@@ -2,7 +2,7 @@
 
 The generated stubs can call every RPC of their service, commands included. Each client
 keeps its stub behind a protocol that names only the read it makes, so a command call
-here fails the type check, and tests/test_boundaries.py fails on any command RPC named in
+here fails the type check, and tests/test_opcua_boundaries.py fails on any command RPC named in
 the package.
 """
 
