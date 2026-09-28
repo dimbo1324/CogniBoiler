@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
+
 import numpy as np
 import pytest
 from iapws import IAPWS97
 from physics_engine import steam_tables as st
+from prometheus_client import REGISTRY
 
 ATMOSPHERE_PA = 101_325.0
 DRUM_PA = 14.0e6
@@ -98,3 +102,89 @@ class TestSteam:
 
     def test_entropy_below_saturation_falls_back(self) -> None:
         assert st.steam_entropy(300.0, DRUM_PA) > 0
+
+
+FALLBACKS = [
+    ("water_density", st.water_density, (500.0, DRUM_PA), 0.0, "rho", 1.0),
+    ("water_enthalpy", st.water_enthalpy, (500.0, DRUM_PA), 0.0, "h", 1000.0),
+    ("steam_enthalpy", st.steam_enthalpy, (813.15, DRUM_PA), 1.0, "h", 1000.0),
+    ("steam_entropy", st.steam_entropy, (813.15, DRUM_PA), 1.0, "s", 1000.0),
+    ("isentropic_enthalpy", st.isentropic_enthalpy, (6_500.0, 7_000.0), 1.0, "h", 1e3),
+    ("exhaust_temp", st.exhaust_temp, (2_300e3, 7_000.0), 1.0, "T", 1.0),
+]
+
+
+def failing_off_the_saturation_line(real: type[IAPWS97]) -> object:
+    def build(**inputs: float) -> IAPWS97:
+        if "x" not in inputs:
+            raise NotImplementedError("Incoming out of bound")
+        return real(**inputs)
+
+    return build
+
+
+class TestFallbacks:
+    @pytest.mark.parametrize(
+        ("name", "function", "args", "quality", "attribute", "scale"), FALLBACKS
+    )
+    def test_an_iapws_failure_falls_back_to_saturation_and_is_counted(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+        name: str,
+        function: Callable[[float, float], float],
+        args: tuple[float, float],
+        quality: float,
+        attribute: str,
+        scale: float,
+    ) -> None:
+        monkeypatch.setattr(st, "_warned", set())
+        monkeypatch.setattr(st, "IAPWS97", failing_off_the_saturation_line(IAPWS97))
+        before = fallbacks(name)
+        pressure = args[1]
+        expected = float(getattr(saturated(pressure, quality), attribute)) * scale
+        with caplog.at_level(logging.DEBUG, logger="physics_engine.steam_tables"):
+            assert function(*args) == pytest.approx(expected)
+            assert function(*args) == pytest.approx(expected)
+        assert fallbacks(name) == before + 2
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert name in warnings[0].getMessage()
+
+    @pytest.mark.parametrize(
+        ("function", "args"),
+        [
+            (st.saturation_temp, (float("nan"),)),
+            (st.saturation_pressure, (float("inf"),)),
+            (st.water_density, (float("nan"), DRUM_PA)),
+            (st.steam_enthalpy, (float("nan"), DRUM_PA)),
+            (st.steam_enthalpy, (813.15, float("-inf"))),
+            (st.isentropic_enthalpy, (float("nan"), 7_000.0)),
+            (st.steam_state_from_enthalpy, (float("nan"), DRUM_PA)),
+            (st.exhaust_temp, (2_300e3, float("nan"))),
+        ],
+    )
+    def test_a_non_finite_input_is_refused_not_replaced(
+        self, function: Callable[..., object], args: tuple[float, ...]
+    ) -> None:
+        with pytest.raises(ValueError, match="non-finite"):
+            function(*args)
+
+    def test_a_defect_in_the_call_is_not_mistaken_for_an_out_of_range_state(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def broken(**inputs: float) -> IAPWS97:
+            if "x" not in inputs:
+                raise TypeError("unexpected keyword")
+            return IAPWS97(**inputs)
+
+        monkeypatch.setattr(st, "IAPWS97", broken)
+        with pytest.raises(TypeError):
+            st.steam_enthalpy(813.15, DRUM_PA)
+
+
+def fallbacks(function: str) -> float:
+    value = REGISTRY.get_sample_value(
+        "physics_property_fallbacks_total", {"function": function}
+    )
+    return value or 0.0

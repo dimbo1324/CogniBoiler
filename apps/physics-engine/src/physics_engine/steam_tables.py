@@ -28,11 +28,15 @@ IAPWS-IF97 covers:
 # delegating to the original implementation.  This is safe because _Region3 is
 # a pure function that only takes scalar arguments.
 # ─────────────────────────────────────────────────────────────────────────────
+import logging
+import math
 from typing import Any, cast
 
 import iapws.iapws97 as _iapws97  # noqa: E402
 import numpy as np
 from iapws import IAPWS97
+
+from physics_engine.metrics import PROPERTY_FALLBACKS
 
 # iapws has no stubs — attribute resolves to Any, no annotation needed
 _orig_region3 = _iapws97._Region3  # noqa: SLF001
@@ -65,12 +69,38 @@ _iapws97._Region3 = _patched_region3  # noqa: SLF001
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+# The IF97 saturation line runs from the triple point to the critical point. Liquid states
+# are evaluated below LIQUID_T_MAX_K, away from the near-critical Region 3.
+IF97_P_MIN_PA: float = 611.7
+IF97_P_CRIT_PA: float = 22.064e6
+IF97_T_MIN_K: float = 273.16
+IF97_T_SAT_MAX_K: float = 647.0
+LIQUID_T_MAX_K: float = 623.0
+
+# What iapws raises for a state outside the formulation ("Incoming out of bound") or one
+# its solvers cannot reach. Anything else is a defect in the call and propagates.
+IAPWS_OUT_OF_RANGE: tuple[type[Exception], ...] = (
+    NotImplementedError,
+    ValueError,
+    ArithmeticError,
+)
+
+_LIQUID_PHASES = ("liq", "Liquid", "Subcooled liquid", "Compressed liquid")
+
+logger = logging.getLogger(__name__)
+_warned: set[str] = set()
+
+
 def _to_float(value: object) -> float:
-    """Ensure value is a plain Python float before passing to iapws."""
+    """A plain, finite Python float for iapws; NaN or infinity is refused."""
     if isinstance(value, np.generic | np.ndarray):
         # numpy 2 converts only 0-d arrays with float(); item() takes any size-1 array.
-        return float(value.item())
-    return float(cast(Any, value))
+        number = float(value.item())
+    else:
+        number = float(cast(Any, value))
+    if not math.isfinite(number):
+        raise ValueError(f"non-finite property input {number!r}")
+    return number
 
 
 def _mpa(pressure_pa: float) -> float:
@@ -83,6 +113,38 @@ def _pa(pressure_mpa: float) -> float:
     return pressure_mpa * 1.0e6
 
 
+def _clamp_saturation_pressure(pressure_pa: float) -> float:
+    return max(IF97_P_MIN_PA, min(pressure_pa, IF97_P_CRIT_PA))
+
+
+def _saturated(pressure_pa: float, quality: float) -> Any:
+    return IAPWS97(P=_mpa(_clamp_saturation_pressure(pressure_pa)), x=quality)
+
+
+def _state_or_none(function: str, **inputs: float) -> Any:
+    """The IF97 state at `inputs`, or None (logged and counted) when it is out of range.
+
+    The caller then substitutes the saturated state at the same pressure. The first
+    substitution per function is a warning; the rest are debug, but all are counted.
+    """
+    try:
+        return IAPWS97(**inputs)
+    except IAPWS_OUT_OF_RANGE as exc:
+        PROPERTY_FALLBACKS.labels(function).inc()
+        if function in _warned:
+            logger.debug("%s fell back to saturation at %s: %s", function, inputs, exc)
+        else:
+            _warned.add(function)
+            logger.warning(
+                "%s fell back to saturation at %s (IF97 units: MPa, kJ): %s; "
+                "further fallbacks are counted in physics_property_fallbacks_total",
+                function,
+                inputs,
+                exc,
+            )
+        return None
+
+
 # ─── Saturation properties ────────────────────────────────────────────────────
 
 
@@ -90,10 +152,10 @@ def saturation_pressure(temp_k: float) -> float:
     """
     Saturation pressure at given temperature [Pa].
 
-    Valid range: 273.15 K to 647.096 K (critical point).
+    Valid range: 273.16 K to 647.0 K (just below the critical point); clamped to it.
     """
     temp_k = _to_float(temp_k)
-    temp_k = max(273.16, min(temp_k, 647.0))
+    temp_k = max(IF97_T_MIN_K, min(temp_k, IF97_T_SAT_MAX_K))
     state = IAPWS97(T=temp_k, x=0.0)  # x=0: saturated liquid
     return _pa(state.P)
 
@@ -102,10 +164,9 @@ def saturation_temp(pressure_pa: float) -> float:
     """
     Saturation temperature at given pressure [K].
 
-    Valid range: 611.7 Pa to 22.064 MPa (critical pressure).
+    Valid range: 611.7 Pa to 22.064 MPa (critical pressure); clamped to it.
     """
-    pressure_pa = _to_float(pressure_pa)
-    pressure_pa = max(611.7, min(pressure_pa, 22.064e6))
+    pressure_pa = _clamp_saturation_pressure(_to_float(pressure_pa))
     state = IAPWS97(P=_mpa(pressure_pa), x=0.0)
     return float(state.T)
 
@@ -117,40 +178,26 @@ def water_density(temp_k: float, pressure_pa: float) -> float:
     """
     Density of liquid water [kg/m³] at given T and P.
 
-    Falls back to saturated liquid if state is two-phase.
+    A state that is not liquid, or outside IF97, gives the saturated liquid density.
     """
-    temp_k = _to_float(temp_k)
+    temp_k = min(_to_float(temp_k), LIQUID_T_MAX_K)
     pressure_pa = _to_float(pressure_pa)
-    # Clamp to liquid region — avoid supercritical (Region 3)
-    temp_k = min(temp_k, 623.0)
-
-    try:
-        state = IAPWS97(T=temp_k, P=_mpa(pressure_pa))
-        if state.phase in ("liq", "Liquid", "Subcooled liquid", "Compressed liquid"):
-            return float(state.rho)
-    except Exception:
-        pass
-    # fallback: saturated liquid density
-    sat = IAPWS97(P=_mpa(pressure_pa), x=0.0)
-    return float(sat.rho)
+    state = _state_or_none("water_density", T=temp_k, P=_mpa(pressure_pa))
+    if state is None or state.phase not in _LIQUID_PHASES:
+        state = _saturated(pressure_pa, 0.0)
+    return float(state.rho)
 
 
 def water_enthalpy(temp_k: float, pressure_pa: float) -> float:
     """
     Specific enthalpy of liquid water [J/kg] at given T and P.
     """
-    temp_k = _to_float(temp_k)
+    temp_k = min(_to_float(temp_k), LIQUID_T_MAX_K)
     pressure_pa = _to_float(pressure_pa)
-    # Clamp to liquid region — avoid supercritical (Region 3)
-    temp_k = min(temp_k, 623.0)
-
-    try:
-        state = IAPWS97(T=temp_k, P=_mpa(pressure_pa))
-        return float(state.h) * 1000.0  # kJ/kg -> J/kg
-    except Exception:
-        pass
-    sat = IAPWS97(P=_mpa(pressure_pa), x=0.0)
-    return float(sat.h) * 1000.0
+    state = _state_or_none("water_enthalpy", T=temp_k, P=_mpa(pressure_pa))
+    if state is None:
+        state = _saturated(pressure_pa, 0.0)
+    return float(state.h) * 1000.0  # kJ/kg -> J/kg
 
 
 # ─── Steam properties ─────────────────────────────────────────────────────────
@@ -164,15 +211,10 @@ def steam_enthalpy(temp_k: float, pressure_pa: float) -> float:
     """
     temp_k = _to_float(temp_k)
     pressure_pa = _to_float(pressure_pa)
-
-    try:
-        state = IAPWS97(T=temp_k, P=_mpa(pressure_pa))
-        return float(state.h) * 1000.0  # kJ/kg -> J/kg
-    except Exception:
-        pass
-    # fallback: saturated steam enthalpy
-    sat = IAPWS97(P=_mpa(pressure_pa), x=1.0)
-    return float(sat.h) * 1000.0
+    state = _state_or_none("steam_enthalpy", T=temp_k, P=_mpa(pressure_pa))
+    if state is None:
+        state = _saturated(pressure_pa, 1.0)
+    return float(state.h) * 1000.0  # kJ/kg -> J/kg
 
 
 def steam_entropy(temp_k: float, pressure_pa: float) -> float:
@@ -184,18 +226,12 @@ def steam_entropy(temp_k: float, pressure_pa: float) -> float:
 
     Valid range: T above saturation at P (superheated region).
     """
-
     temp_k = _to_float(temp_k)
     pressure_pa = _to_float(pressure_pa)
-
-    try:
-        state = IAPWS97(T=temp_k, P=_mpa(pressure_pa))
-        return float(state.s) * 1000.0  # kJ/(kg·K) -> J/(kg·K)
-    except Exception:
-        pass
-    # fallback: saturated vapor entropy
-    sat = IAPWS97(P=_mpa(pressure_pa), x=1.0)
-    return float(sat.s) * 1000.0
+    state = _state_or_none("steam_entropy", T=temp_k, P=_mpa(pressure_pa))
+    if state is None:
+        state = _saturated(pressure_pa, 1.0)
+    return float(state.s) * 1000.0  # kJ/(kg·K) -> J/(kg·K)
 
 
 def isentropic_enthalpy(entropy_in: float, pressure_out: float) -> float:
@@ -215,17 +251,12 @@ def isentropic_enthalpy(entropy_in: float, pressure_out: float) -> float:
     """
     entropy_in = _to_float(entropy_in)
     pressure_out = _to_float(pressure_out)
-
-    s_mpa = entropy_in / 1000.0  # J/(kg·K) -> kJ/(kg·K) for iapws
-
-    try:
-        state = IAPWS97(P=_mpa(pressure_out), s=s_mpa)
-        return float(state.h) * 1000.0  # kJ/kg -> J/kg
-    except Exception:
-        pass
-    # fallback: saturated vapor enthalpy at exhaust pressure
-    sat = IAPWS97(P=_mpa(pressure_out), x=1.0)
-    return float(sat.h) * 1000.0
+    state = _state_or_none(
+        "isentropic_enthalpy", P=_mpa(pressure_out), s=entropy_in / 1000.0
+    )
+    if state is None:
+        state = _saturated(pressure_out, 1.0)
+    return float(state.h) * 1000.0  # kJ/kg -> J/kg
 
 
 def steam_state_from_enthalpy(
@@ -259,12 +290,7 @@ def exhaust_temp(enthalpy: float, pressure_pa: float) -> float:
     """
     enthalpy = _to_float(enthalpy)
     pressure_pa = _to_float(pressure_pa)
-
-    try:
-        state = IAPWS97(P=_mpa(pressure_pa), h=enthalpy / 1000.0)  # J/kg -> kJ/kg
-        return float(state.T)
-    except Exception:
-        pass
-    # fallback: saturation temperature at exhaust pressure
-    sat = IAPWS97(P=_mpa(pressure_pa), x=1.0)
-    return float(sat.T)
+    state = _state_or_none("exhaust_temp", P=_mpa(pressure_pa), h=enthalpy / 1000.0)
+    if state is None:
+        state = _saturated(pressure_pa, 1.0)
+    return float(state.T)

@@ -10,6 +10,11 @@ if TYPE_CHECKING:
     from physics_engine.runtime import PhysicsRuntime
 
 STEPS = Counter("physics_steps_total", "Plant steps computed.")
+PROPERTY_FALLBACKS = Counter(
+    "physics_property_fallbacks_total",
+    "IF97 property calls outside the formulation, answered at saturation instead.",
+    ["function"],
+)
 RUNTIME_FAILURES = Counter(
     "physics_runtime_failures_total",
     "Plant steps that failed and degraded the runtime.",
