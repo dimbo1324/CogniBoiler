@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import math
+import threading
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -319,6 +320,7 @@ class FakeInflux:
         self.queries: list[tuple[str, str]] = []
         self.tables: list[list[dict[str, Any]]] = []
         self.closed = False
+        self.timeout_ms: int | None = None
 
     def query_api(self) -> FakeInflux:
         return self
@@ -340,9 +342,12 @@ class FakeInflux:
 @pytest.fixture
 def influx(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeInflux]:
     fake = FakeInflux()
-    monkeypatch.setattr(
-        historian_query, "_new_influx_client", lambda url, token, org: fake
-    )
+
+    def new_client(url: str, token: str, org: str, timeout_ms: int) -> FakeInflux:
+        fake.timeout_ms = timeout_ms
+        return fake
+
+    monkeypatch.setattr(historian_query, "_new_influx_client", new_client)
     monkeypatch.setattr(historian_query, "_now_ms", lambda: 30 * DAY_MS)
     yield fake
 
@@ -358,6 +363,23 @@ CONFIG = HistorianQueryConfig(
 
 
 class TestHistorianQueries:
+    def test_a_query_times_out_instead_of_holding_its_thread(
+        self, influx: FakeInflux
+    ) -> None:
+        HistorianQueryClient(CONFIG).close()
+        assert influx.timeout_ms == HistorianQueryConfig().timeout_ms == 5000
+
+    async def test_queries_run_on_threads_of_their_own(
+        self, influx: FakeInflux
+    ) -> None:
+        client = HistorianQueryClient(CONFIG)
+        try:
+            name = await client.run(lambda: threading.current_thread().name)
+            assert await client.run(client.ping) is True
+        finally:
+            client.close()
+        assert name.startswith("historian-query")
+
     def test_rows_carry_their_time_in_epoch_milliseconds(
         self, influx: FakeInflux
     ) -> None:

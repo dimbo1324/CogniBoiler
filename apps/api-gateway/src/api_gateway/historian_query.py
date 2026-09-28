@@ -8,9 +8,11 @@ runs that Flux.
 
 from __future__ import annotations
 
+import asyncio
 import math
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC
 from typing import Any, Protocol, cast
@@ -29,6 +31,10 @@ class HistorianQueryConfig:
     bucket: str = "sensors"
     aggregate_bucket: str = "sensors_1m"
     raw_retention_days: int = 7
+    # A query or ping that outlives this frees its thread instead of holding it.
+    timeout_ms: int = 5000
+    # Threads for InfluxDB calls, apart from the default pool that hashes passwords.
+    query_threads: int = 4
 
 
 class QueryRecordLike(Protocol):
@@ -55,9 +61,11 @@ class InfluxDBClientLike(Protocol):
     def close(self) -> None: ...
 
 
-def _new_influx_client(url: str, token: str, org: str) -> InfluxDBClientLike:
+def _new_influx_client(
+    url: str, token: str, org: str, timeout_ms: int
+) -> InfluxDBClientLike:
     """Create a typed wrapper around the untyped third-party Influx client."""
-    client = _InfluxDBClient(url=url, token=token, org=org)
+    client = _InfluxDBClient(url=url, token=token, org=org, timeout=timeout_ms)
     return cast(InfluxDBClientLike, client)
 
 
@@ -248,14 +256,28 @@ def _now_ms() -> int:
 
 
 class HistorianQueryClient:
-    """Query helper for historical telemetry stored in InfluxDB."""
+    """Query helper for historical telemetry stored in InfluxDB.
+
+    The InfluxDB client blocks; `run` puts a call on this client's own threads, so a
+    slow InfluxDB can hold at most those and never the loop's default pool, which
+    also hashes passwords at sign-in.
+    """
 
     def __init__(self, config: HistorianQueryConfig) -> None:
         self.config = config
-        self._client = _new_influx_client(config.url, config.token, config.org)
+        self._client = _new_influx_client(
+            config.url, config.token, config.org, config.timeout_ms
+        )
         self._query_api = self._client.query_api()
+        self._executor = ThreadPoolExecutor(
+            max_workers=config.query_threads, thread_name_prefix="historian-query"
+        )
+
+    async def run[T](self, call: Callable[[], T]) -> T:
+        return await asyncio.get_running_loop().run_in_executor(self._executor, call)
 
     def close(self) -> None:
+        self._executor.shutdown(wait=False, cancel_futures=True)
         self._client.close()
 
     def ping(self) -> bool:

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator
 from typing import Any
 
 import cogniboiler_pb2 as pb2
 import grpc
 import pytest
+from api_gateway.config import settings
 from api_gateway.dependencies import get_db
 from api_gateway.problems import ProblemError, problem_response
 from api_gateway.realtime.hub import Channel, RealtimeHub
@@ -407,6 +409,38 @@ class TestReadiness:
         assert body["status"] == "degraded"
         down = {item["name"] for item in body["components"] if item["state"] == "down"}
         assert down == {"plc-controller", "historian"}
+
+    async def test_a_probe_that_does_not_answer_in_time_is_down(
+        self, app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def hangs() -> None:
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(settings, "ready_check_timeout_s", 0.05)
+        monkeypatch.setattr(plc(app), "health", hangs)
+        body = (await client.get("/ready")).json()
+        assert body["status"] == "degraded"
+        down = {item["name"] for item in body["components"] if item["state"] == "down"}
+        assert down == {"plc-controller"}
+
+    async def test_the_answer_is_reused_for_a_moment(
+        self, app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        now = [100.0]
+        monkeypatch.setattr(app.state.readiness, "_clock", lambda: now[0])
+        physics_health = app.state.physics_client.calls
+
+        def probes() -> int:
+            return sum(1 for name, _ in physics_health if name == "health")
+
+        await client.get("/ready")
+        now[0] += 0.5
+        plc(app).down = True
+        again = (await client.get("/ready")).json()
+        assert (probes(), again["status"]) == (1, "ready")
+        now[0] += 5.0
+        later = (await client.get("/ready")).json()
+        assert (probes(), later["status"]) == (2, "degraded")
 
     async def test_no_database_is_not_ready(
         self, app: FastAPI, client: AsyncClient

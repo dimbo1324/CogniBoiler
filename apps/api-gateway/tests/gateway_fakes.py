@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from functools import cache
 from typing import Any
 
@@ -475,6 +475,9 @@ class FakeHistorianClient:
 
     def ping(self) -> bool:
         return self.up
+
+    async def run[T](self, call: Callable[[], T]) -> T:
+        return call()
 
     def fetch_history(
         self,

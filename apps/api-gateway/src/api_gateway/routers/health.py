@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from api_gateway.auth.rbac import ViewerUser
 from api_gateway.config import settings
-from api_gateway.readiness import ReadinessResponse, check_readiness
+from api_gateway.readiness import ReadinessCache, ReadinessResponse
 from api_gateway.realtime.hub import RealtimeHub
 
 router = APIRouter(tags=["health"])
@@ -25,6 +25,11 @@ class PlatformResponse(BaseModel):
         ..., description="Seconds since the gateway last received a plant state."
     )
     websocket_clients: int
+
+
+def _readiness(request: Request) -> ReadinessCache:
+    cache: ReadinessCache = request.app.state.readiness
+    return cache
 
 
 @router.get("/health")
@@ -44,7 +49,7 @@ async def health_check() -> dict[str, str]:
 )
 async def readiness(request: Request, response: Response) -> ReadinessResponse:
     """Readiness probe with the state of the database and every upstream service."""
-    result = await check_readiness(request.app)
+    result = await _readiness(request).get(request.app)
     if result.status == "not_ready":
         response.status_code = 503
     return result
@@ -54,7 +59,7 @@ async def readiness(request: Request, response: Response) -> ReadinessResponse:
 async def platform(request: Request, _: ViewerUser) -> PlatformResponse:
     hub: RealtimeHub | None = getattr(request.app.state, "realtime_hub", None)
     return PlatformResponse(
-        readiness=await check_readiness(request.app),
+        readiness=await _readiness(request).get(request.app),
         telemetry_age_s=hub.telemetry_age_s() if hub is not None else None,
         websocket_clients=hub.subscriber_count if hub is not None else 0,
     )

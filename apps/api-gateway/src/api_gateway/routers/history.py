@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
 import re
 import time
+from functools import partial
 
 from cogniboiler_runtime import MILLISECONDS_PER_DAY
 from fastapi import APIRouter, Query
@@ -87,14 +87,16 @@ async def get_history(
     names = parse_fields(fields)
     window_s = history_window_s(start, end, limit)
     async with historian_call():
-        result = await asyncio.to_thread(
-            historian.fetch_history,
-            measurement=measurement,
-            start_ms=start,
-            end_ms=end,
-            limit=limit,
-            window_s=window_s,
-            fields=names,
+        result = await historian.run(
+            partial(
+                historian.fetch_history,
+                measurement=measurement,
+                start_ms=start,
+                end_ms=end,
+                limit=limit,
+                window_s=window_s,
+                fields=names,
+            )
         )
 
     points = [

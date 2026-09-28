@@ -33,6 +33,7 @@ from api_gateway.historian_query import HistorianQueryClient, HistorianQueryConf
 from api_gateway.observability import ObservabilityMiddleware, observe_app
 from api_gateway.observability import router as metrics_router
 from api_gateway.problems import install_problem_handlers
+from api_gateway.readiness import ReadinessCache
 from api_gateway.realtime.hub import RealtimeHub
 from api_gateway.realtime.sources import (
     report_source_end,
@@ -153,6 +154,7 @@ def create_app() -> FastAPI:
             settings.login_max_failures_per_client, settings.login_failure_window_s
         ),
     )
+    app.state.readiness = ReadinessCache()
     install_problem_handlers(app)
     observe_app(app)
 

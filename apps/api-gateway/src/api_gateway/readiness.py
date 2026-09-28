@@ -4,6 +4,10 @@ Readiness of the gateway and of everything it depends on.
 The database is required: without it nobody can be authenticated, so the gateway is not
 ready. The PLC, physics, alarm and historian services are checked too; when one of them
 is down the gateway still serves the rest and reports itself degraded.
+
+/ready answers without a sign-in, so one answer serves every caller for
+READINESS_CACHE_S: however often it is asked, the upstreams see one round of probes per
+interval.
 """
 
 from __future__ import annotations
@@ -22,6 +26,8 @@ from api_gateway.config import settings
 from api_gateway.dependencies import session_scope
 
 logger = logging.getLogger(__name__)
+
+READINESS_CACHE_S = 1.5
 
 ComponentState = Literal["up", "down"]
 
@@ -64,7 +70,8 @@ async def check_readiness(app: FastAPI) -> ReadinessResponse:
             await session.execute(text("SELECT 1"))
 
     async def historian() -> None:
-        if not await asyncio.to_thread(app.state.historian_client.ping):
+        client = app.state.historian_client
+        if not await client.run(client.ping):
             raise ConnectionError("InfluxDB ping failed")
 
     components = await asyncio.gather(
@@ -85,3 +92,25 @@ async def check_readiness(app: FastAPI) -> ReadinessResponse:
         components=list(components),
         checked_at_ms=int(time.time() * 1000),
     )
+
+
+class ReadinessCache:
+    """The last readiness answer, reused while it is younger than `ttl_s`."""
+
+    def __init__(
+        self,
+        ttl_s: float = READINESS_CACHE_S,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._ttl_s = ttl_s
+        self._clock = clock
+        self._lock = asyncio.Lock()
+        self._answer: ReadinessResponse | None = None
+        self._answered_at = 0.0
+
+    async def get(self, app: FastAPI) -> ReadinessResponse:
+        async with self._lock:
+            if self._answer is None or self._clock() - self._answered_at >= self._ttl_s:
+                self._answer = await check_readiness(app)
+                self._answered_at = self._clock()
+            return self._answer

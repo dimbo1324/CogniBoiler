@@ -10,7 +10,7 @@ the unit did not generate (mean output below 1 MW) or when there is no data.
 
 from __future__ import annotations
 
-import asyncio
+from functools import partial
 
 from fastapi import APIRouter, Query
 
@@ -46,8 +46,8 @@ async def get_kpis(
     """KPIs of the unit over a range: the last 15 minutes by default, at most 90 days."""
     start, end = resolve_range(start_ms, end_ms)
     async with historian_call():
-        source, values = await asyncio.to_thread(
-            historian.fetch_kpi_inputs, start_ms=start, end_ms=end
+        source, values = await historian.run(
+            partial(historian.fetch_kpi_inputs, start_ms=start, end_ms=end)
         )
 
     def mean(field: str) -> float | None:
