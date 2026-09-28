@@ -22,3 +22,7 @@ SNAPSHOT_UNMATCHED_KEYS = Counter(
     "alarm_snapshot_unmatched_keys_total",
     "Keys a source snapshot lists as active with no active alarm: a lost activation.",
 )
+CHANGES_DROPPED = Counter(
+    "alarm_changes_dropped_total",
+    "Alarm changes lost unpublished to a full publish queue during a broker outage.",
+)

@@ -19,7 +19,8 @@ from typing import Protocol
 
 from aiomqtt import Client
 from cogniboiler_observability import MQTT_RECEIVED
-from cogniboiler_runtime import MqttSession, subscribe_all
+from cogniboiler_runtime import DEFAULT_RECONNECT_DELAY_S, MqttSession, subscribe_all
+from cogniboiler_runtime.topics import FILTER_ALERTS, TOPIC_ALERT_SNAPSHOT
 from sqlalchemy.exc import (
     DBAPIError,
     InterfaceError,
@@ -30,8 +31,6 @@ from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from alert_manager.metrics import MESSAGES_FAILED, MESSAGES_REJECTED
 from alert_manager.payloads import (
-    SUBSCRIBE_TOPIC,
-    TOPIC_SNAPSHOT,
     ConditionReport,
     PayloadError,
     SnapshotReport,
@@ -41,11 +40,11 @@ from alert_manager.payloads import (
 
 logger = logging.getLogger(__name__)
 
-RECONNECT_DELAY_S: float = 5.0
+RECONNECT_DELAY_S: float = DEFAULT_RECONNECT_DELAY_S
 STORE_RETRY_DELAY_S: float = 1.0
 STORE_RETRY_MAX_DELAY_S: float = 30.0
 INCOMING_QUEUE_LIMIT: int = 10_000
-SUBSCRIPTIONS: tuple[tuple[str, int], ...] = ((SUBSCRIBE_TOPIC, 1),)
+SUBSCRIPTIONS: tuple[tuple[str, int], ...] = ((FILTER_ALERTS, 1),)
 STALL_LIMIT_S: float = 60.0
 
 
@@ -130,7 +129,7 @@ class AlertSubscriber:
         self, handler: MessageHandler, topic: str, raw_payload: bytes
     ) -> None:
         try:
-            if topic == TOPIC_SNAPSHOT:
+            if topic == TOPIC_ALERT_SNAPSHOT:
                 snapshot = parse_snapshot(raw_payload)
                 await self._with_retries(
                     topic, lambda: handler.handle_snapshot(snapshot)
@@ -207,7 +206,7 @@ class AlertSubscriber:
         await subscribe_all(client, SUBSCRIPTIONS)
         logger.info(
             "AlertManager subscribed to %s on %s:%d",
-            SUBSCRIBE_TOPIC,
+            FILTER_ALERTS,
             self._host,
             self._port,
         )

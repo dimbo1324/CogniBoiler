@@ -154,7 +154,8 @@ class TestConditions:
 
     def test_a_float_literal_beyond_the_range_is_not_finite(self) -> None:
         raw = condition_payload().replace(b'"threshold": 3.5', b'"threshold": 1e999')
-        with pytest.raises(PayloadError, match="threshold must be finite"):
+        assert b"1e999" in raw
+        with pytest.raises(PayloadError, match="not JSON"):
             parse_condition("alerts/critical", raw)
 
     def test_an_integer_too_large_for_a_float_is_a_payload_error(self) -> None:

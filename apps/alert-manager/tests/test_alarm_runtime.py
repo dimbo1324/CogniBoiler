@@ -20,7 +20,7 @@ import pytest_asyncio
 from aiomqtt import MqttError
 from alarm_factories import Recorder, condition, condition_payload, only_alarm
 from alert_manager import __main__ as entry
-from alert_manager import db, publisher, subscriber
+from alert_manager import db, publisher, service, subscriber
 from alert_manager.grpc_server import AlarmServicer, start_server
 from alert_manager.lifecycle import AlarmState
 from alert_manager.models import Base
@@ -276,7 +276,10 @@ class FakeBroker:
     async def __aexit__(self, *_: object) -> None:
         return None
 
-    async def publish(self, topic: str, payload: bytes, qos: int) -> None:
+    async def publish(
+        self, topic: str, payload: bytes, qos: int, retain: bool = False
+    ) -> None:
+        assert retain is False
         FakeBroker.publish_calls += 1
         if FakeBroker.publish_calls == FakeBroker.fail_at:
             raise MqttError("connection lost while publishing")
@@ -365,6 +368,7 @@ class TestPublisher:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         monkeypatch.setattr(publisher, "QUEUE_LIMIT", 2)
+        dropped_before = REGISTRY.get_sample_value("alarm_changes_dropped_total")
         sender = AlarmChangePublisher("broker", 1883)
         with caplog.at_level(logging.ERROR, logger="alert_manager.publisher"):
             for alarm_id in (1, 2, 3, 4):
@@ -374,8 +378,13 @@ class TestPublisher:
         await sender.aclose()
         ids = [json.loads(payload)["alarm"]["id"] for _, payload, _ in broker.published]
         assert ids == [3, 4]
-        assert "2 changes dropped" not in caplog.text
-        assert "1 changes dropped" in caplog.text
+        assert sender.dropped == 2
+        assert REGISTRY.get_sample_value("alarm_changes_dropped_total") == (
+            (dropped_before or 0.0) + 2
+        )
+        # The first drop of an outage is an error; the next ones up to the 100th are not.
+        assert "2 messages dropped" not in caplog.text
+        assert "1 messages dropped" in caplog.text
 
     async def test_closing_an_unstarted_publisher_is_harmless(self) -> None:
         await AlarmChangePublisher("broker", 1883).aclose()
@@ -775,9 +784,9 @@ class TestEntryPoint:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         url = f"sqlite+aiosqlite:///{(tmp_path / 'empty.db').as_posix()}"
-        monkeypatch.setattr(entry, "create_engine", lambda: create_async_engine(url))
+        monkeypatch.setattr(service, "create_engine", lambda: create_async_engine(url))
         with caplog.at_level(logging.ERROR, logger="alert_manager"):
-            assert await entry.main(self._args()) == 1
+            assert await service.main(self._args()) == 1
         assert "Alarm tables missing: alarm_events, alarm_transitions" in caplog.text
 
     async def test_it_wires_intake_processor_publisher_and_service(
@@ -788,8 +797,8 @@ class TestEntryPoint:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         await engine.dispose()
-        monkeypatch.setattr(entry, "create_engine", lambda: create_async_engine(url))
-        monkeypatch.setattr(entry, "start_metrics_server", lambda port, host: None)
+        monkeypatch.setattr(service, "create_engine", lambda: create_async_engine(url))
+        monkeypatch.setattr(service, "start_metrics_server", lambda port, host: None)
         monkeypatch.setenv("MQTT_PASSWORD", "broker-pass")
         events: list[str] = []
 
@@ -821,10 +830,10 @@ class TestEntryPoint:
             events.append(f"server started {port}")
             return Server(), 50053
 
-        monkeypatch.setattr(entry, "AlarmChangePublisher", Publisher)
-        monkeypatch.setattr(entry, "AlertSubscriber", Intake)
-        monkeypatch.setattr(entry, "start_server", start)
-        assert await entry.main(self._args()) == 0
+        monkeypatch.setattr(service, "AlarmChangePublisher", Publisher)
+        monkeypatch.setattr(service, "AlertSubscriber", Intake)
+        monkeypatch.setattr(service, "start_server", start)
+        assert await service.main(self._args()) == 0
         assert events[:3] == [
             "publisher alert-manager broker-pass",
             "publisher started",
@@ -883,15 +892,34 @@ class TestEntryPoint:
         async def start(servicer: AlarmServicer, port: int) -> tuple[Server, int]:
             return Server(), 50053
 
-        monkeypatch.setattr(entry, "create_engine", Engine)
-        monkeypatch.setattr(entry, "start_metrics_server", lambda port, host: None)
-        monkeypatch.setattr(entry, "AlarmChangePublisher", Publisher)
-        monkeypatch.setattr(entry, "AlertSubscriber", Intake)
-        monkeypatch.setattr(entry, "start_server", start)
+        monkeypatch.setattr(service, "create_engine", Engine)
+        monkeypatch.setattr(service, "start_metrics_server", lambda port, host: None)
+        monkeypatch.setattr(service, "AlarmChangePublisher", Publisher)
+        monkeypatch.setattr(service, "AlertSubscriber", Intake)
+        monkeypatch.setattr(service, "start_server", start)
         with pytest.raises(RuntimeError, match="stop failed"):
-            await entry.main(self._args())
+            await service.main(self._args())
         assert events == ["publisher closed"]
         assert disposed == ["engine"]
+
+    def test_it_runs_under_the_shared_service_runner(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ran: list[str] = []
+
+        async def main(args: argparse.Namespace) -> int:
+            ran.append(f"main {args.grpc_port}")
+            return 3
+
+        def run_service(entry_point: Any) -> int:
+            code: int = asyncio.run(entry_point())
+            return code
+
+        monkeypatch.setattr(entry, "main", main)
+        monkeypatch.setattr(entry, "run_service", run_service)
+        monkeypatch.setattr(entry, "configure_logging", ran.append)
+        assert entry.run(["--grpc-port", "50999"]) == 3
+        assert ran == ["alert-manager", "main 50999"]
 
     def test_the_command_line_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("sys.argv", ["alert_manager"])

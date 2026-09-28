@@ -16,17 +16,12 @@ Produced:
 from __future__ import annotations
 
 import json
-import math
 from dataclasses import dataclass
 from typing import Any
 
-from cogniboiler_runtime import now_ms
+from cogniboiler_runtime import decode_json_object, finite_number, now_ms
 
 from alert_manager.views import AlarmView, TransitionView
-
-SUBSCRIBE_TOPIC: str = "alerts/#"
-TOPIC_SNAPSHOT: str = "alerts/snapshot"
-TOPIC_CHANGES: str = "alarms/changes"
 
 MAX_PAYLOAD_BYTES: int = 64 * 1024
 MAX_SNAPSHOT_KEYS: int = 1000
@@ -83,22 +78,15 @@ class SnapshotReport:
     timestamp_ms: int
 
 
-def _refuse_constant(name: str) -> Any:
-    raise ValueError(f"{name} is not JSON")
-
-
 def _decode(raw: bytes) -> dict[str, Any]:
     if len(raw) > MAX_PAYLOAD_BYTES:
         raise PayloadError(
             f"payload too large: {len(raw)} bytes > {MAX_PAYLOAD_BYTES}",
             reason="too_large",
         )
-    try:
-        payload = json.loads(raw.decode("utf-8"), parse_constant=_refuse_constant)
-    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
-        raise PayloadError(f"not JSON: {type(exc).__name__}") from exc
-    if not isinstance(payload, dict):
-        raise PayloadError("payload is not a JSON object")
+    payload = decode_json_object(raw, max_bytes=MAX_PAYLOAD_BYTES)
+    if payload is None:
+        raise PayloadError("payload is not JSON, or not a JSON object")
     return payload
 
 
@@ -113,14 +101,11 @@ def _text(
 
 def _number(payload: dict[str, Any], field: str) -> float:
     value = payload.get(field)
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise PayloadError(f"{field} must be a number")
-    try:
-        number = float(value)
-    except OverflowError as exc:
-        raise PayloadError(f"{field} must be a finite number") from exc
-    if not math.isfinite(number):
-        raise PayloadError(f"{field} must be finite")
+    number = finite_number(value)
+    if number is None:
+        numeric = isinstance(value, int | float) and not isinstance(value, bool)
+        kind = "a finite number" if numeric else "a number"
+        raise PayloadError(f"{field} must be {kind}")
     return number
 
 
