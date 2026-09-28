@@ -8,17 +8,15 @@ and the request itself lands in the audit log like every other call.
 
 from __future__ import annotations
 
+from contextlib import AbstractAsyncContextManager
 from typing import Literal, cast
 
 import cogniboiler_pb2 as pb2
-import grpc
-import grpc.aio
 from fastapi import APIRouter, Path, Query, Request
 
 from api_gateway.audit import set_audit_outcome
 from api_gateway.auth.rbac import OperatorUser, ViewerUser
-from api_gateway.clients import AlarmGatewayClient
-from api_gateway.problems import ProblemError, upstream_unavailable
+from api_gateway.problems import UPSTREAM_RESPONSES, ProblemError, upstream_call
 from api_gateway.schemas.ops import (
     AcknowledgeAllRequest,
     AcknowledgeRequest,
@@ -29,8 +27,11 @@ from api_gateway.schemas.ops import (
     AlarmStateName,
     AlarmTransitionResponse,
 )
+from api_gateway.upstreams import ALARM_SERVICE, AlarmClient
 
-router = APIRouter(prefix="/api/v1/alarms", tags=["alarms"])
+router = APIRouter(
+    prefix="/api/v1/alarms", tags=["alarms"], responses=UPSTREAM_RESPONSES
+)
 
 _STATE_NAMES: dict[int, str] = {
     int(pb2.AlarmState.ALARM_ACTIVE_UNACK): "ACTIVE_UNACK",
@@ -40,11 +41,6 @@ _STATE_NAMES: dict[int, str] = {
 }
 _ACKNOWLEDGED = frozenset({"ACTIVE_ACK", "CLEARED"})
 _CLEARED = frozenset({"CLEARED_UNACK", "CLEARED"})
-
-
-def _alarm_client(request: Request) -> AlarmGatewayClient:
-    """Resolve the shared AlarmService client from application state."""
-    return request.app.state.alarm_client  # type: ignore[no-any-return]
 
 
 def _state(value: int) -> AlarmStateName:
@@ -99,26 +95,34 @@ def _transition_from_proto(message: pb2.AlarmTransitionMsg) -> AlarmTransitionRe
     )
 
 
-def _upstream_error(exc: grpc.RpcError) -> ProblemError:
-    if (
-        isinstance(exc, grpc.aio.AioRpcError)
-        and exc.code() == grpc.StatusCode.NOT_FOUND
-    ):
-        return ProblemError(404, "alarms.not_found", "The alarm does not exist.")
-    return upstream_unavailable("AlarmService", exc)
+def _alarm_call(request: Request) -> AbstractAsyncContextManager[None]:
+    return upstream_call(
+        request,
+        ALARM_SERVICE,
+        not_found=ProblemError(404, "alarms.not_found", "The alarm does not exist."),
+    )
 
 
-def _ack_outcome(request: Request, result: pb2.AcknowledgeResult) -> None:
+def _acknowledge_response(
+    request: Request, result: pb2.AcknowledgeResult
+) -> AcknowledgeResponse:
     if result.accepted:
         set_audit_outcome(request, f"acknowledged {len(result.alarms)} alarm(s)")
     else:
         set_audit_outcome(request, f"refused: {result.reason}")
+    return AcknowledgeResponse(
+        accepted=result.accepted,
+        reason=result.reason,
+        timestamp_ms=result.timestamp_ms,
+        alarms=[alarm_from_proto(alarm) for alarm in result.alarms],
+    )
 
 
 @router.get("", response_model=list[AlarmResponse])
 async def list_alarms(
     request: Request,
     _: ViewerUser,
+    alarms: AlarmClient,
     active_only: bool = Query(
         default=False,
         description="Only open alarms: not both cleared and acknowledged.",
@@ -126,12 +130,10 @@ async def list_alarms(
     limit: int = Query(default=100, ge=1, le=1000),
 ) -> list[AlarmResponse]:
     """Recent alarms; with active_only, open alarms with critical and unacknowledged first."""
-    try:
-        result = await _alarm_client(request).list_alarms(
+    async with _alarm_call(request):
+        result = await alarms.list_alarms(
             pb2.ListAlarmsRequest(open_only=active_only, limit=limit)
         )
-    except grpc.RpcError as exc:
-        raise _upstream_error(exc) from exc
     return [alarm_from_proto(alarm) for alarm in result.alarms]
 
 
@@ -139,6 +141,7 @@ async def list_alarms(
 async def alarm_history(
     request: Request,
     _: ViewerUser,
+    alarms: AlarmClient,
     severity: Literal["warning", "critical"] | None = Query(default=None),
     parameter: str | None = Query(default=None, max_length=128),
     from_ms: int = Query(default=0, ge=0, description="Raised at or after [UTC ms]."),
@@ -147,8 +150,8 @@ async def alarm_history(
     offset: int = Query(default=0, ge=0),
 ) -> AlarmPageResponse:
     """Alarm history with filters, newest first, paged."""
-    try:
-        result = await _alarm_client(request).list_alarms(
+    async with _alarm_call(request):
+        result = await alarms.list_alarms(
             pb2.ListAlarmsRequest(
                 severity=severity or "",
                 parameter=parameter or "",
@@ -158,8 +161,6 @@ async def alarm_history(
                 offset=offset,
             )
         )
-    except grpc.RpcError as exc:
-        raise _upstream_error(exc) from exc
     return AlarmPageResponse(
         items=[alarm_from_proto(alarm) for alarm in result.alarms],
         total=result.total,
@@ -173,34 +174,26 @@ async def acknowledge_all(
     request: Request,
     body: AcknowledgeAllRequest,
     user: OperatorUser,
+    alarms: AlarmClient,
 ) -> AcknowledgeResponse:
     """Acknowledge every unacknowledged alarm, optionally of one severity."""
-    try:
-        result = await _alarm_client(request).acknowledge_all(
+    async with _alarm_call(request):
+        result = await alarms.acknowledge_all(
             user.username, body.comment, body.severity or ""
         )
-    except grpc.RpcError as exc:
-        raise _upstream_error(exc) from exc
-    _ack_outcome(request, result)
-    return AcknowledgeResponse(
-        accepted=result.accepted,
-        reason=result.reason,
-        timestamp_ms=result.timestamp_ms,
-        alarms=[alarm_from_proto(alarm) for alarm in result.alarms],
-    )
+    return _acknowledge_response(request, result)
 
 
 @router.get("/{alarm_id}", response_model=AlarmDetailResponse)
 async def get_alarm(
     request: Request,
     _: ViewerUser,
+    alarms: AlarmClient,
     alarm_id: int = Path(..., ge=1),
 ) -> AlarmDetailResponse:
     """One alarm with every state change it went through."""
-    try:
-        result = await _alarm_client(request).get_alarm(alarm_id)
-    except grpc.RpcError as exc:
-        raise _upstream_error(exc) from exc
+    async with _alarm_call(request):
+        result = await alarms.get_alarm(alarm_id)
     return AlarmDetailResponse(
         alarm=alarm_from_proto(result.alarm),
         transitions=[_transition_from_proto(t) for t in result.transitions],
@@ -212,19 +205,10 @@ async def acknowledge_alarm(
     request: Request,
     body: AcknowledgeRequest,
     user: OperatorUser,
+    alarms: AlarmClient,
     alarm_id: int = Path(..., ge=1),
 ) -> AcknowledgeResponse:
     """Acknowledge one alarm; refused if it is already acknowledged."""
-    try:
-        result = await _alarm_client(request).acknowledge(
-            alarm_id, user.username, body.comment
-        )
-    except grpc.RpcError as exc:
-        raise _upstream_error(exc) from exc
-    _ack_outcome(request, result)
-    return AcknowledgeResponse(
-        accepted=result.accepted,
-        reason=result.reason,
-        timestamp_ms=result.timestamp_ms,
-        alarms=[alarm_from_proto(alarm) for alarm in result.alarms],
-    )
+    async with _alarm_call(request):
+        result = await alarms.acknowledge(alarm_id, user.username, body.comment)
+    return _acknowledge_response(request, result)

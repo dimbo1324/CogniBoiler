@@ -8,13 +8,11 @@ row of the request carries the PLC's verdict as its outcome.
 from __future__ import annotations
 
 import cogniboiler_pb2 as pb2
-import grpc
 from fastapi import APIRouter, Request
 
 from api_gateway.audit import command_outcome, set_audit_detail, set_audit_outcome
 from api_gateway.auth.rbac import EngineerUser, OperatorUser
-from api_gateway.clients import PLCGatewayClient
-from api_gateway.problems import upstream_unavailable
+from api_gateway.problems import UPSTREAM_RESPONSES, upstream_call
 from api_gateway.schemas.command import (
     CommandAckResponse,
     ControlModeRequest,
@@ -23,19 +21,17 @@ from api_gateway.schemas.command import (
     SetpointRequest,
     ValveCommandRequest,
 )
+from api_gateway.upstreams import PLC_SERVICE, PlcClient
 
-router = APIRouter(prefix="/api/v1/commands", tags=["commands"])
+router = APIRouter(
+    prefix="/api/v1/commands", tags=["commands"], responses=UPSTREAM_RESPONSES
+)
 
 _MODES: dict[str, int] = {
     "auto": int(pb2.ControlMode.AUTO),
     "manual": int(pb2.ControlMode.MANUAL),
     "estop": int(pb2.ControlMode.ESTOP),
 }
-
-
-def _plc_client(request: Request) -> PLCGatewayClient:
-    """Resolve the shared PLC client from application state."""
-    return request.app.state.plc_client  # type: ignore[no-any-return]
 
 
 def _ack(request: Request, ack: pb2.CommandAck) -> CommandAckResponse:
@@ -52,6 +48,7 @@ async def send_valve_command(
     request: Request,
     body: ValveCommandRequest,
     user: OperatorUser,
+    plc: PlcClient,
 ) -> CommandAckResponse:
     """Send a manual valve command to the PLC; the PLC switches to MANUAL."""
     command = pb2.ControlCommandMsg(
@@ -63,10 +60,8 @@ async def send_valve_command(
     )
     if body.spray_valve is not None:
         command.spray_valve = body.spray_valve
-    try:
-        ack = await _plc_client(request).send_command(command)
-    except grpc.RpcError as exc:
-        raise upstream_unavailable("PLCService", exc) from exc
+    async with upstream_call(request, PLC_SERVICE):
+        ack = await plc.send_command(command)
     return _ack(request, ack)
 
 
@@ -75,12 +70,11 @@ async def set_load_demand(
     request: Request,
     body: LoadDemandRequest,
     user: OperatorUser,
+    plc: PlcClient,
 ) -> CommandAckResponse:
     """Set the electrical load the PLC drives the unit to in AUTO."""
-    try:
-        ack = await _plc_client(request).set_load_demand(body.load_w, user.username)
-    except grpc.RpcError as exc:
-        raise upstream_unavailable("PLCService", exc) from exc
+    async with upstream_call(request, PLC_SERVICE):
+        ack = await plc.set_load_demand(body.load_w, user.username)
     return _ack(request, ack)
 
 
@@ -89,14 +83,11 @@ async def set_control_mode(
     request: Request,
     body: ControlModeRequest,
     user: OperatorUser,
+    plc: PlcClient,
 ) -> CommandAckResponse:
     """Switch the PLC between AUTO and MANUAL, or trip the unit."""
-    try:
-        ack = await _plc_client(request).set_control_mode(
-            _MODES[body.mode], user.username
-        )
-    except grpc.RpcError as exc:
-        raise upstream_unavailable("PLCService", exc) from exc
+    async with upstream_call(request, PLC_SERVICE):
+        ack = await plc.set_control_mode(_MODES[body.mode], user.username)
     return _ack(request, ack)
 
 
@@ -105,10 +96,11 @@ async def update_setpoints(
     request: Request,
     body: SetpointRequest,
     user: EngineerUser,
+    plc: PlcClient,
 ) -> CommandAckResponse:
     """Update live PLC setpoints and return the acceptance status."""
-    try:
-        ack = await _plc_client(request).update_setpoints(
+    async with upstream_call(request, PLC_SERVICE):
+        ack = await plc.update_setpoints(
             pb2.SetpointsMsg(
                 pressure_pa=body.pressure_pa,
                 water_level_m=body.water_level_m,
@@ -117,8 +109,6 @@ async def update_setpoints(
                 operator_id=user.username,
             )
         )
-    except grpc.RpcError as exc:
-        raise upstream_unavailable("PLCService", exc) from exc
     return _ack(request, ack)
 
 
@@ -126,6 +116,7 @@ async def update_setpoints(
 async def reset_emergency_stop(
     request: Request,
     user: EngineerUser,
+    plc: PlcClient,
     body: ResetRequest | None = None,
 ) -> CommandAckResponse:
     """
@@ -136,8 +127,6 @@ async def reset_emergency_stop(
     """
     if body is not None and body.operator_id and body.operator_id != user.username:
         set_audit_detail(request, f"stated operator_id={body.operator_id}")
-    try:
-        ack = await _plc_client(request).reset_emergency_stop(user.username)
-    except grpc.RpcError as exc:
-        raise upstream_unavailable("PLCService", exc) from exc
+    async with upstream_call(request, PLC_SERVICE):
+        ack = await plc.reset_emergency_stop(user.username)
     return _ack(request, ack)

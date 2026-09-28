@@ -7,14 +7,15 @@ import re
 import time
 
 from cogniboiler_runtime import MILLISECONDS_PER_DAY
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query
 from influxdb_client.rest import ApiException
 from urllib3.exceptions import HTTPError as Urllib3HTTPError
 
 from api_gateway.auth.rbac import ViewerUser
-from api_gateway.historian_query import HistorianQueryClient, history_window_s
+from api_gateway.historian_query import history_window_s
 from api_gateway.problems import ProblemError, upstream_unavailable
 from api_gateway.schemas.ops import HistoryPointResponse, HistoryResponse
+from api_gateway.upstreams import HISTORIAN, HistorianClient
 
 router = APIRouter(prefix="/api/v1", tags=["history"])
 
@@ -26,11 +27,6 @@ HISTORY_ERRORS = (ApiException, OSError, Urllib3HTTPError)
 _FLUX_METADATA = frozenset(
     {"result", "table", "_start", "_stop", "_time", "_measurement", "timestamp_ms"}
 )
-
-
-def _historian_client(request: Request) -> HistorianQueryClient:
-    """Resolve the shared historian query client from app state."""
-    return request.app.state.historian_client  # type: ignore[no-any-return]
 
 
 def resolve_range(start_ms: int | None, end_ms: int | None) -> tuple[int, int]:
@@ -64,8 +60,8 @@ def parse_fields(fields: str | None) -> tuple[str, ...]:
 
 @router.get("/history", response_model=HistoryResponse)
 async def get_history(
-    request: Request,
     _: ViewerUser,
+    historian: HistorianClient,
     measurement: str = Query(
         default="boiler_sensors",
         pattern="^(boiler_sensors|turbine_sensors|plant_status)$",
@@ -90,7 +86,7 @@ async def get_history(
     window_s = history_window_s(start, end, limit)
     try:
         raw_points = await asyncio.to_thread(
-            _historian_client(request).fetch_history,
+            historian.fetch_history,
             measurement=measurement,
             start_ms=start,
             end_ms=end,
@@ -99,7 +95,7 @@ async def get_history(
             fields=names,
         )
     except HISTORY_ERRORS as exc:
-        raise upstream_unavailable("Historian", exc) from exc
+        raise upstream_unavailable(HISTORIAN, exc) from exc
 
     points = [
         HistoryPointResponse(

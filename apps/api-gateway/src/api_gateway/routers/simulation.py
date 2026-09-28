@@ -25,7 +25,7 @@ from api_gateway.auth.rbac import EngineerUser, ViewerUser
 from api_gateway.clients import PhysicsGatewayClient
 from api_gateway.dependencies import DbSession
 from api_gateway.models.user import ScenarioRun
-from api_gateway.problems import ProblemError, upstream_unavailable
+from api_gateway.problems import UPSTREAM_RESPONSES, rpc_status_code, upstream_call
 from api_gateway.schemas.plant import (
     FaultAckResponse,
     FaultRequest,
@@ -39,18 +39,31 @@ from api_gateway.schemas.plant import (
     SpeedRequest,
     StepRequest,
 )
+from api_gateway.upstreams import PHYSICS_SERVICE, PhysicsClient
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1", tags=["simulation"])
+router = APIRouter(prefix="/api/v1", tags=["simulation"], responses=UPSTREAM_RESPONSES)
 
 
-def _physics(request: Request) -> PhysicsGatewayClient:
-    return request.app.state.physics_client  # type: ignore[no-any-return]
+async def _status_for_the_record(
+    physics: PhysicsGatewayClient, user: CurrentUser, kind: str
+) -> pb2.SimulationStatusMsg | None:
+    """The run a change was made in, or None when it cannot be read.
 
-
-def _unavailable(exc: grpc.RpcError) -> ProblemError:
-    return upstream_unavailable("PhysicsService", exc)
+    The change itself is already applied: a failed read loses the scenario_runs row,
+    never the answer, and the audit row still records the acknowledgement.
+    """
+    try:
+        return await physics.get_simulation_status()
+    except grpc.RpcError as exc:
+        logger.warning(
+            "%s by %s applied, but the run was not recorded: PhysicsService %s",
+            kind,
+            user.username,
+            rpc_status_code(exc).name,
+        )
+        return None
 
 
 async def _record_runs(
@@ -99,86 +112,82 @@ def _simulation_ack(request: Request, ack: pb2.SimulationAck) -> SimulationAckRe
 
 
 @router.get("/plant", response_model=PlantStateResponse)
-async def get_plant_state(request: Request, _: ViewerUser) -> PlantStateResponse:
+async def get_plant_state(
+    request: Request, _: ViewerUser, physics: PhysicsClient
+) -> PlantStateResponse:
     """The latest plant step: measurements, valves, emissions, health, faults."""
-    try:
-        message = await _physics(request).get_system_state()
-    except grpc.RpcError as exc:
-        raise _unavailable(exc) from exc
+    async with upstream_call(request, PHYSICS_SERVICE):
+        message = await physics.get_system_state()
     return plant_state.plant_state(message)
 
 
 @router.get("/simulation", response_model=SimulationStatusResponse)
 async def get_simulation_status(
-    request: Request, _: ViewerUser
+    request: Request, _: ViewerUser, physics: PhysicsClient
 ) -> SimulationStatusResponse:
-    try:
-        message = await _physics(request).get_simulation_status()
-    except grpc.RpcError as exc:
-        raise _unavailable(exc) from exc
+    async with upstream_call(request, PHYSICS_SERVICE):
+        message = await physics.get_simulation_status()
     return plant_state.simulation_status(message)
 
 
 @router.get("/simulation/scenarios", response_model=ScenarioListResponse)
-async def list_scenarios(request: Request, _: ViewerUser) -> ScenarioListResponse:
-    try:
-        message = await _physics(request).list_scenarios()
-    except grpc.RpcError as exc:
-        raise _unavailable(exc) from exc
+async def list_scenarios(
+    request: Request, _: ViewerUser, physics: PhysicsClient
+) -> ScenarioListResponse:
+    async with upstream_call(request, PHYSICS_SERVICE):
+        message = await physics.list_scenarios()
     return plant_state.scenario_list(message)
 
 
 @router.post("/simulation/pause", response_model=SimulationAckResponse)
-async def pause(request: Request, user: EngineerUser) -> SimulationAckResponse:
-    try:
-        ack = await _physics(request).pause(user.username)
-    except grpc.RpcError as exc:
-        raise _unavailable(exc) from exc
+async def pause(
+    request: Request, user: EngineerUser, physics: PhysicsClient
+) -> SimulationAckResponse:
+    async with upstream_call(request, PHYSICS_SERVICE):
+        ack = await physics.pause(user.username)
     return _simulation_ack(request, ack)
 
 
 @router.post("/simulation/resume", response_model=SimulationAckResponse)
-async def resume(request: Request, user: EngineerUser) -> SimulationAckResponse:
-    try:
-        ack = await _physics(request).resume(user.username)
-    except grpc.RpcError as exc:
-        raise _unavailable(exc) from exc
+async def resume(
+    request: Request, user: EngineerUser, physics: PhysicsClient
+) -> SimulationAckResponse:
+    async with upstream_call(request, PHYSICS_SERVICE):
+        ack = await physics.resume(user.username)
     return _simulation_ack(request, ack)
 
 
 @router.post("/simulation/speed", response_model=SimulationAckResponse)
 async def set_speed(
-    request: Request, body: SpeedRequest, user: EngineerUser
+    request: Request, body: SpeedRequest, user: EngineerUser, physics: PhysicsClient
 ) -> SimulationAckResponse:
-    try:
-        ack = await _physics(request).set_speed(body.speed_factor, user.username)
-    except grpc.RpcError as exc:
-        raise _unavailable(exc) from exc
+    async with upstream_call(request, PHYSICS_SERVICE):
+        ack = await physics.set_speed(body.speed_factor, user.username)
     return _simulation_ack(request, ack)
 
 
 @router.post("/simulation/step", response_model=SimulationAckResponse)
 async def step(
-    request: Request, body: StepRequest, user: EngineerUser
+    request: Request, body: StepRequest, user: EngineerUser, physics: PhysicsClient
 ) -> SimulationAckResponse:
     """Advance a paused simulation by whole steps."""
-    try:
-        ack = await _physics(request).step(body.steps, user.username)
-    except grpc.RpcError as exc:
-        raise _unavailable(exc) from exc
+    async with upstream_call(request, PHYSICS_SERVICE):
+        ack = await physics.step(body.steps, user.username)
     return _simulation_ack(request, ack)
 
 
 @router.post("/simulation/scenario", response_model=SimulationAckResponse)
 async def load_scenario(
-    request: Request, body: ScenarioRequest, db: DbSession, user: EngineerUser
+    request: Request,
+    body: ScenarioRequest,
+    db: DbSession,
+    user: EngineerUser,
+    physics: PhysicsClient,
 ) -> SimulationAckResponse:
     """Restart the plant from a scenario; the PLC follows the new run."""
     set_audit_detail(request, f"scenario={body.name}")
-    try:
-        ack = await _physics(request).load_scenario(body.name, user.username)
-    except grpc.RpcError as exc:
-        raise _unavailable(exc) from exc
+    async with upstream_call(request, PHYSICS_SERVICE):
+        ack = await physics.load_scenario(body.name, user.username)
     if ack.accepted:
         await _record_runs(db, user, "scenario", ack.status)
     return _simulation_ack(request, ack)
@@ -186,7 +195,11 @@ async def load_scenario(
 
 @router.post("/simulation/faults", response_model=FaultAckResponse)
 async def inject_fault(
-    request: Request, body: FaultRequest, db: DbSession, user: EngineerUser
+    request: Request,
+    body: FaultRequest,
+    db: DbSession,
+    user: EngineerUser,
+    physics: PhysicsClient,
 ) -> FaultAckResponse:
     """Inject a labelled fault; the physics engine validates target and severity."""
     set_audit_detail(
@@ -194,8 +207,7 @@ async def inject_fault(
         f"kind={body.kind} target={body.target} severity={body.severity:g} "
         f"ramp_s={body.ramp_s:g}",
     )
-    physics = _physics(request)
-    try:
+    async with upstream_call(request, PHYSICS_SERVICE):
         ack = await physics.inject_fault(
             pb2.FaultRequest(
                 kind=plant_state.FAULT_KINDS_BY_NAME[body.kind],
@@ -205,12 +217,12 @@ async def inject_fault(
                 operator_id=user.username,
             )
         )
-        status = await physics.get_simulation_status() if ack.accepted else None
-    except grpc.RpcError as exc:
-        raise _unavailable(exc) from exc
-    if status is not None:
-        await _record_runs(db, user, "fault_injected", status, list(ack.faults))
-    return _fault_ack(request, ack)
+    response = _fault_ack(request, ack)
+    if ack.accepted:
+        status = await _status_for_the_record(physics, user, "fault injection")
+        if status is not None:
+            await _record_runs(db, user, "fault_injected", status, list(ack.faults))
+    return response
 
 
 @router.delete("/simulation/faults/{fault_id}", response_model=FaultAckResponse)
@@ -218,38 +230,37 @@ async def clear_fault(
     request: Request,
     db: DbSession,
     user: EngineerUser,
+    physics: PhysicsClient,
     fault_id: str = Path(..., min_length=1, max_length=64),
 ) -> FaultAckResponse:
-    return await _clear(request, db, user, pb2.FaultClearRequest(fault_id=fault_id))
+    return await _clear(
+        request, db, user, physics, pb2.FaultClearRequest(fault_id=fault_id)
+    )
 
 
 @router.delete("/simulation/faults", response_model=FaultAckResponse)
 async def clear_all_faults(
-    request: Request, db: DbSession, user: EngineerUser
+    request: Request, db: DbSession, user: EngineerUser, physics: PhysicsClient
 ) -> FaultAckResponse:
-    return await _clear(request, db, user, pb2.FaultClearRequest(all=True))
+    return await _clear(request, db, user, physics, pb2.FaultClearRequest(all=True))
 
 
 async def _clear(
     request: Request,
     db: DbSession,
     user: CurrentUser,
+    physics: PhysicsGatewayClient,
     clear: pb2.FaultClearRequest,
 ) -> FaultAckResponse:
     clear.operator_id = user.username
-    physics = _physics(request)
-    try:
+    async with upstream_call(request, PHYSICS_SERVICE):
         ack = await physics.clear_fault(clear)
-        status = (
-            await physics.get_simulation_status()
-            if ack.accepted and ack.faults
-            else None
-        )
-    except grpc.RpcError as exc:
-        raise _unavailable(exc) from exc
-    if status is not None:
-        await _record_runs(db, user, "fault_cleared", status, list(ack.faults))
-    return _fault_ack(request, ack)
+    response = _fault_ack(request, ack)
+    if ack.accepted and ack.faults:
+        status = await _status_for_the_record(physics, user, "fault clearing")
+        if status is not None:
+            await _record_runs(db, user, "fault_cleared", status, list(ack.faults))
+    return response
 
 
 def _fault_ack(request: Request, ack: pb2.FaultAck) -> FaultAckResponse:

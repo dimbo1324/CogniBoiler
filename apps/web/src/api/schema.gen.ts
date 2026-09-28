@@ -1562,6 +1562,29 @@ export interface components {
             websocket_clients: number;
         };
         /**
+         * ProblemDetails
+         * @description An error body (RFC 9457); members beyond these depend on the code.
+         */
+        ProblemDetails: {
+            /** Type */
+            type: string;
+            /** Title */
+            title: string;
+            /** Status */
+            status: number;
+            /** Detail */
+            detail: string;
+            /** Instance */
+            instance: string;
+            /**
+             * Code
+             * @description Stable, machine-readable error code.
+             */
+            code: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * ProfileResponse
          * @description The signed-in user, as the gateway sees them now.
          */
@@ -2286,6 +2309,26 @@ export interface operations {
                     "application/json": components["schemas"]["SystemStatusResponse"];
                 };
             };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
         };
     };
     get_plant_state_api_v1_plant_get: {
@@ -2304,6 +2347,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlantStateResponse"];
+                };
+            };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
         };
@@ -2326,6 +2389,26 @@ export interface operations {
                     "application/json": components["schemas"]["SimulationStatusResponse"];
                 };
             };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
         };
     };
     list_scenarios_api_v1_simulation_scenarios_get: {
@@ -2344,6 +2427,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScenarioListResponse"];
+                };
+            };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
         };
@@ -2366,6 +2469,26 @@ export interface operations {
                     "application/json": components["schemas"]["SimulationAckResponse"];
                 };
             };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
         };
     };
     resume_api_v1_simulation_resume_post: {
@@ -2384,6 +2507,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SimulationAckResponse"];
+                };
+            };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
         };
@@ -2419,6 +2562,26 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
         };
     };
     step_api_v1_simulation_step_post: {
@@ -2450,6 +2613,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
         };
@@ -2485,6 +2668,26 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
         };
     };
     inject_fault_api_v1_simulation_faults_post: {
@@ -2518,6 +2721,26 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
         };
     };
     clear_all_faults_api_v1_simulation_faults_delete: {
@@ -2536,6 +2759,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FaultAckResponse"];
+                };
+            };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
         };
@@ -2569,6 +2812,26 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
         };
     };
     list_scenario_runs_api_v1_simulation_runs_get: {
@@ -2599,6 +2862,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
         };
@@ -2634,6 +2917,26 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
         };
     };
     set_load_demand_api_v1_commands_load_post: {
@@ -2665,6 +2968,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
         };
@@ -2700,6 +3023,26 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
         };
     };
     update_setpoints_api_v1_commands_setpoint_post: {
@@ -2731,6 +3074,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
         };
@@ -2766,6 +3129,26 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
         };
     };
     get_plc_status_api_v1_plc_status_get: {
@@ -2784,6 +3167,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PLCStatusResponse"];
+                };
+            };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
         };
@@ -2892,6 +3295,26 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
         };
     };
     alarm_history_api_v1_alarms_history_get: {
@@ -2930,6 +3353,26 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
         };
     };
     acknowledge_all_api_v1_alarms_ack_all_post: {
@@ -2963,6 +3406,26 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
         };
     };
     get_alarm_api_v1_alarms__alarm_id__get: {
@@ -2992,6 +3455,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
         };
@@ -3027,6 +3510,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description upstream.unavailable: the upstream service (named in `service`) failed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description upstream.timeout: the upstream service did not answer in time; a command may still have been carried out. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetails"];
+                    "application/json": components["schemas"]["ProblemDetails"];
                 };
             };
         };

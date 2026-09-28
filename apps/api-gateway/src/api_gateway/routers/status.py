@@ -3,36 +3,29 @@
 from __future__ import annotations
 
 import cogniboiler_pb2 as pb2
-import grpc
 from fastapi import APIRouter, Request
 
 from api_gateway.auth.rbac import ViewerUser
-from api_gateway.clients import PhysicsGatewayClient
-from api_gateway.problems import upstream_unavailable
+from api_gateway.problems import UPSTREAM_RESPONSES, upstream_call
 from api_gateway.schemas.sensor import (
     BoilerStatusResponse,
     SystemStatusResponse,
     TurbineStatusResponse,
 )
+from api_gateway.upstreams import PHYSICS_SERVICE, PhysicsClient
 
-router = APIRouter(prefix="/api/v1", tags=["status"])
-
-
-def _physics_client(request: Request) -> PhysicsGatewayClient:
-    """Resolve the shared PhysicsService client from application state."""
-    return request.app.state.physics_client  # type: ignore[no-any-return]
+router = APIRouter(prefix="/api/v1", tags=["status"], responses=UPSTREAM_RESPONSES)
 
 
 @router.get("/status", response_model=SystemStatusResponse)
 async def get_system_status(
     request: Request,
     _: ViewerUser,
+    physics: PhysicsClient,
 ) -> SystemStatusResponse:
     """Return the current boiler and turbine state from live gRPC."""
-    try:
-        current = await _physics_client(request).get_system_state()
-    except grpc.RpcError as exc:
-        raise upstream_unavailable("PhysicsService", exc) from exc
+    async with upstream_call(request, PHYSICS_SERVICE):
+        current = await physics.get_system_state()
 
     boiler = BoilerStatusResponse(
         pressure_pa=current.boiler.pressure_pa,

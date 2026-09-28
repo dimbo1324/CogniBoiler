@@ -12,21 +12,17 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query
 
 from api_gateway.auth.rbac import ViewerUser
-from api_gateway.historian_query import HistorianQueryClient
 from api_gateway.problems import upstream_unavailable
 from api_gateway.routers.history import HISTORY_ERRORS, resolve_range
 from api_gateway.schemas.ops import KpiResponse
+from api_gateway.upstreams import HISTORIAN, HistorianClient
 
 router = APIRouter(prefix="/api/v1", tags=["kpi"])
 
 MIN_GENERATING_POWER_W = 1.0e6
-
-
-def _historian(request: Request) -> HistorianQueryClient:
-    return request.app.state.historian_client  # type: ignore[no-any-return]
 
 
 def _ratio(numerator: float | None, denominator: float | None) -> float | None:
@@ -37,8 +33,8 @@ def _ratio(numerator: float | None, denominator: float | None) -> float | None:
 
 @router.get("/kpi", response_model=KpiResponse)
 async def get_kpis(
-    request: Request,
     _: ViewerUser,
+    historian: HistorianClient,
     start_ms: int | None = Query(default=None, ge=0, description="[UTC epoch ms]"),
     end_ms: int | None = Query(default=None, ge=0, description="[UTC epoch ms]"),
 ) -> KpiResponse:
@@ -46,10 +42,10 @@ async def get_kpis(
     start, end = resolve_range(start_ms, end_ms)
     try:
         source, values = await asyncio.to_thread(
-            _historian(request).fetch_kpi_inputs, start_ms=start, end_ms=end
+            historian.fetch_kpi_inputs, start_ms=start, end_ms=end
         )
     except HISTORY_ERRORS as exc:
-        raise upstream_unavailable("Historian", exc) from exc
+        raise upstream_unavailable(HISTORIAN, exc) from exc
 
     def mean(field: str) -> float | None:
         return values.get((field, "mean"))

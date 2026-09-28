@@ -6,12 +6,13 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import cogniboiler_pb2 as pb2
+import grpc
 import pytest
 from api_gateway.dependencies import get_db
 from api_gateway.problems import ProblemError, problem_response
 from api_gateway.realtime.hub import Channel, RealtimeHub
 from fastapi import FastAPI
-from gateway_fakes import FakeHistorianClient, FakePLCClient, plc_status
+from gateway_fakes import FakeHistorianClient, FakePLCClient, plc_status, rpc_error
 from httpx import ASGITransport, AsyncClient
 from starlette.requests import Request
 
@@ -215,6 +216,7 @@ class TestCommands:
         client: AsyncClient,
         operator_tokens: dict[str, str],
         engineer_tokens: dict[str, str],
+        admin_tokens: dict[str, str],
         path: str,
         body: dict[str, Any] | None,
         tokens: str,
@@ -224,6 +226,29 @@ class TestCommands:
         response = await client.post(path, json=body, headers=bearer(chosen))
         assert response.status_code == 503
         assert response.json()["service"] == "PLCService"
+        (row,) = await audit_rows(client, admin_tokens, path)
+        assert row["response_status"] == 503
+        assert row["outcome"] == "failed: UNAVAILABLE"
+
+    async def test_a_command_that_times_out_is_504_and_audited_as_unknown(
+        self,
+        app: FastAPI,
+        client: AsyncClient,
+        operator_tokens: dict[str, str],
+        admin_tokens: dict[str, str],
+    ) -> None:
+        plc(app).failures["set_load_demand"] = rpc_error(
+            grpc.StatusCode.DEADLINE_EXCEEDED
+        )
+        response = await client.post(
+            "/api/v1/commands/load",
+            json={"load_w": 250e6},
+            headers=bearer(operator_tokens),
+        )
+        assert response.status_code == 504
+        assert response.json()["code"] == "upstream.timeout"
+        (row,) = await audit_rows(client, admin_tokens, "/api/v1/commands/load")
+        assert row["outcome"] == "unknown: upstream deadline exceeded"
 
 
 class TestPlcStatus:

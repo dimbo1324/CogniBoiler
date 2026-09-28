@@ -68,13 +68,14 @@ class UpstreamDownError(grpc.RpcError):
         return "connection refused"
 
 
-def not_found() -> grpc.aio.AioRpcError:
+def rpc_error(code: grpc.StatusCode, details: str = "") -> grpc.aio.AioRpcError:
     return grpc.aio.AioRpcError(
-        grpc.StatusCode.NOT_FOUND,
-        grpc.aio.Metadata(),
-        grpc.aio.Metadata(),
-        details="no such alarm",
+        code, grpc.aio.Metadata(), grpc.aio.Metadata(), details=details
     )
+
+
+def not_found() -> grpc.aio.AioRpcError:
+    return rpc_error(grpc.StatusCode.NOT_FOUND, "no such alarm")
 
 
 def simulation_status(**overrides: Any) -> pb2.SimulationStatusMsg:
@@ -225,11 +226,15 @@ class FakePhysicsClient:
         self.reason = ""
         self.status = simulation_status()
         self.streamed: list[pb2.SystemStateMsg] = []
+        # Method name -> the error that one call raises, after it was recorded.
+        self.failures: dict[str, grpc.RpcError] = {}
 
     def _record(self, name: str, value: Any = None) -> None:
         if self.down:
             raise UpstreamDownError()
         self.calls.append((name, value))
+        if name in self.failures:
+            raise self.failures[name]
 
     def _sim_ack(self) -> pb2.SimulationAck:
         return pb2.SimulationAck(
@@ -342,11 +347,14 @@ class FakePLCClient:
         self.accept = True
         self.reason = ""
         self.status = plc_status()
+        self.failures: dict[str, grpc.RpcError] = {}
 
     def _ack(self, name: str, value: Any) -> pb2.CommandAck:
         if self.down:
             raise UpstreamDownError()
         self.calls.append((name, value))
+        if name in self.failures:
+            raise self.failures[name]
         return _ack(self.accept, self.reason)
 
     async def close(self) -> None:

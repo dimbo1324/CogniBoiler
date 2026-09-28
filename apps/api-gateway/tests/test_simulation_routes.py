@@ -6,11 +6,17 @@ import logging
 from typing import Any
 
 import cogniboiler_pb2 as pb2
+import grpc
 import pytest
 from api_gateway import plant_state
 from api_gateway.dependencies import get_db
 from fastapi import FastAPI
-from gateway_fakes import FakePhysicsClient, simulation_status
+from gateway_fakes import (
+    FakePhysicsClient,
+    UpstreamDownError,
+    rpc_error,
+    simulation_status,
+)
 from httpx import AsyncClient
 from sqlalchemy import text
 
@@ -182,14 +188,50 @@ class TestControl:
         assert response.json()["accepted"] is False
         assert response.json()["reason"] == "stepping needs a paused simulation"
 
+    @pytest.mark.parametrize(
+        ("method", "path", "body"),
+        [
+            ("POST", "/api/v1/simulation/pause", None),
+            ("POST", "/api/v1/simulation/resume", None),
+            ("POST", "/api/v1/simulation/speed", {"speed_factor": 2.0}),
+            ("POST", "/api/v1/simulation/step", {"steps": 1}),
+            ("POST", "/api/v1/simulation/scenario", {"name": "nominal"}),
+            (
+                "POST",
+                "/api/v1/simulation/faults",
+                {"kind": "sensor_drift", "target": "drum_level", "severity": 0.2},
+            ),
+            ("DELETE", "/api/v1/simulation/faults/f-1", None),
+            ("DELETE", "/api/v1/simulation/faults", None),
+        ],
+    )
     async def test_an_unreachable_engine_is_503_for_a_command(
-        self, app: FastAPI, client: AsyncClient, engineer_tokens: dict[str, str]
+        self,
+        app: FastAPI,
+        client: AsyncClient,
+        engineer_tokens: dict[str, str],
+        method: str,
+        path: str,
+        body: dict[str, Any] | None,
     ) -> None:
         physics(app).down = True
-        response = await client.post(
-            "/api/v1/simulation/pause", headers=bearer(engineer_tokens)
+        response = await client.request(
+            method, path, json=body, headers=bearer(engineer_tokens)
         )
         assert response.status_code == 503
+        assert response.json()["code"] == "upstream.unavailable"
+        physics(app).down = False
+        assert await runs(client, engineer_tokens) == []
+
+    async def test_a_command_that_times_out_is_504(
+        self, app: FastAPI, client: AsyncClient, engineer_tokens: dict[str, str]
+    ) -> None:
+        physics(app).failures["resume"] = rpc_error(grpc.StatusCode.DEADLINE_EXCEEDED)
+        response = await client.post(
+            "/api/v1/simulation/resume", headers=bearer(engineer_tokens)
+        )
+        assert response.status_code == 504
+        assert response.json()["code"] == "upstream.timeout"
 
 
 class TestScenarioAndFaultLog:
@@ -299,6 +341,46 @@ class TestScenarioAndFaultLog:
         assert (page["total"], len(page["items"])) == (3, 2)
         ids = [item["id"] for item in page["items"]]
         assert ids == sorted(ids, reverse=True)
+
+    @pytest.mark.parametrize(
+        ("method", "path", "body", "applied"),
+        [
+            (
+                "POST",
+                "/api/v1/simulation/faults",
+                {"kind": "sensor_drift", "target": "drum_level", "severity": 0.2},
+                "accepted fault:drum_level",
+            ),
+            ("DELETE", "/api/v1/simulation/faults/f-1", None, "accepted fault:cleared"),
+        ],
+    )
+    async def test_an_applied_fault_change_is_answered_when_the_status_read_fails(
+        self,
+        app: FastAPI,
+        client: AsyncClient,
+        engineer_tokens: dict[str, str],
+        admin_tokens: dict[str, str],
+        caplog: pytest.LogCaptureFixture,
+        method: str,
+        path: str,
+        body: dict[str, Any] | None,
+        applied: str,
+    ) -> None:
+        physics(app).failures["get_simulation_status"] = UpstreamDownError()
+        with caplog.at_level(logging.WARNING, logger="api_gateway.routers.simulation"):
+            response = await client.request(
+                method, path, json=body, headers=bearer(engineer_tokens)
+            )
+        assert response.status_code == 200
+        assert response.json()["accepted"] is True
+        assert "not recorded" in caplog.text
+        audit = await client.get(
+            "/api/v1/audit", params={"endpoint": path}, headers=bearer(admin_tokens)
+        )
+        (row,) = audit.json()["items"]
+        assert (row["response_status"], row["outcome"]) == (200, applied)
+        del physics(app).failures["get_simulation_status"]
+        assert await runs(client, engineer_tokens) == []
 
     async def test_an_unrecorded_run_is_logged_and_the_action_still_answers(
         self,

@@ -55,6 +55,11 @@ REFRESH_REJECTIONS = Counter(
     "Refused token refreshes, by problem code (auth.refresh_reused: a replayed token).",
     ["code"],
 )
+UPSTREAM_FAILURES = Counter(
+    "gateway_upstream_failures",
+    "Failed calls to an upstream service, by service and gRPC status code.",
+    ["service", "code"],
+)
 WEBSOCKET_CLOSES = Counter(
     "gateway_websocket_closes",
     "Ended WebSocket connections, by close code (1013: too slow or too many; 4401: "
