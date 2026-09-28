@@ -355,11 +355,30 @@ class TestMirror:
 
 
 class TestEntryPoint:
-    def test_the_command_line_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("sys.argv", ["physics_engine"])
-        args = entry.parse_args()
+    def test_the_command_line_defaults(self) -> None:
+        args = entry.parse_args([])
         assert (args.scenario, args.speed, args.step_s) == ("steady_state", 1.0, 1.0)
         assert (args.grpc_port, args.metrics_port, args.paused) == (50052, 9101, False)
+
+    def test_grpc_listens_on_loopback_unless_told_otherwise(self) -> None:
+        assert entry.parse_args([]).grpc_host == "127.0.0.1"
+        assert entry.parse_args(["--grpc-host", "0.0.0.0"]).grpc_host == "0.0.0.0"
+
+    def test_the_process_runs_through_the_shared_signal_aware_runner(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ran: list[object] = []
+
+        def run_service(main: Any) -> int:
+            ran.append(main)
+            return 0
+
+        monkeypatch.setattr(entry, "run_service", run_service)
+        monkeypatch.setattr(entry, "configure_logging", lambda service: None)
+        with pytest.raises(SystemExit) as exited:
+            entry.run(["--disable-mqtt", "--paused"])
+        assert exited.value.code == 0
+        assert len(ran) == 1
 
     @pytest.mark.parametrize("disable_mqtt", [True, False])
     async def test_it_serves_the_runtime_and_mirrors_it(
@@ -368,7 +387,8 @@ class TestEntryPoint:
         served: list[PhysicsRuntime] = []
         mirrored: list[bool] = []
 
-        async def serve(runtime: PhysicsRuntime, *, port: int) -> None:
+        async def serve(runtime: PhysicsRuntime, *, host: str, port: int) -> None:
+            assert (host, port) == ("127.0.0.1", 0)
             served.append(runtime)
             await asyncio.sleep(0.01)
 
@@ -386,6 +406,7 @@ class TestEntryPoint:
             paused=True,
             mqtt_host="broker",
             mqtt_port=1883,
+            grpc_host="127.0.0.1",
             grpc_port=0,
             disable_mqtt=disable_mqtt,
             metrics_port=0,

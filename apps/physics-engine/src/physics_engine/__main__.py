@@ -15,19 +15,21 @@ import contextlib
 import logging
 import os
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 # Add shared/generated to path for protobuf imports
 sys.path.insert(0, str(Path(__file__).parents[4] / "shared" / "generated"))
 
 from cogniboiler_observability import configure_logging, start_metrics_server
+from cogniboiler_runtime import run_service
 
 from physics_engine import properties
 from physics_engine.metrics import observe_runtime
 from physics_engine.mqtt_publisher import MQTTConfig, MQTTPublisher
 from physics_engine.runtime import PhysicsRuntime, PhysicsRuntimeConfig
 from physics_engine.scenarios import ScenarioName
-from physics_engine.server import DEFAULT_PORT, serve
+from physics_engine.server import DEFAULT_HOST, DEFAULT_PORT, serve
 
 logger = logging.getLogger("physics_engine")
 DEFAULT_METRICS_PORT = 9101
@@ -46,14 +48,12 @@ async def main(args: argparse.Namespace) -> None:
     )
     observe_runtime(runtime)
     start_metrics_server(args.metrics_port, args.metrics_host)
+    mqtt = "disabled" if args.disable_mqtt else f"{args.mqtt_host}:{args.mqtt_port}"
     logger.info(
-        "Starting Physics Engine: scenario=%s speed=%g× step=%gs paused=%s grpc=%d mqtt=%s",
-        args.scenario,
-        args.speed,
-        args.step_s,
-        args.paused,
-        args.grpc_port,
-        "disabled" if args.disable_mqtt else f"{args.mqtt_host}:{args.mqtt_port}",
+        "Starting Physics Engine: scenario=%s speed=%g× step=%gs paused=%s "
+        "grpc=%s:%d mqtt=%s",
+        *(args.scenario, args.speed, args.step_s, args.paused),
+        *(args.grpc_host, args.grpc_port, mqtt),
     )
 
     mirror: asyncio.Task[None] | None = None
@@ -72,7 +72,7 @@ async def main(args: argparse.Namespace) -> None:
         )
 
     try:
-        await serve(runtime, port=args.grpc_port)
+        await serve(runtime, host=args.grpc_host, port=args.grpc_port)
     finally:
         if mirror is not None:
             mirror.cancel()
@@ -80,37 +80,28 @@ async def main(args: argparse.Namespace) -> None:
                 await mirror
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="CogniBoiler Physics Engine")
-    parser.add_argument(
-        "--scenario",
-        choices=[s.value for s in ScenarioName],
-        default=ScenarioName.STEADY_STATE.value,
-        help="scenario to start in (default: steady_state)",
-    )
-    parser.add_argument("--speed", type=float, default=1.0, help="speed vs real time")
-    parser.add_argument("--step-s", type=float, default=1.0, help="simulation step [s]")
-    parser.add_argument("--paused", action="store_true", help="start paused")
-    parser.add_argument("--mqtt-host", default="localhost", help="MQTT broker host")
-    parser.add_argument("--mqtt-port", type=int, default=1883, help="MQTT broker port")
-    parser.add_argument("--grpc-port", type=int, default=DEFAULT_PORT)
-    parser.add_argument("--disable-mqtt", action="store_true", help="gRPC only")
-    parser.add_argument(
-        "--metrics-port",
-        type=int,
-        default=DEFAULT_METRICS_PORT,
-        help="Prometheus /metrics port, 0 to disable",
-    )
-    parser.add_argument(
-        "--metrics-host", default="127.0.0.1", help="interface for /metrics"
-    )
-    return parser.parse_args()
+    add = parser.add_argument
+    add("--scenario", choices=[s.value for s in ScenarioName], default="steady_state")
+    add("--speed", type=float, default=1.0, help="speed vs real time")
+    add("--step-s", type=float, default=1.0, help="simulation step [s]")
+    add("--paused", action="store_true", help="start paused")
+    add("--mqtt-host", default="localhost", help="MQTT broker host")
+    add("--mqtt-port", type=int, default=1883, help="MQTT broker port")
+    add("--grpc-host", default=DEFAULT_HOST, help="0.0.0.0 only in a private network")
+    add("--grpc-port", type=int, default=DEFAULT_PORT)
+    add("--disable-mqtt", action="store_true", help="gRPC only")
+    add("--metrics-port", type=int, default=DEFAULT_METRICS_PORT, help="0 disables")
+    add("--metrics-host", default="127.0.0.1", help="interface for /metrics")
+    return parser.parse_args(argv)
+
+
+def run(argv: Sequence[str] | None = None) -> None:
+    configure_logging("physics-engine")
+    args = parse_args(argv)
+    sys.exit(run_service(lambda: main(args)))
 
 
 if __name__ == "__main__":
-    configure_logging("physics-engine")
-    asyncio.run(
-        main(parse_args()),
-        # aiomqtt needs add_reader(), which the Windows proactor loop does not have.
-        loop_factory=asyncio.SelectorEventLoop if sys.platform == "win32" else None,
-    )
+    run()
