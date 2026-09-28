@@ -1,8 +1,14 @@
 """Put a folder written by `backup` back into the running stack's databases.
 
-This overwrites live data, so it asks first. The services that hold connections are stopped
-while the databases are replaced and started again afterwards: PostgreSQL refuses to drop
-tables another session is using, and InfluxDB should not be written to mid-restore.
+This overwrites live data, so it asks first, and only for a folder whose manifest says it
+is a backup of this stack (``--force`` overrides that check). The services that hold
+connections are stopped while the databases are replaced and started again afterwards:
+PostgreSQL refuses to drop tables another session is using, and InfluxDB should not be
+written to mid-restore.
+
+Each step runs only when the one before it succeeded. The dump is replayed in a single
+transaction, so a failing statement rolls PostgreSQL back to what it held before; the
+services are started again whatever happened.
 
 Both commands run inside their container, which already holds the credentials, so no
 password or token is ever passed on a command line.
@@ -11,13 +17,14 @@ password or token is ever passed on a command line.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 from typing import Any
 
 from scripts._toolkit.compose import compose_argv, exec_sh
 from scripts._toolkit.config import load_config, repo_root
-from scripts._toolkit.console import confirm, fail, heading, info, ok, summary
+from scripts._toolkit.console import confirm, fail, heading, info, ok, summary, warn
 from scripts._toolkit.processes import NOT_FOUND, run, run_piped
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -44,6 +51,21 @@ def chosen_folder(base: Path, name: str | None) -> Path | None:
     return folders[-1] if folders else None
 
 
+def manifest_problem(folder: Path, project: str) -> str | None:
+    """Why ``folder`` does not look like a backup of ``project``, or None when it does."""
+    path = folder / "manifest.json"
+    if not path.is_file():
+        return "it has no manifest.json"
+    try:
+        written = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        return f"its manifest.json cannot be read ({error})"
+    named = written.get("project") if isinstance(written, dict) else None
+    if named != project:
+        return f"its manifest names project {named!r}, not {project!r}"
+    return None
+
+
 def stop_command(config: dict[str, Any]) -> list[str]:
     return compose_argv(config, "stop", *config["dependent_services"])
 
@@ -61,12 +83,16 @@ def start_command(config: dict[str, Any]) -> list[str]:
 
 
 def postgres_restore_command(config: dict[str, Any]) -> list[str]:
-    """psql inside the container, reading the dump from this process's stdin."""
+    """psql inside the container, reading the dump from this process's stdin.
+
+    The dump drops every table first (``pg_dump --clean``). One transaction makes a
+    failure anywhere roll all of it back instead of leaving the tables half restored.
+    """
     return exec_sh(
         config,
         str(config["postgres_service"]),
         'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" '
-        "--quiet --set ON_ERROR_STOP=1",
+        "--quiet --set ON_ERROR_STOP=1 --single-transaction",
     )
 
 
@@ -90,6 +116,40 @@ def influx_restore_command(config: dict[str, Any]) -> list[str]:
     )
 
 
+def replace_data(
+    config: dict[str, Any], root: Path, folder: Path, rows: list[tuple[str, str]]
+) -> bool:
+    """PostgreSQL, then InfluxDB; stops at the first failure and says what it left."""
+    if not run_piped(
+        postgres_restore_command(config), root, stdin=folder / "postgres.sql"
+    ).ok:
+        rows.append(("PostgreSQL restored", "FAILED, rolled back"))
+        rows.append(("InfluxDB restored", "not run (PostgreSQL failed)"))
+        fail(
+            "psql refused the dump; the transaction was rolled back, so PostgreSQL "
+            "holds what it held before, and InfluxDB was not touched"
+        )
+        return False
+    rows.append(("PostgreSQL restored", "ok"))
+    ok("PostgreSQL restored")
+
+    influx_source = folder / "influxdb"
+    influx_ok = (
+        influx_source.is_dir()
+        and run(influx_copy_command(config, influx_source), root).ok
+        and run(influx_restore_command(config), root).ok
+    )
+    rows.append(("InfluxDB restored", "ok" if influx_ok else "FAILED"))
+    if not influx_ok:
+        fail(
+            "influx restore failed; PostgreSQL is already restored from this backup, "
+            "so the two databases now disagree — run restore again once it is fixed"
+        )
+        return False
+    ok("InfluxDB restored")
+    return True
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="restore",
@@ -105,6 +165,11 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument(
         "--yes", action="store_true", help="do not ask before overwriting the databases"
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="restore a folder whose manifest is missing or names another project",
     )
     parser.add_argument(
         "--list", action="store_true", help="only list the backups that can be restored"
@@ -132,6 +197,16 @@ def main(argv: list[str]) -> int:
         return 1
 
     heading(f"restore — {folder.name}")
+    problem = manifest_problem(folder, str(config["project_name"]))
+    if problem and not args.force:
+        fail(
+            f"{folder.name} does not look like a backup of this stack: {problem}; "
+            "pass --force to restore it anyway"
+        )
+        return 1
+    if problem:
+        warn(f"restoring despite the manifest check: {problem}")
+
     if not confirm(
         "Replace the stack's PostgreSQL and InfluxDB data with this backup?",
         assume_yes=args.yes,
@@ -144,35 +219,20 @@ def main(argv: list[str]) -> int:
     if stopping.returncode == NOT_FOUND:
         fail("docker is not on PATH — install Docker Desktop and start it")
         return NOT_FOUND
-    stopped = stopping.ok
-    rows.append(("services stopped", "ok" if stopped else "FAILED"))
-
-    postgres_ok = run_piped(
-        postgres_restore_command(config), root, stdin=folder / "postgres.sql"
-    ).ok
-    rows.append(("PostgreSQL restored", "ok" if postgres_ok else "FAILED"))
-    if postgres_ok:
-        ok("PostgreSQL restored")
+    restored = False
+    if stopping.ok:
+        rows.append(("services stopped", "ok"))
+        restored = replace_data(config, root, folder, rows)
     else:
-        fail("psql refused the dump")
-
-    influx_source = folder / "influxdb"
-    influx_ok = (
-        influx_source.is_dir()
-        and run(influx_copy_command(config, influx_source), root).ok
-    )
-    influx_ok = influx_ok and run(influx_restore_command(config), root).ok
-    rows.append(("InfluxDB restored", "ok" if influx_ok else "FAILED"))
-    if influx_ok:
-        ok("InfluxDB restored")
-    else:
-        fail("influx restore failed")
+        rows.append(("services stopped", "FAILED"))
+        rows.append(("databases restored", "not run (services still running)"))
+        fail("the services did not stop; neither database was touched")
 
     started = run(start_command(config), root).ok
     rows.append(("services started", "ok" if started else "FAILED"))
     info("check the stack with: python dev_tools_scripts_runner.py smoke")
     summary("restore", rows)
-    return 0 if (stopped and postgres_ok and influx_ok and started) else 1
+    return 0 if (restored and started) else 1
 
 
 if __name__ == "__main__":
