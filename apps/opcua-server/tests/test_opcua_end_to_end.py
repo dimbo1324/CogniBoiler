@@ -207,6 +207,7 @@ class TestMethods:
         ]
         assert script.calls[0].body == {"username": "operator1", "password": PASSWORD}
         assert script.calls[1].body == {"load_w": 180e6}
+        assert {call.forwarded_for for call in script.calls} == {"127.0.0.1"}
         await settled(opc[0])
         logouts = [call for call in script.calls if call.path == "/auth/logout"]
         assert [call.body for call in logouts] == [{"refresh_token": "refresh-1"}]

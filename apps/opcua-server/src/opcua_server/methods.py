@@ -180,14 +180,19 @@ class MethodHandlers:
         tokens = await user.session.tokens()
         if tokens is None:
             return None
-        reply = await self._gateway.request("POST", path, payload, tokens.access_token)
+        address = user.session.client_address
+        reply = await self._gateway.request(
+            "POST", path, payload, tokens.access_token, address
+        )
         if reply.status != 401:
             return reply
         await user.session.invalidate_access()
         tokens = await user.session.tokens()
         if tokens is None:
             return None
-        return await self._gateway.request("POST", path, payload, tokens.access_token)
+        return await self._gateway.request(
+            "POST", path, payload, tokens.access_token, address
+        )
 
     @_guarded(SET_LOAD_DEMAND)
     async def set_load_demand(self, parent: Any, load_w: Any) -> MethodResult:

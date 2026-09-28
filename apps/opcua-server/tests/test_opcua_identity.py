@@ -129,6 +129,26 @@ async def signed_in(session: InternalSession) -> GatewaySession:
     return user.session
 
 
+class TestClientAddress:
+    @pytest.mark.parametrize(
+        ("peer", "forwarded"),
+        [
+            (("192.0.2.10", 50123), "192.0.2.10"),
+            (("2001:db8::7", 50123, 0, 0), "2001:db8::7"),
+            (("not an address", 1), None),
+            ("192.0.2.10", None),
+            (None, None),
+        ],
+    )
+    async def test_the_sign_in_names_the_peer_when_it_is_an_address(
+        self, harness: Harness, peer: Any, forwarded: str | None
+    ) -> None:
+        session = harness.session(peer)
+        session.activate_session(username_token(), CERTIFICATE)
+        await signed_in(session)
+        assert harness.gateway.logins == [("operator1", forwarded)]
+
+
 class TestSignOut:
     async def test_closing_a_session_signs_its_user_out_once(
         self, harness: Harness

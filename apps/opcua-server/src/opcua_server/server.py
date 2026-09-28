@@ -166,6 +166,7 @@ class CogniBoilerOPCServer:
             await self._server.stop()
             self._started = False
             logger.info("OPC UA server stopped")
+        self._gateway.close()
 
     # ─── Address space ────────────────────────────────────────────────────────
 

@@ -17,6 +17,7 @@ signed out, once.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -35,6 +36,19 @@ from opcua_server.ua_types import StatusCodes
 logger = logging.getLogger(__name__)
 
 CURRENT_USER: ContextVar[User | None] = ContextVar("opcua_user", default=None)
+# asyncua hands the user manager no session, so the activating session's peer travels
+# to get_user in a context variable, set only while activate_session runs.
+_ACTIVATING_PEER: ContextVar[str | None] = ContextVar("opcua_peer", default=None)
+
+
+def peer_address(name: object) -> str | None:
+    """The IP address in asyncua's session name (the socket's peername), if any."""
+    if not isinstance(name, tuple) or not name or not isinstance(name[0], str):
+        return None
+    try:
+        return str(ipaddress.ip_address(name[0]))
+    except ValueError:
+        return None
 
 
 @dataclass(eq=False)
@@ -59,13 +73,15 @@ class GatewayUserManager(UserManager):
             return User(role=UserRole.User, name=None)
         if not username or not password:
             return None
+        client_address = _ACTIVATING_PEER.get()
         login = asyncio.get_running_loop().create_task(
-            self._gateway.login(username, password), name=f"opcua-login-{username}"
+            self._gateway.login(username, password, client_address=client_address),
+            name="opcua-login",
         )
         return GatewayUser(
             role=UserRole.User,
             name=username,
-            session=GatewaySession(self._gateway, login),
+            session=GatewaySession(self._gateway, login, client_address),
         )
 
 
@@ -92,7 +108,11 @@ class _UserAwareSession(InternalSession):
             )
             raise ServiceError(StatusCodes.BadIdentityTokenRejected)
         previous = self.user
-        result = super().activate_session(params, peer_certificate)
+        peer = _ACTIVATING_PEER.set(peer_address(self.name))
+        try:
+            result = super().activate_session(params, peer_certificate)
+        finally:
+            _ACTIVATING_PEER.reset(peer)
         # OPC UA lets a client activate a live session again, as another user or the
         # same one; asyncua then simply replaces the user, and the gateway session of
         # the one replaced would stay open until its refresh token expired.

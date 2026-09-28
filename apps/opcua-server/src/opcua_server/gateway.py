@@ -6,19 +6,28 @@ method call is forwarded to the gateway's REST API with that user's access token
 gateway decides the role, audits the action under the user's name and reaches the PLC or
 the alarm service exactly as the console does.
 
-HTTP runs through urllib in a worker thread: the OPC UA server's event loop is never
-blocked, and no HTTP library is added for a handful of calls.
+HTTP runs through urllib in the client's own small thread pool: the OPC UA server's event
+loop is never blocked, a flood of sign-ins cannot take the default executor from
+everything else, and no HTTP library is added for a handful of calls. At most
+MAX_CONCURRENT_LOGINS sign-ins run at once.
+
+Requests made for a user carry the OPC UA peer address in X-Forwarded-For. The gateway
+trusts that header from the Compose network, so its login throttle counts each OPC UA
+client on its own and its audit rows name the client, not this server's container.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import functools
 import http.client
 import json
 import logging
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from email.message import Message
 from typing import IO, Any, Protocol
@@ -33,6 +42,9 @@ REQUEST_TIMEOUT_S = 10.0
 REFRESH_MARGIN_MS = 30_000
 MAX_REPLY_BYTES = 1_048_576
 ALLOWED_SCHEMES = frozenset({"http", "https"})
+HTTP_WORKERS = 8
+MAX_CONCURRENT_LOGINS = 4
+FORWARDED_FOR_HEADER = "X-Forwarded-For"
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,9 +95,22 @@ class GatewayClient:
         self._opener = urllib.request.build_opener(
             urllib.request.ProxyHandler({}), _NoRedirect()
         )
+        self._executor = ThreadPoolExecutor(
+            max_workers=HTTP_WORKERS, thread_name_prefix="opcua-gateway"
+        )
+        self._logins = asyncio.Semaphore(MAX_CONCURRENT_LOGINS)
+
+    def close(self) -> None:
+        """Stop the worker threads; requests not yet started are dropped."""
+        self._executor.shutdown(wait=False, cancel_futures=True)
 
     def _request(
-        self, method: str, path: str, payload: dict[str, Any] | None, token: str | None
+        self,
+        method: str,
+        path: str,
+        payload: dict[str, Any] | None,
+        token: str | None,
+        client_address: str | None = None,
     ) -> GatewayReply:
         data = (
             None
@@ -104,6 +129,8 @@ class GatewayClient:
         correlation_id = current_correlation_id()
         if correlation_id:
             request.add_header(CORRELATION_HEADER, correlation_id)
+        if client_address:
+            request.add_header(FORWARDED_FOR_HEADER, client_address)
         try:
             with self._opener.open(request, timeout=REQUEST_TIMEOUT_S) as response:
                 return GatewayReply(response.status, _body(response, method, path))
@@ -129,13 +156,28 @@ class GatewayClient:
         path: str,
         payload: dict[str, Any] | None = None,
         token: str | None = None,
+        client_address: str | None = None,
     ) -> GatewayReply:
-        return await asyncio.to_thread(self._request, method, path, payload, token)
-
-    async def login(self, username: str, password: str) -> GatewayTokens | None:
-        reply = await self.request(
-            "POST", "/auth/login", {"username": username, "password": password}
+        call = functools.partial(
+            self._request, method, path, payload, token, client_address
         )
+        # run_in_executor, unlike to_thread, does not carry the context over: the
+        # correlation id lives in a context variable.
+        context = contextvars.copy_context()
+        return await asyncio.get_running_loop().run_in_executor(
+            self._executor, context.run, call
+        )
+
+    async def login(
+        self, username: str, password: str, client_address: str | None = None
+    ) -> GatewayTokens | None:
+        async with self._logins:
+            reply = await self.request(
+                "POST",
+                "/auth/login",
+                {"username": username, "password": password},
+                client_address=client_address,
+            )
         if reply.status != 200:
             logger.warning(
                 "OPC UA sign-in of %r refused by the gateway: HTTP %d %s",
@@ -146,14 +188,26 @@ class GatewayClient:
             return None
         return _tokens(reply.body)
 
-    async def refresh(self, refresh_token: str) -> GatewayTokens | None:
+    async def refresh(
+        self, refresh_token: str, client_address: str | None = None
+    ) -> GatewayTokens | None:
         reply = await self.request(
-            "POST", "/auth/refresh", {"refresh_token": refresh_token}
+            "POST",
+            "/auth/refresh",
+            {"refresh_token": refresh_token},
+            client_address=client_address,
         )
         return _tokens(reply.body) if reply.status == 200 else None
 
-    async def logout(self, refresh_token: str) -> None:
-        await self.request("POST", "/auth/logout", {"refresh_token": refresh_token})
+    async def logout(
+        self, refresh_token: str, client_address: str | None = None
+    ) -> None:
+        await self.request(
+            "POST",
+            "/auth/logout",
+            {"refresh_token": refresh_token},
+            client_address=client_address,
+        )
 
 
 class _Reply(Protocol):
@@ -196,13 +250,22 @@ class GatewaySession:
     """The gateway session of one OPC UA user: sign-in result, refreshed on demand."""
 
     def __init__(
-        self, client: GatewayClient, login: asyncio.Task[GatewayTokens | None]
+        self,
+        client: GatewayClient,
+        login: asyncio.Task[GatewayTokens | None],
+        client_address: str | None = None,
     ):
         self._client = client
         self._login = login
+        self._client_address = client_address
         self._tokens: GatewayTokens | None = None
         self._lock = asyncio.Lock()
         self._closed = False
+
+    @property
+    def client_address(self) -> str | None:
+        """The OPC UA peer this session speaks for, as the gateway should record it."""
+        return self._client_address
 
     async def tokens(self) -> GatewayTokens | None:
         """Valid tokens, refreshed when the access token is about to expire."""
@@ -224,7 +287,9 @@ class GatewaySession:
                     self._closed = True
                     return None
             if self._tokens.access_expires_at_ms - now_ms() <= REFRESH_MARGIN_MS:
-                self._tokens = await self._client.refresh(self._tokens.refresh_token)
+                self._tokens = await self._client.refresh(
+                    self._tokens.refresh_token, client_address=self._client_address
+                )
                 if self._tokens is None:
                     self._closed = True
             return self._tokens
@@ -256,7 +321,9 @@ class GatewaySession:
             tokens = await self._login_result()
         if tokens is not None:
             try:
-                await self._client.logout(tokens.refresh_token)
+                await self._client.logout(
+                    tokens.refresh_token, client_address=self._client_address
+                )
             except GatewayUnavailableError as exc:
                 logger.info("Gateway sign-out skipped: %s", exc)
 

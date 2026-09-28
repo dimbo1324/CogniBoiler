@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import math
+import threading
 import time
 import urllib.request
 
@@ -194,6 +195,47 @@ class TestGatewayClient:
         assert call.correlation_id == "call-7"
         assert call.body == {"load_w": 1.0}
 
+    async def test_a_sign_in_names_the_opc_ua_client_to_the_gateway(self) -> None:
+        with gateway_server() as (url, script):
+            client = GatewayClient(url)
+            await client.login("operator1", PASSWORD, client_address="192.0.2.10")
+            await client.login("operator1", PASSWORD)
+        assert [call.forwarded_for for call in script.calls] == ["192.0.2.10", ""]
+
+    async def test_at_most_a_few_sign_ins_run_at_once(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        release = threading.Event()
+        guard = threading.Lock()
+        running = [0, 0]
+
+        def blocking(*_: object) -> gateway.GatewayReply:
+            with guard:
+                running[0] += 1
+                running[1] = max(running[1], running[0])
+            release.wait(5.0)
+            with guard:
+                running[0] -= 1
+            return gateway.GatewayReply(401, {})
+
+        client = GatewayClient("http://127.0.0.1:1")
+        monkeypatch.setattr(client, "_request", blocking)
+        logins = [
+            asyncio.create_task(client.login("operator1", "pw"))
+            for _ in range(gateway.MAX_CONCURRENT_LOGINS + 3)
+        ]
+        try:
+            async with asyncio.timeout(5.0):
+                while running[0] < gateway.MAX_CONCURRENT_LOGINS:
+                    await asyncio.sleep(0.01)
+            await asyncio.sleep(0.05)
+            assert running[1] == gateway.MAX_CONCURRENT_LOGINS
+        finally:
+            release.set()
+            await asyncio.gather(*logins)
+            client.close()
+        assert running[0] == 0
+
     async def test_an_error_body_is_returned_with_its_status(self) -> None:
         with gateway_server() as (url, script):
             script.command_status = 422
@@ -307,16 +349,23 @@ class FakeClient:
         self.refreshed = refreshed
         self.refreshes: list[str] = []
         self.logouts: list[str] = []
+        self.addresses: list[str | None] = []
         self.logout_fails = False
 
-    async def refresh(self, refresh_token: str) -> GatewayTokens | None:
+    async def refresh(
+        self, refresh_token: str, client_address: str | None = None
+    ) -> GatewayTokens | None:
         self.refreshes.append(refresh_token)
+        self.addresses.append(client_address)
         return self.refreshed
 
-    async def logout(self, refresh_token: str) -> None:
+    async def logout(
+        self, refresh_token: str, client_address: str | None = None
+    ) -> None:
         if self.logout_fails:
             raise GatewayUnavailableError("gateway down")
         self.logouts.append(refresh_token)
+        self.addresses.append(client_address)
 
 
 def signed_in(
@@ -399,6 +448,18 @@ class TestGatewaySession:
         await session.close()
         assert client.logouts == ["r1"]
         assert await session.tokens() is None
+
+    async def test_refresh_and_sign_out_name_the_opc_ua_client(self) -> None:
+        client = FakeClient(tokens(900_000))
+        session = GatewaySession(
+            client,  # type: ignore[arg-type]
+            signed_in(tokens(10_000)),
+            client_address="192.0.2.10",
+        )
+        await session.tokens()
+        await session.close()
+        assert session.client_address == "192.0.2.10"
+        assert client.addresses == ["192.0.2.10", "192.0.2.10"]
 
     async def test_closing_twice_signs_out_once(self) -> None:
         client = FakeClient(None)
