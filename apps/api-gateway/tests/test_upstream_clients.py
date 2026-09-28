@@ -18,7 +18,7 @@ import grpc
 import grpc.aio
 import pytest
 import pytest_asyncio
-from api_gateway import historian_query
+from api_gateway import clients, historian_query
 from api_gateway.clients import (
     AlarmGatewayClient,
     AlarmGatewayConfig,
@@ -189,6 +189,25 @@ async def upstreams() -> AsyncIterator[Upstreams]:
 
 
 class TestPhysicsClient:
+    async def test_the_channel_pings_a_silent_stream(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        opened: list[dict[str, Any]] = []
+        real_channel = grpc.aio.insecure_channel
+
+        def channel(target: str, **options: Any) -> grpc.aio.Channel:
+            opened.append(options)
+            return real_channel(target, **options)
+
+        monkeypatch.setattr(clients.grpc.aio, "insecure_channel", channel)
+        client = PhysicsGatewayClient(PhysicsGatewayConfig(target="127.0.0.1:1"))
+        await client.close()
+        settings = dict(opened[0]["options"])
+        # gRPC servers refuse pings more often than every 5 minutes by default.
+        assert settings["grpc.keepalive_time_ms"] >= 300_000
+        assert 0 < settings["grpc.keepalive_timeout_ms"] <= 60_000
+        assert settings["grpc.http2.max_pings_without_data"] == 0
+
     async def test_every_call_reaches_the_service(self, upstreams: Upstreams) -> None:
         client = PhysicsGatewayClient(PhysicsGatewayConfig(target=upstreams.target))
         try:

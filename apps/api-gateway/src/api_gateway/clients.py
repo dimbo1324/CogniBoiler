@@ -35,6 +35,17 @@ class AlarmGatewayConfig:
     timeout_s: float = 3.0
 
 
+# The telemetry stream has no deadline, and a paused plant sends nothing on it: without
+# pings a frozen engine or a silently dropped link would stall it for good. gRPC servers
+# refuse pings more often than every 5 minutes unless told otherwise, so 6 minutes; any
+# number of pings may go out while the stream is quiet.
+PHYSICS_CHANNEL_OPTIONS: tuple[tuple[str, int], ...] = (
+    ("grpc.keepalive_time_ms", 360_000),
+    ("grpc.keepalive_timeout_ms", 20_000),
+    ("grpc.http2.max_pings_without_data", 0),
+)
+
+
 class PhysicsGatewayClient:
     """
     Async wrapper around the generated PhysicsServiceStub.
@@ -46,7 +57,9 @@ class PhysicsGatewayClient:
     def __init__(self, config: PhysicsGatewayConfig) -> None:
         self.config = config
         self._channel = grpc.aio.insecure_channel(
-            config.target, interceptors=client_interceptors()
+            config.target,
+            options=PHYSICS_CHANNEL_OPTIONS,
+            interceptors=client_interceptors(),
         )
         self._stub = pb2_grpc.PhysicsServiceStub(self._channel)
 
