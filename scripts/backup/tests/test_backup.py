@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest import mock
 
+from scripts._toolkit.processes import NOT_FOUND, CommandResult
 from scripts.backup import __main__ as backup
 from scripts.backup.__main__ import (
     directory_size,
@@ -111,28 +112,48 @@ class ManifestTest(unittest.TestCase):
         self.assertNotIn("token", json.dumps(written).lower())
 
 
-def _fake_run(
-    command: list[str], root: Path, *, capture_to: Path | None = None
-) -> bool:
+class FakeDocker:
     """Stands in for docker compose: a dump on stdout, a folder for `cp`."""
-    if capture_to is not None:
-        capture_to.write_bytes(b"-- dump\n")
-    if "cp" in command:
-        copied = Path(command[-1])
-        copied.mkdir()
-        (copied / "shard").write_bytes(b"influx")
-    return True
+
+    def __init__(self, *, missing: bool = False) -> None:
+        self.missing = missing
+        self.commands: list[list[str]] = []
+
+    def run(self, argv: list[str], cwd: Path, **_: object) -> CommandResult:
+        self.commands.append(argv)
+        if self.missing:
+            return CommandResult(argv, NOT_FOUND)
+        if "cp" in argv:
+            copied = Path(argv[-1])
+            copied.mkdir()
+            (copied / "shard").write_bytes(b"influx")
+        return CommandResult(argv, 0)
+
+    def run_piped(
+        self, argv: list[str], cwd: Path, *, stdout: Path | None = None, **_: object
+    ) -> CommandResult:
+        if not self.missing and stdout is not None:
+            stdout.write_bytes(b"-- dump\n")
+        return self.run(argv, cwd)
 
 
 class MainTest(unittest.TestCase):
-    def _backup(self, root: Path) -> int:
+    def _backup(self, root: Path, docker: FakeDocker | None = None) -> int:
+        docker = docker or FakeDocker()
         with (
             mock.patch.object(backup, "repo_root", return_value=root),
-            mock.patch.object(backup, "run", side_effect=_fake_run),
+            mock.patch.object(backup, "run", side_effect=docker.run),
+            mock.patch.object(backup, "run_piped", side_effect=docker.run_piped),
             contextlib.redirect_stdout(io.StringIO()),
             contextlib.redirect_stderr(io.StringIO()),
         ):
             return backup.main([])
+
+    def test_without_docker_nothing_is_left_behind(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.assertEqual(self._backup(root, FakeDocker(missing=True)), NOT_FOUND)
+            self.assertEqual(list((root / "backups").iterdir()), [])
 
     def test_a_complete_backup_has_both_halves_and_a_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

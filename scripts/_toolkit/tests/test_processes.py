@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -59,6 +62,40 @@ class CaptureTest(unittest.TestCase):
         )
         self.assertEqual(code, 0)
         self.assertIn("ok", out)
+
+
+class RunPipedTest(unittest.TestCase):
+    def test_stdin_and_stdout_are_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            source, sink = Path(temp) / "in.sql", Path(temp) / "out.sql"
+            source.write_bytes(b"-- dump")
+            echo = "import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())"
+            with contextlib.redirect_stdout(io.StringIO()):
+                result = processes.run_piped(
+                    [sys.executable, "-c", echo], _HERE, stdin=source, stdout=sink
+                )
+            self.assertTrue(result.ok)
+            self.assertEqual(sink.read_bytes(), b"-- dump")
+
+    def test_a_failing_command_reports_its_exit_code(self) -> None:
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = processes.run_piped(
+                [sys.executable, "-c", "raise SystemExit(3)"], _HERE
+            )
+        self.assertEqual(result.returncode, 3)
+
+    def test_a_missing_tool_is_not_found_and_writes_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            sink = Path(temp) / "out.sql"
+            with (
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                result = processes.run_piped(
+                    ["cogniboiler-no-such-tool-xyz"], _HERE, stdout=sink
+                )
+            self.assertEqual(result.returncode, processes.NOT_FOUND)
+            self.assertFalse(sink.exists())
 
 
 if __name__ == "__main__":

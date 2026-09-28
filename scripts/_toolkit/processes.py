@@ -7,6 +7,7 @@ times in seven scripts.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import subprocess
@@ -106,6 +107,34 @@ def run(
     if env:
         merged_env = {**os.environ, **env}
     completed = subprocess.run(real_argv, cwd=cwd, check=False, env=merged_env)
+    return CommandResult(argv=real_argv, returncode=completed.returncode)
+
+
+def run_piped(
+    argv: list[str],
+    cwd: Path,
+    *,
+    stdin: Path | None = None,
+    stdout: Path | None = None,
+) -> CommandResult:
+    """Like [`run`], with stdin read from a file and/or stdout written to one.
+
+    For moving a database dump in or out of a container. stderr still streams to the
+    terminal, so a failing tool explains itself. A missing tool writes nothing and comes
+    back as ``NOT_FOUND``.
+    """
+    resolved = find_tool(argv[0])
+    real_argv = [resolved or argv[0], *argv[1:]]
+    print(f"$ {' '.join(argv)}", flush=True)
+    if resolved is None:
+        print(f"  not found on PATH: {argv[0]}", file=sys.stderr, flush=True)
+        return CommandResult(argv=real_argv, returncode=NOT_FOUND)
+    with contextlib.ExitStack() as files:
+        source = files.enter_context(stdin.open("rb")) if stdin is not None else None
+        sink = files.enter_context(stdout.open("wb")) if stdout is not None else None
+        completed = subprocess.run(
+            real_argv, cwd=cwd, check=False, stdin=source, stdout=sink
+        )
     return CommandResult(argv=real_argv, returncode=completed.returncode)
 
 

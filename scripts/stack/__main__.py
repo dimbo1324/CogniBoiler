@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from scripts._toolkit.compose import compose_argv
 from scripts._toolkit.config import load_config, repo_root
 from scripts._toolkit.console import confirm, fail, info, warn
 from scripts._toolkit.processes import NOT_FOUND, run
@@ -25,17 +26,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 
 
 def compose(config: dict[str, Any], profile: str, *args: str) -> list[str]:
-    return [
-        "docker",
-        "compose",
-        "--project-name",
-        str(config["project_name"]),
-        "--file",
-        str(config["compose_file"]),
-        "--profile",
-        profile,
-        *args,
-    ]
+    return compose_argv(config, *args, profile=profile)
 
 
 def prepare_log_dir(directory: Path) -> bool:

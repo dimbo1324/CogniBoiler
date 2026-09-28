@@ -11,30 +11,18 @@ password or token is ever passed on a command line.
 from __future__ import annotations
 
 import argparse
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
+from scripts._toolkit.compose import compose_argv, exec_sh
 from scripts._toolkit.config import load_config, repo_root
 from scripts._toolkit.console import confirm, fail, heading, info, ok, summary
-from scripts._toolkit.processes import NOT_FOUND
+from scripts._toolkit.processes import NOT_FOUND, run, run_piped
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 CONTAINER_TEMP = "/tmp/cogniboiler-restore"  # noqa: S108 — inside the container, not here
-
-
-def compose(config: dict[str, Any], *args: str) -> list[str]:
-    return [
-        "docker",
-        "compose",
-        "--project-name",
-        str(config["project_name"]),
-        "--file",
-        str(config["compose_file"]),
-        *args,
-    ]
 
 
 def backup_folders(base: Path) -> list[Path]:
@@ -57,11 +45,11 @@ def chosen_folder(base: Path, name: str | None) -> Path | None:
 
 
 def stop_command(config: dict[str, Any]) -> list[str]:
-    return compose(config, "stop", *config["dependent_services"])
+    return compose_argv(config, "stop", *config["dependent_services"])
 
 
 def start_command(config: dict[str, Any]) -> list[str]:
-    return compose(
+    return compose_argv(
         config,
         "up",
         "--detach",
@@ -74,20 +62,16 @@ def start_command(config: dict[str, Any]) -> list[str]:
 
 def postgres_restore_command(config: dict[str, Any]) -> list[str]:
     """psql inside the container, reading the dump from this process's stdin."""
-    return compose(
+    return exec_sh(
         config,
-        "exec",
-        "-T",
         str(config["postgres_service"]),
-        "sh",
-        "-c",
         'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" '
         "--quiet --set ON_ERROR_STOP=1",
     )
 
 
 def influx_copy_command(config: dict[str, Any], source: Path) -> list[str]:
-    return compose(
+    return compose_argv(
         config,
         "cp",
         str(source),
@@ -96,24 +80,13 @@ def influx_copy_command(config: dict[str, Any], source: Path) -> list[str]:
 
 
 def influx_restore_command(config: dict[str, Any]) -> list[str]:
-    return compose(
+    return exec_sh(
         config,
-        "exec",
-        "-T",
         str(config["influx_service"]),
-        "sh",
-        "-c",
         f"influx restore {CONTAINER_TEMP} --full "
         '--token "$DOCKER_INFLUXDB_INIT_ADMIN_TOKEN" >/dev/null && '
         f"rm -rf {CONTAINER_TEMP}",
     )
-
-
-def run(command: list[str], root: Path, *, feed: Path | None = None) -> bool:
-    if feed is None:
-        return subprocess.run(command, cwd=root).returncode == 0
-    with feed.open("rb") as source:
-        return subprocess.run(command, cwd=root, stdin=source).returncode == 0
 
 
 def main(argv: list[str]) -> int:
@@ -166,16 +139,16 @@ def main(argv: list[str]) -> int:
         return 1
 
     rows: list[tuple[str, str]] = []
-    try:
-        stopped = run(stop_command(config), root)
-    except FileNotFoundError:
+    stopping = run(stop_command(config), root)
+    if stopping.returncode == NOT_FOUND:
         fail("docker is not on PATH — install Docker Desktop and start it")
         return NOT_FOUND
+    stopped = stopping.ok
     rows.append(("services stopped", "ok" if stopped else "FAILED"))
 
-    postgres_ok = run(
-        postgres_restore_command(config), root, feed=folder / "postgres.sql"
-    )
+    postgres_ok = run_piped(
+        postgres_restore_command(config), root, stdin=folder / "postgres.sql"
+    ).ok
     rows.append(("PostgreSQL restored", "ok" if postgres_ok else "FAILED"))
     if postgres_ok:
         ok("PostgreSQL restored")
@@ -183,17 +156,18 @@ def main(argv: list[str]) -> int:
         fail("psql refused the dump")
 
     influx_source = folder / "influxdb"
-    influx_ok = influx_source.is_dir() and run(
-        influx_copy_command(config, influx_source), root
+    influx_ok = (
+        influx_source.is_dir()
+        and run(influx_copy_command(config, influx_source), root).ok
     )
-    influx_ok = influx_ok and run(influx_restore_command(config), root)
+    influx_ok = influx_ok and run(influx_restore_command(config), root).ok
     rows.append(("InfluxDB restored", "ok" if influx_ok else "FAILED"))
     if influx_ok:
         ok("InfluxDB restored")
     else:
         fail("influx restore failed")
 
-    started = run(start_command(config), root)
+    started = run(start_command(config), root).ok
     rows.append(("services started", "ok" if started else "FAILED"))
     info("check the stack with: python dev_tools_scripts_runner.py smoke")
     summary("restore", rows)
