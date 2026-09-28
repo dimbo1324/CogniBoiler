@@ -14,12 +14,13 @@ import { Pager } from "./Pager";
 import { PlcModeBadge } from "./PlcModeBadge";
 import { RequirePermission } from "./RequirePermission";
 
-const horn = vi.hoisted(() => ({ start: vi.fn(), stop: vi.fn() }));
+const horn = vi.hoisted(() => ({ start: vi.fn(), stop: vi.fn(), dispose: vi.fn() }));
 
 vi.mock("../alarms/horn", () => ({
   Horn: class {
     start = horn.start;
     stop = horn.stop;
+    dispose = horn.dispose;
   },
 }));
 
@@ -151,6 +152,14 @@ describe("AlarmBanner", () => {
   beforeEach(() => {
     horn.start.mockClear();
     horn.stop.mockClear();
+    horn.dispose.mockClear();
+  });
+
+  it("releases the horn's audio device when it goes away", () => {
+    const { unmount } = renderBanner([alarm({ id: 5, severity: "critical" })]);
+    expect(horn.dispose).not.toHaveBeenCalled();
+    unmount();
+    expect(horn.dispose).toHaveBeenCalledTimes(1);
   });
 
   it("stays hidden while every alarm is acknowledged", () => {

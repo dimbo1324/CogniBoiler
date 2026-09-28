@@ -29,6 +29,16 @@ export class Horn {
     }
   }
 
+  /** Stop and release the audio device; each open context holds an audio thread. */
+  dispose(): void {
+    this.stop();
+    const context = this.context;
+    this.context = null;
+    context?.close().catch(() => {
+      // Already closed or refused: there is nothing left to release.
+    });
+  }
+
   private beep(): void {
     const AudioContextClass = typeof window === "undefined" ? undefined : window.AudioContext;
     if (AudioContextClass === undefined) {

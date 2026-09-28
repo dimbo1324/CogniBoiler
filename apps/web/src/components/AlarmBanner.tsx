@@ -34,7 +34,7 @@ export function AlarmBanner() {
 
   useEffect(
     () => () => {
-      horn.stop();
+      horn.dispose();
     },
     [horn],
   );

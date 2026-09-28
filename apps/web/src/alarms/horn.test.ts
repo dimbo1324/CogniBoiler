@@ -10,6 +10,7 @@ afterEach(() => {
 class FakeAudioContext {
   static created = 0;
   static oscillators = 0;
+  static closed = 0;
   currentTime = 0;
   destination = {};
   constructor() {
@@ -17,6 +18,10 @@ class FakeAudioContext {
   }
   createGain() {
     return { gain: { value: 0 }, connect: vi.fn() };
+  }
+  close() {
+    FakeAudioContext.closed += 1;
+    return Promise.resolve();
   }
   createOscillator() {
     FakeAudioContext.oscillators += 1;
@@ -42,6 +47,23 @@ describe("horn", () => {
     vi.advanceTimersByTime(4000);
     expect(FakeAudioContext.oscillators).toBe(6);
     expect(FakeAudioContext.created).toBe(1);
+  });
+
+  it("closes its audio context when disposed, and stops beeping", () => {
+    vi.useFakeTimers();
+    FakeAudioContext.created = 0;
+    FakeAudioContext.oscillators = 0;
+    FakeAudioContext.closed = 0;
+    vi.stubGlobal("AudioContext", FakeAudioContext);
+    const horn = new Horn();
+    horn.start();
+    horn.dispose();
+    expect(FakeAudioContext.closed).toBe(1);
+    expect(horn.sounding).toBe(false);
+    vi.advanceTimersByTime(4000);
+    expect(FakeAudioContext.oscillators).toBe(2);
+    horn.dispose();
+    expect(FakeAudioContext.closed).toBe(1);
   });
 
   it("stays silent without Web Audio or when the browser refuses", () => {
