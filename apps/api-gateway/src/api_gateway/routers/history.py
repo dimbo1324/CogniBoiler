@@ -12,7 +12,7 @@ from influxdb_client.rest import ApiException
 from urllib3.exceptions import HTTPError as Urllib3HTTPError
 
 from api_gateway.auth.rbac import ViewerUser
-from api_gateway.clients import HistorianQueryClient, history_window_s
+from api_gateway.historian_query import HistorianQueryClient, history_window_s
 from api_gateway.problems import ProblemError, upstream_unavailable
 from api_gateway.schemas.ops import HistoryPointResponse, HistoryResponse
 

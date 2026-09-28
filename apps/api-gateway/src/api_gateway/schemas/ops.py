@@ -1,4 +1,4 @@
-"""Schemas for history, alarms, and audit endpoints."""
+"""Schemas for history, KPIs, alarms, and audit endpoints."""
 
 from __future__ import annotations
 
@@ -146,3 +146,27 @@ class AuditPageResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class KpiResponse(BaseModel):
+    start_ms: int
+    end_ms: int
+    source: str = Field(..., description="raw | aggregate (one-minute means).")
+    samples: int = Field(..., description="Plant status samples in the range.")
+    mean_electrical_power_w: float | None
+    mean_fuel_heat_input_w: float | None
+    net_efficiency: float | None = Field(..., description="0..1")
+    boiler_efficiency: float | None = Field(..., description="0..1")
+    turbine_heat_rate_j_per_j: float | None = Field(
+        ..., description="Heat to the cycle per unit of electricity [J/J]."
+    )
+    plant_heat_rate_j_per_j: float | None = Field(
+        ..., description="Fuel heat per unit of electricity [J/J]."
+    )
+    co2_intensity_kg_per_j: float | None = Field(
+        ..., description="CO2 per unit of electricity [kg/J]."
+    )
+    mean_nox_ppmv: float | None
+    peak_nox_ppmv: float | None
+    mean_health_pct: float | None
+    lowest_health_pct: float | None

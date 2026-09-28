@@ -17,16 +17,18 @@ import grpc
 import grpc.aio
 import pytest
 import pytest_asyncio
-from api_gateway import clients
+from api_gateway import historian_query
 from api_gateway.clients import (
     AlarmGatewayClient,
     AlarmGatewayConfig,
-    HistorianQueryClient,
-    HistorianQueryConfig,
     PhysicsGatewayClient,
     PhysicsGatewayConfig,
     PLCGatewayClient,
     PLCGatewayConfig,
+)
+from api_gateway.historian_query import (
+    HistorianQueryClient,
+    HistorianQueryConfig,
     choose_source,
     history_window_s,
 )
@@ -338,8 +340,10 @@ class FakeInflux:
 @pytest.fixture
 def influx(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeInflux]:
     fake = FakeInflux()
-    monkeypatch.setattr(clients, "_new_influx_client", lambda url, token, org: fake)
-    monkeypatch.setattr(clients, "_now_ms", lambda: 30 * DAY_MS)
+    monkeypatch.setattr(
+        historian_query, "_new_influx_client", lambda url, token, org: fake
+    )
+    monkeypatch.setattr(historian_query, "_now_ms", lambda: 30 * DAY_MS)
     yield fake
 
 

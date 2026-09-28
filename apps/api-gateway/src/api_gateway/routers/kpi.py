@@ -13,40 +13,16 @@ from __future__ import annotations
 import asyncio
 
 from fastapi import APIRouter, Query, Request
-from pydantic import BaseModel, Field
 
 from api_gateway.auth.rbac import ViewerUser
-from api_gateway.clients import HistorianQueryClient
+from api_gateway.historian_query import HistorianQueryClient
 from api_gateway.problems import upstream_unavailable
 from api_gateway.routers.history import HISTORY_ERRORS, resolve_range
+from api_gateway.schemas.ops import KpiResponse
 
 router = APIRouter(prefix="/api/v1", tags=["kpi"])
 
 MIN_GENERATING_POWER_W = 1.0e6
-
-
-class KpiResponse(BaseModel):
-    start_ms: int
-    end_ms: int
-    source: str = Field(..., description="raw | aggregate (one-minute means).")
-    samples: int = Field(..., description="Plant status samples in the range.")
-    mean_electrical_power_w: float | None
-    mean_fuel_heat_input_w: float | None
-    net_efficiency: float | None = Field(..., description="0..1")
-    boiler_efficiency: float | None = Field(..., description="0..1")
-    turbine_heat_rate_j_per_j: float | None = Field(
-        ..., description="Heat to the cycle per unit of electricity [J/J]."
-    )
-    plant_heat_rate_j_per_j: float | None = Field(
-        ..., description="Fuel heat per unit of electricity [J/J]."
-    )
-    co2_intensity_kg_per_j: float | None = Field(
-        ..., description="CO2 per unit of electricity [kg/J]."
-    )
-    mean_nox_ppmv: float | None
-    peak_nox_ppmv: float | None
-    mean_health_pct: float | None
-    lowest_health_pct: float | None
 
 
 def _historian(request: Request) -> HistorianQueryClient:

@@ -22,8 +22,6 @@ from api_gateway.auth.throttle import LoginThrottle, ThrottlePolicy
 from api_gateway.clients import (
     AlarmGatewayClient,
     AlarmGatewayConfig,
-    HistorianQueryClient,
-    HistorianQueryConfig,
     PhysicsGatewayClient,
     PhysicsGatewayConfig,
     PLCGatewayClient,
@@ -31,6 +29,7 @@ from api_gateway.clients import (
 )
 from api_gateway.config import settings
 from api_gateway.db_init import seed_roles_and_demo_users
+from api_gateway.historian_query import HistorianQueryClient, HistorianQueryConfig
 from api_gateway.observability import ObservabilityMiddleware, observe_app
 from api_gateway.observability import router as metrics_router
 from api_gateway.problems import install_problem_handlers

@@ -10,7 +10,7 @@ import cogniboiler_pb2 as pb2
 import grpc
 import grpc.aio
 from api_gateway.auth.password import hash_password
-from api_gateway.clients import HistorySource
+from api_gateway.historian_query import HistorySource
 from api_gateway.models.user import Role, User, UserRole
 from sqlalchemy.ext.asyncio import AsyncSession
 

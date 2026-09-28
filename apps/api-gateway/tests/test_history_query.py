@@ -5,7 +5,11 @@ from __future__ import annotations
 import re
 
 import pytest
-from api_gateway.clients import build_history_query, build_kpi_query, flux_string
+from api_gateway.historian_query import (
+    build_history_query,
+    build_kpi_query,
+    flux_string,
+)
 
 
 def test_range_bounds_are_integer_nanoseconds() -> None:
