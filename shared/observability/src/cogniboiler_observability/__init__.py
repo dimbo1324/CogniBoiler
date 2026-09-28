@@ -11,6 +11,8 @@ from cogniboiler_observability.correlation import (
 from cogniboiler_observability.grpc_observability import (
     ServerObservability,
     client_interceptors,
+    observed_channel,
+    serve_until_cancelled,
 )
 from cogniboiler_observability.logs import configure_logging
 from cogniboiler_observability.metrics import (
@@ -33,5 +35,7 @@ __all__ = [
     "correlation_scope",
     "current_correlation_id",
     "new_correlation_id",
+    "observed_channel",
+    "serve_until_cancelled",
     "start_metrics_server",
 ]

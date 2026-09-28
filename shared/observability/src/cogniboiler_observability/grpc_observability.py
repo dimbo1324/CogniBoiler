@@ -2,16 +2,17 @@
 gRPC interceptors: the correlation id crosses service boundaries in call metadata, and
 every server counts and times the calls it handles.
 
-Clients pass `client_interceptors()` to `grpc.aio.insecure_channel`; servers pass
-`ServerObservability()` to `grpc.aio.server`. A server adopts the caller's id, or starts
-a new one, for exactly the duration of the call.
+Clients open their channels with `observed_channel`, which passes `client_interceptors()`;
+servers pass `ServerObservability()` to `grpc.aio.server` and wait in
+`serve_until_cancelled`. A server adopts the caller's id, or starts a new one, for exactly
+the duration of the call.
 """
 
 from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from typing import Any
 
 import grpc
@@ -73,6 +74,27 @@ class _UnaryStreamCorrelation(grpc.aio.UnaryStreamClientInterceptor):  # type: i
 def client_interceptors() -> list[grpc.aio.ClientInterceptor]:
     """Interceptors that put the current correlation id into outgoing metadata."""
     return [_UnaryUnaryCorrelation(), _UnaryStreamCorrelation()]
+
+
+def observed_channel(
+    target: str, *, options: Sequence[tuple[str, Any]] = ()
+) -> grpc.aio.Channel:
+    """A channel to `target` whose calls carry the current correlation id."""
+    return grpc.aio.insecure_channel(
+        target, options=list(options), interceptors=client_interceptors()
+    )
+
+
+async def serve_until_cancelled(
+    server: grpc.aio.Server, *, grace_s: float = 5.0
+) -> None:
+    """Wait while `server` runs; when cancelled, give in-flight calls `grace_s` to end."""
+    try:
+        # Cancelling wait_for_termination() cancels the server's own completion
+        # future, after which stop() fails; shielded, the shutdown below is graceful.
+        await asyncio.shield(server.wait_for_termination())
+    finally:
+        await server.stop(grace=grace_s)
 
 
 def _code_name(context: Any, default: str) -> str:

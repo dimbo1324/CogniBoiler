@@ -19,6 +19,8 @@ from cogniboiler_observability import (
     client_interceptors,
     correlation_scope,
     current_correlation_id,
+    observed_channel,
+    serve_until_cancelled,
     start_metrics_server,
 )
 from prometheus_client import REGISTRY
@@ -176,6 +178,54 @@ async def test_without_an_id_the_metadata_is_left_alone() -> None:
     assert CORRELATION_METADATA_KEY.encode() not in without
     assert CORRELATION_METADATA_KEY.encode() in with_id
     assert b"x-trace" in with_id
+
+
+async def test_an_observed_channel_forwards_the_correlation_id_and_its_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    opened: list[dict[str, Any]] = []
+    real_channel = grpc.aio.insecure_channel
+
+    def channel(target: str, **options: Any) -> grpc.aio.Channel:
+        opened.append(options)
+        return real_channel(target, **options)
+
+    monkeypatch.setattr(grpc.aio, "insecure_channel", channel)
+    server, port = await served()
+    try:
+        async with observed_channel(
+            f"127.0.0.1:{port}", options=(("grpc.keepalive_time_ms", 30_000),)
+        ) as observed:
+            call = observed.unary_unary(
+                f"/{SERVICE}/Metadata",
+                request_serializer=_identity,
+                response_deserializer=_identity,
+            )
+            with correlation_scope("observed-1"):
+                keys = await call(b"")
+    finally:
+        await server.stop(grace=None)
+    assert CORRELATION_METADATA_KEY.encode() in keys
+    assert opened[0]["options"] == [("grpc.keepalive_time_ms", 30_000)]
+
+
+async def test_a_served_server_stops_gracefully_when_cancelled() -> None:
+    server, port = await served()
+    serving = asyncio.create_task(serve_until_cancelled(server, grace_s=1.0))
+    async with grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel:
+        forever = stream(channel, "Forever")(b"")
+        assert await forever.read() == b"tick"
+        serving.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await serving
+        # stop() has run: the open stream is over, and no new call gets through.
+        with pytest.raises(grpc.aio.AioRpcError):
+            async with asyncio.timeout(5.0):
+                while await forever.read() is not grpc.aio.EOF:
+                    pass
+        with pytest.raises(grpc.aio.AioRpcError) as refused:
+            await stream(channel, "Count")(b"1").read()
+    assert refused.value.code() == grpc.StatusCode.UNAVAILABLE
 
 
 async def test_an_unknown_method_passes_through_the_interceptor() -> None:
