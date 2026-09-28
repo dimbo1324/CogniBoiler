@@ -111,3 +111,36 @@ class TestNamesCannotLeaveTheirLiteral:
         assert flux_string("line" + chr(10)) == quote + "line" + backslash + "n" + quote
         # Non-ASCII stays readable rather than turning into escapes.
         assert flux_string("датчик") == quote + "датчик" + quote
+
+    @pytest.mark.parametrize(
+        ("value", "literal"),
+        [
+            ("sensors", '"sensors"'),
+            ('a"b', '"a\\"b"'),
+            ("a\\b", '"a\\\\b"'),
+            ("a${r._value}b", '"a\\${r._value}b"'),
+            ("cost $5", '"cost $5"'),
+            ("a\nb\rc\td", '"a\\nb\\rc\\td"'),
+        ],
+    )
+    def test_a_flux_literal_escapes_what_flux_would_read(
+        self, value: str, literal: str
+    ) -> None:
+        assert flux_string(value) == literal
+
+    @pytest.mark.parametrize("value", ["a\x01", "a\x00", "a\x7f", "a\x1bb"])
+    def test_other_control_characters_are_refused(self, value: str) -> None:
+        # Flux has no \uXXXX escape, which is what json.dumps writes for them.
+        with pytest.raises(ValueError, match="control character"):
+            flux_string(value)
+
+    def test_an_interpolation_in_a_bucket_name_stays_text(self) -> None:
+        flux = build_history_query(
+            bucket="a${r}",
+            measurement="boiler_sensors",
+            start_ms=0,
+            end_ms=1,
+            limit=1,
+        )
+        assert 'from(bucket: "a\\${r}")' in flux
+        assert '"a${' not in flux
