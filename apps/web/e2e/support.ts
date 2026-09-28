@@ -1,5 +1,7 @@
 // Helpers shared by the end-to-end specs. Passwords are the demo users' from the repository's
-// .env (written by dev-secrets), or from DEMO_*_PASSWORD in the environment, as in CI.
+// .env (written by dev-secrets), or from DEMO_*_PASSWORD in the environment, as in CI. They
+// are never printed, and tracing stays off in the Playwright configs because a trace would
+// record them.
 
 import { expect, type Page } from "@playwright/test";
 import { existsSync, readFileSync } from "node:fs";

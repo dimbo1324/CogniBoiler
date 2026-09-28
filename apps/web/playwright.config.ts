@@ -22,7 +22,10 @@ export default defineConfig({
     baseURL: consoleUrl,
     ignoreHTTPSErrors: true,
     screenshot: "only-on-failure",
-    trace: "retain-on-failure",
+    // A trace records the value of every fill(), the demo passwords included, and CI uploads
+    // e2e-results as an artifact; Playwright cannot leave one step out of a trace. Failures
+    // keep their screenshot; run with --trace on locally to debug one.
+    trace: "off",
   },
   projects: [
     {

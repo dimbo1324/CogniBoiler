@@ -3,7 +3,8 @@ import { defineConfig, devices } from "@playwright/test";
 // The README's pictures, taken from a running stack by `readme-media` (see readme/). Kept
 // apart from playwright.config.ts on purpose: this records, it does not check, and neither
 // `console-e2e` nor CI runs it. README_MEDIA_DIR is where the raw captures go.
-const consoleUrl = process.env.CONSOLE_URL ?? "http://localhost:8080";
+// IPv4 loopback, as every published port of the stack binds it.
+const consoleUrl = process.env.CONSOLE_URL ?? "http://127.0.0.1:8080";
 
 export default defineConfig({
   testDir: "./readme",
@@ -20,7 +21,8 @@ export default defineConfig({
     baseURL: consoleUrl,
     ignoreHTTPSErrors: true,
     screenshot: "only-on-failure",
-    trace: "retain-on-failure",
+    // No trace: it would record the demo passwords the capture signs in with.
+    trace: "off",
   },
   projects: [
     {
