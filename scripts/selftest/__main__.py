@@ -1,8 +1,8 @@
 """Check that the developer scripts themselves still work.
 
-Two things, both cheap: the stdlib unit tests under ``scripts/`` (which cover
-the orchestrator, the shared toolkit and the AGENTS.md renderer), and a load of the orchestrator catalog, which fails loudly on any bad hand-edit
-of the JSON.
+Two things, both cheap: the stdlib unit tests under ``scripts/``, run in the project
+environment so the tests that need its packages are not skipped, and a load of the
+orchestrator catalog, which fails loudly on any bad hand-edit of the JSON.
 
 Worth running after touching anything in ``scripts/`` — a broken catalog is invisible
 until the moment it matters.

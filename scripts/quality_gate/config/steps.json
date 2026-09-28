@@ -9,7 +9,7 @@
     { "label": "protobuf stubs match shared/proto", "argv": ["uv", "run", "--no-sync", "python", "-m", "scripts.generate_proto", "--check"], "required": true },
     { "label": "OpenAPI schema and console types match the gateway", "argv": ["uv", "run", "--no-sync", "python", "-m", "scripts.generate_openapi", "--check"], "required": true },
     { "label": "AGENTS.md in sync with .ai/", "argv": ["python", "-m", "scripts.sync_agents", "--check"], "required": true },
-    { "label": "developer scripts' own tests", "argv": ["python", "-W", "error", "-m", "unittest", "discover", "-s", "scripts", "-t", "."], "required": true },
+    { "label": "developer scripts' own tests", "argv": ["uv", "run", "--no-sync", "python", "-W", "error", "-m", "unittest", "discover", "-s", "scripts", "-t", "."], "required": true },
     { "label": "frontend format check", "argv": ["pnpm", "--dir", "apps/web", "run", "format:check"], "required": true, "requires_path": "apps/web/node_modules" },
     { "label": "frontend lint", "argv": ["pnpm", "--dir", "apps/web", "run", "lint"], "required": true, "requires_path": "apps/web/node_modules" },
     { "label": "frontend typecheck", "argv": ["pnpm", "--dir", "apps/web", "run", "typecheck"], "required": true, "requires_path": "apps/web/node_modules" },

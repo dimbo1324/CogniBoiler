@@ -1,9 +1,9 @@
 {
-  "_comment": "Verifies the developer scripts themselves. stdlib unittest only -- adding pytest as a dependency just to test a handful of helpers would be heavier than the thing being tested. -W error matches what the gate's `dev scripts` step runs: two doors, one behaviour, so selftest cannot pass while the gate fails.",
+  "_comment": "Verifies the developer scripts themselves. stdlib unittest only -- adding pytest as a dependency just to test a handful of helpers would be heavier than the thing being tested. The suite runs in the project environment (uv run --no-sync), where dev-secrets' cryptography is installed, so its key-material tests run instead of being skipped. The argv matches the gate's `developer scripts' own tests` step: two doors, one behaviour, so selftest cannot pass while the gate fails.",
   "steps": [
     {
       "label": "unit tests under scripts/ (stdlib unittest)",
-      "argv": ["python", "-W", "error", "-m", "unittest", "discover", "-s", "scripts", "-t", "."],
+      "argv": ["uv", "run", "--no-sync", "python", "-W", "error", "-m", "unittest", "discover", "-s", "scripts", "-t", "."],
       "required": true
     },
     {

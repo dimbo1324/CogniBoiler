@@ -31,6 +31,17 @@ TEMPLATE = (
 )
 
 
+class EnvironmentTest(unittest.TestCase):
+    def test_ci_cannot_skip_the_key_material_tests(self) -> None:
+        """Locally a bare interpreter may lack cryptography and skip them; under CI the
+        gate runs them in the project environment, so a skip there hides a defect."""
+        if os.environ.get("CI"):
+            self.assertTrue(
+                HAS_CRYPTOGRAPHY,
+                "cryptography is missing: run the scripts' tests through uv run",
+            )
+
+
 @unittest.skipUnless(HAS_CRYPTOGRAPHY, "cryptography is not installed")
 class WriteEnvTest(unittest.TestCase):
     def _run(self, root: Path) -> int:

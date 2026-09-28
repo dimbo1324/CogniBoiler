@@ -360,8 +360,8 @@
       "ru": "Проверить сами скрипты разработчика."
     },
     "description": {
-      "en": "Runs the stdlib unittest suite under scripts/ and loads the orchestrator catalog. The suite imports every catalog script, proves scripts do not import one another, and covers the toolkit, the AGENTS.md renderer and clean-caches' protected-path rules. Run it after touching anything in scripts/: a broken catalog is invisible until the moment it matters.",
-      "ru": "Запускает тесты на stdlib unittest в scripts/ и загружает каталог оркестратора. Тесты импортируют каждый скрипт каталога, проверяют, что скрипты не импортируют друг друга, и покрывают toolkit, сборщик AGENTS.md и правила защиты путей clean-caches. Запускайте после любых правок в scripts/: сломанный каталог не виден до момента, когда это уже важно."
+      "en": "Runs the stdlib unittest suite under scripts/ in the project environment (uv run, so dev-secrets' key-material tests run too) and loads the orchestrator catalog. The suite imports every catalog script, proves scripts do not import one another, and covers the toolkit, the AGENTS.md renderer and clean-caches' protected-path rules. Run it after touching anything in scripts/: a broken catalog is invisible until the moment it matters.",
+      "ru": "Запускает тесты на stdlib unittest в scripts/ в окружении проекта (uv run, поэтому тесты ключей dev-secrets тоже выполняются) и загружает каталог оркестратора. Тесты импортируют каждый скрипт каталога, проверяют, что скрипты не импортируют друг друга, и покрывают toolkit, сборщик AGENTS.md и правила защиты путей clean-caches. Запускайте после любых правок в scripts/: сломанный каталог не виден до момента, когда это уже важно."
     },
     "examples": []
   }
