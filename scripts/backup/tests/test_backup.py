@@ -83,6 +83,16 @@ class CommandTest(unittest.TestCase):
         self.assertIn('"$DOCKER_INFLUXDB_INIT_ADMIN_TOKEN"', script)
         self.assertNotIn("--token 0", script)
 
+    def test_the_influx_token_never_reaches_an_argv_in_the_container(self) -> None:
+        # The container's shell expands "$VAR" before exec, so a --token flag would
+        # put the admin token into the influx process's argv, visible in `ps`.
+        script = influx_backup_command(CONFIG)[-1]
+        self.assertNotIn("--token", script)
+        self.assertNotIn(" -t ", script)
+        self.assertIn(
+            'INFLUX_TOKEN="$DOCKER_INFLUXDB_INIT_ADMIN_TOKEN" influx backup', script
+        )
+
     def test_the_backup_is_copied_out_and_the_container_is_left_clean(self) -> None:
         copy = influx_copy_command(CONFIG, Path("backups/20260920T070638Z/influxdb"))
         self.assertEqual(copy[6], "cp")

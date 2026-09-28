@@ -101,6 +101,14 @@ class CommandTest(unittest.TestCase):
         self.assertIn('"$DOCKER_INFLUXDB_INIT_ADMIN_TOKEN"', script)
         self.assertIn("rm -rf /tmp/cogniboiler-restore", script)
 
+    def test_the_influx_token_never_reaches_an_argv_in_the_container(self) -> None:
+        script = influx_restore_command(CONFIG)[-1]
+        self.assertNotIn("--token", script)
+        self.assertNotIn(" -t ", script)
+        self.assertIn(
+            'INFLUX_TOKEN="$DOCKER_INFLUXDB_INIT_ADMIN_TOKEN" influx restore', script
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -50,12 +50,17 @@ def postgres_dump_command(config: dict[str, Any]) -> list[str]:
 
 
 def influx_backup_command(config: dict[str, Any]) -> list[str]:
-    """influx backup inside the container, with the admin token from its own environment."""
+    """influx backup inside the container, with the admin token from its own environment.
+
+    The token reaches the CLI as ``INFLUX_TOKEN`` in its environment: a ``--token`` flag
+    would be expanded by the container's shell into the influx process's argv.
+    """
     return exec_sh(
         config,
         str(config["influx_service"]),
-        f"rm -rf {CONTAINER_TEMP} && influx backup {CONTAINER_TEMP} "
-        '--token "$DOCKER_INFLUXDB_INIT_ADMIN_TOKEN" >/dev/null',
+        f"rm -rf {CONTAINER_TEMP} && "
+        'INFLUX_TOKEN="$DOCKER_INFLUXDB_INIT_ADMIN_TOKEN" '
+        f"influx backup {CONTAINER_TEMP} >/dev/null",
     )
 
 

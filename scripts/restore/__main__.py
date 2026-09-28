@@ -80,11 +80,12 @@ def influx_copy_command(config: dict[str, Any], source: Path) -> list[str]:
 
 
 def influx_restore_command(config: dict[str, Any]) -> list[str]:
+    """influx restore inside the container; the token travels as ``INFLUX_TOKEN``."""
     return exec_sh(
         config,
         str(config["influx_service"]),
-        f"influx restore {CONTAINER_TEMP} --full "
-        '--token "$DOCKER_INFLUXDB_INIT_ADMIN_TOKEN" >/dev/null && '
+        'INFLUX_TOKEN="$DOCKER_INFLUXDB_INIT_ADMIN_TOKEN" '
+        f"influx restore {CONTAINER_TEMP} --full >/dev/null && "
         f"rm -rf {CONTAINER_TEMP}",
     )
 
