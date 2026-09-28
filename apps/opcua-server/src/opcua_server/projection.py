@@ -27,7 +27,8 @@ _ALARM_STATES = {
 }
 
 
-def _fields(message: Any, mapping: Mapping[str, int]) -> list[Update]:
+def field_updates(message: Any, mapping: Mapping[str, int]) -> list[Update]:
+    """One update per mapped scalar field; the server coerces to the node's type."""
     return [(node_id, getattr(message, field)) for field, node_id in mapping.items()]
 
 
@@ -37,11 +38,11 @@ def plant_updates(msg: pb.PlantStatusMsg) -> list[Update]:
         1 for sensor in msg.sensors if sensor.quality != pb.SensorQuality.GOOD
     )
     return [
-        *_fields(msg.actuators, ACTUATOR_FIELD_TO_NODEID),
-        *_fields(msg.emissions, EMISSIONS_FIELD_TO_NODEID),
-        *_fields(msg.condenser, CONDENSER_FIELD_TO_NODEID),
-        *_fields(msg.performance, PERFORMANCE_FIELD_TO_NODEID),
-        *_fields(msg.health, HEALTH_FIELD_TO_NODEID),
+        *field_updates(msg.actuators, ACTUATOR_FIELD_TO_NODEID),
+        *field_updates(msg.emissions, EMISSIONS_FIELD_TO_NODEID),
+        *field_updates(msg.condenser, CONDENSER_FIELD_TO_NODEID),
+        *field_updates(msg.performance, PERFORMANCE_FIELD_TO_NODEID),
+        *field_updates(msg.health, HEALTH_FIELD_TO_NODEID),
         (2600, simulation.scenario),
         (2601, int(simulation.run_id)),
         (2602, simulation.simulation_time_s),

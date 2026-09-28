@@ -28,6 +28,7 @@ from opcua_server.identity import CURRENT_USER, GatewayUser, GatewayUserManager
 from opcua_server.methods import MethodHandlers
 from opcua_server.subscriber import MQTTOPCBridge
 from opcua_server.ua_types import StatusCodes
+from prometheus_client import REGISTRY
 
 
 @pytest.fixture
@@ -398,6 +399,19 @@ def boiler_payload(level: float) -> bytes:
     ).SerializeToString()
 
 
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def skipped(reason: str) -> float:
+    value = REGISTRY.get_sample_value("opcua_bridge_skipped_total", {"reason": reason})
+    return value or 0.0
+
+
 class TestBridge:
     async def test_instrument_quality_follows_the_node(self) -> None:
         opc = RecordingOPC()
@@ -408,11 +422,13 @@ class TestBridge:
         assert level == [(4.5, pb.SensorQuality.BAD)]
 
     async def test_a_burst_is_thinned_to_the_latest_values(self) -> None:
-        opc = RecordingOPC()
-        bridge = MQTTOPCBridge(opc, max_update_hz=5.0)  # type: ignore[arg-type]
+        opc, clock = RecordingOPC(), FakeClock()
+        bridge = MQTTOPCBridge(opc, max_update_hz=5.0, clock=clock)  # type: ignore[arg-type]
         for level in (4.1, 4.2, 4.3):
             await bridge._handle_message("sensors/boiler", boiler_payload(level))
+            clock.now += 0.05
         assert [v for nid, v, _ in opc.updates if nid == 2101] == [4.1]
+        clock.now = 0.2
         task = asyncio.create_task(bridge.flush_pending())
         try:
             await until(
@@ -422,6 +438,96 @@ class TestBridge:
             task.cancel()
         assert opc.latest(2101) == 4.3
         assert bridge.stats == {"received": 3, "mapped": 2, "skipped": 0}
+
+    async def test_a_message_within_the_interval_waits_for_its_turn(self) -> None:
+        opc, clock = RecordingOPC(), FakeClock()
+        bridge = MQTTOPCBridge(opc, max_update_hz=5.0, clock=clock)  # type: ignore[arg-type]
+        await bridge._handle_message("sensors/boiler", boiler_payload(4.1))
+        clock.now = 0.19
+        await bridge._handle_message("sensors/boiler", boiler_payload(4.2))
+        clock.now = 0.4
+        await bridge._handle_message("sensors/boiler", boiler_payload(4.3))
+        assert [v for nid, v, _ in opc.updates if nid == 2101] == [4.1, 4.3]
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            b"",
+            "not bytes",
+            None,
+            pb.BoilerStateMsg(water_level_m=4.0).SerializeToString(),
+        ],
+    )
+    async def test_an_empty_or_timeless_payload_writes_nothing(
+        self, payload: object
+    ) -> None:
+        opc = RecordingOPC()
+        bridge = MQTTOPCBridge(opc, max_update_hz=0)  # type: ignore[arg-type]
+        await bridge._handle_message("sensors/boiler", payload)  # type: ignore[arg-type]
+        assert opc.updates == []
+        assert bridge.stats == {"received": 1, "mapped": 0, "skipped": 1}
+
+    async def test_a_plant_status_without_a_timestamp_changes_no_quality(
+        self,
+    ) -> None:
+        opc = RecordingOPC()
+        bridge = MQTTOPCBridge(opc, max_update_hz=0)  # type: ignore[arg-type]
+        await bridge._handle_message("sensors/plant", plant_payload(timestamp_ms=0))
+        await bridge._handle_message("sensors/boiler", boiler_payload(4.5))
+        level = [(v, q) for nid, v, q in opc.updates if nid == 2101]
+        assert level == [(4.5, pb.SensorQuality.GOOD)]
+
+    async def test_skipped_messages_are_counted_by_reason(self) -> None:
+        bridge = MQTTOPCBridge(RecordingOPC(), max_update_hz=0)  # type: ignore[arg-type]
+        before = {reason: skipped(reason) for reason in ("empty", "malformed")}
+        await bridge._handle_message("sensors/boiler", b"")
+        await bridge._handle_message("sensors/boiler", b"\xff\xff")
+        assert skipped("empty") == before["empty"] + 1
+        assert skipped("malformed") == before["malformed"] + 1
+
+    async def test_a_defect_while_applying_is_logged_once_and_skipped(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        class BrokenOPC(RecordingOPC):
+            async def update_variable(self, node_id: int, value: Any, **_: Any) -> None:
+                raise RuntimeError("defect in a projection")
+
+        bridge = MQTTOPCBridge(BrokenOPC(), max_update_hz=0)  # type: ignore[arg-type]
+        with caplog.at_level(logging.DEBUG, logger="opcua_server.subscriber"):
+            await bridge._handle_message("sensors/boiler", boiler_payload(4.0))
+            await bridge._handle_message("sensors/boiler", boiler_payload(4.1))
+        errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert len(errors) == 1
+        assert "MQTT" not in errors[0].getMessage()
+        assert bridge.stats == {"received": 2, "mapped": 0, "skipped": 2}
+
+    async def test_a_defect_in_a_held_message_does_not_stop_the_flush(self) -> None:
+        class FlakyOPC(RecordingOPC):
+            fail = True
+
+            async def update_variable(
+                self, node_id: int, value: Any, **kw: Any
+            ) -> None:
+                if self.fail:
+                    raise RuntimeError("defect in a projection")
+                await super().update_variable(node_id, value, **kw)
+
+        opc, clock = FlakyOPC(), FakeClock()
+        bridge = MQTTOPCBridge(opc, max_update_hz=5.0, clock=clock)  # type: ignore[arg-type]
+        await bridge._handle_message("sensors/boiler", boiler_payload(4.1))
+        await bridge._handle_message("sensors/boiler", boiler_payload(4.2))
+        clock.now = 0.2
+        task = asyncio.create_task(bridge.flush_pending())
+        try:
+            await until(lambda: bridge.stats["skipped"] == 2)
+            opc.fail = False
+            await bridge._handle_message("sensors/boiler", boiler_payload(4.3))
+            clock.now = 0.4
+            await until(lambda: any(nid == 2101 for nid, _, _ in opc.updates))
+        finally:
+            task.cancel()
+        assert not task.done() or task.cancelled()
+        assert opc.latest(2101) == 4.3
 
     async def test_an_alarm_change_wakes_the_alarm_folder(self) -> None:
         changed = asyncio.Event()
@@ -469,8 +575,9 @@ class TestBridge:
 
         monkeypatch.setattr(subscriber, "Client", Broker)
         monkeypatch.setattr(subscriber, "RECONNECT_DELAY_S", 0.001)
+        opc = RecordingOPC()
         bridge = MQTTOPCBridge(
-            RecordingOPC(),  # type: ignore[arg-type]
+            opc,  # type: ignore[arg-type]
             mqtt_username="opcua-server",
             mqtt_password="pw",
         )
@@ -482,6 +589,7 @@ class TestBridge:
         assert subscriptions[:2] == [("sensors/#", 0), ("alarms/changes", 1)]
         assert connections[0]["username"] == "opcua-server"
         assert bridge.stats["received"] >= 1
+        assert opc.updates == []
 
 
 class TestEntryPoint:
