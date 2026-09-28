@@ -8,10 +8,7 @@ dependencies = [
     "cogniboiler-runtime",
     "sqlalchemy[asyncio]>=2.0.44",
     "asyncpg>=0.31.0",
-    "alembic>=1.13.0",
     "aiomqtt>=2.5.1",
-    "pydantic>=2.12.0",
-    "structlog>=24.0.0",
     "grpcio>=1.75.1",
     "protobuf>=6.31.1",
 ]
