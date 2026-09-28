@@ -235,6 +235,14 @@ class TestMethods:
         result = await MethodHandlers(as_operator).reset_emergency_stop(None)
         assert code(result) == expected
 
+    async def test_a_reply_cut_short_is_a_communication_error(
+        self, as_operator: GatewayClient, gateway: tuple[str, GatewayScript]
+    ) -> None:
+        _, script = gateway
+        script.truncate_command_body = True
+        result = await MethodHandlers(as_operator).reset_emergency_stop(None)
+        assert code(result) == StatusCodes.BadCommunicationError
+
     async def test_an_expired_access_token_is_refreshed_once(
         self, as_operator: GatewayClient, gateway: tuple[str, GatewayScript]
     ) -> None:

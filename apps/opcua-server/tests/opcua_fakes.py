@@ -21,6 +21,7 @@ class Call:
     body: dict[str, Any]
     authorization: str
     correlation_id: str
+    forwarded_for: str = ""
 
 
 @dataclass
@@ -36,6 +37,8 @@ class GatewayScript:
     reject_access_once: bool = False
     refresh_works: bool = True
     raw_command_body: bytes | None = None
+    redirect_commands_to: str | None = None
+    truncate_command_body: bool = False
     issued: int = 0
 
     def tokens(self, username: str) -> dict[str, Any]:
@@ -62,19 +65,27 @@ def _handler(script: GatewayScript) -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             self.wfile.write(raw)
 
-        def do_POST(self) -> None:  # noqa: N802
-            length = int(self.headers.get("Content-Length") or 0)
-            raw = self.rfile.read(length) if length else b""
-            body = json.loads(raw) if raw else {}
+        def _record(self, method: str, body: dict[str, Any]) -> None:
             script.calls.append(
                 Call(
-                    "POST",
+                    method,
                     self.path,
                     body,
                     self.headers.get("Authorization", ""),
                     self.headers.get("X-Correlation-ID", ""),
+                    self.headers.get("X-Forwarded-For", ""),
                 )
             )
+
+        def do_GET(self) -> None:  # noqa: N802
+            self._record("GET", {})
+            self._reply(200, {"accepted": True, "reason": "redirected"})
+
+        def do_POST(self) -> None:  # noqa: N802
+            length = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(length) if length else b""
+            body = json.loads(raw) if raw else {}
+            self._record("POST", body)
             if self.path == "/auth/login":
                 if body.get("password") == PASSWORD:
                     self._reply(200, script.tokens(str(body["username"])))
@@ -90,6 +101,17 @@ def _handler(script: GatewayScript) -> type[BaseHTTPRequestHandler]:
             elif script.reject_access_once:
                 script.reject_access_once = False
                 self._reply(401, {"code": "auth.token_expired"})
+            elif script.redirect_commands_to is not None:
+                self.send_response(303)
+                self.send_header("Location", script.redirect_commands_to)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+            elif script.truncate_command_body:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", "1000")
+                self.end_headers()
+                self.wfile.write(b'{"accepted": tr')
             elif script.raw_command_body is not None:
                 self._reply(script.command_status, script.raw_command_body)
             else:

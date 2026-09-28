@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import math
 import time
+import urllib.request
 
 import cogniboiler_pb2 as pb
 import pytest
@@ -205,6 +208,67 @@ class TestGatewayClient:
         assert reply.body == {}
         assert reply.detail == ""
 
+    async def test_a_reply_cut_short_is_an_unavailable_gateway(self) -> None:
+        with gateway_server() as (url, script):
+            script.truncate_command_body = True
+            with pytest.raises(GatewayUnavailableError, match="IncompleteRead"):
+                await GatewayClient(url).request("POST", "/api/v1/commands/load")
+
+    async def test_a_redirect_is_not_followed_with_the_token(self) -> None:
+        with gateway_server() as (url, script):
+            script.redirect_commands_to = "/elsewhere"
+            reply = await GatewayClient(url).request(
+                "POST", "/api/v1/commands/load", {"load_w": 1.0}, "access-9"
+            )
+        assert reply.status == 303
+        assert [(call.method, call.path) for call in script.calls] == [
+            ("POST", "/api/v1/commands/load")
+        ]
+
+    async def test_proxy_variables_are_ignored(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        for name in ("NO_PROXY", "no_proxy"):
+            monkeypatch.delenv(name, raising=False)
+        for name in ("HTTP_PROXY", "http_proxy"):
+            monkeypatch.setenv(name, "http://127.0.0.1:1")
+        with gateway_server() as (url, script):
+            client = GatewayClient(url)
+            reply = await client.request("POST", "/api/v1/commands/load")
+        assert reply.status == 200
+        assert len(script.calls) == 1
+        # urllib's default ProxyHandler is the one that reads the environment.
+        assert not any(
+            isinstance(handler, urllib.request.ProxyHandler)
+            for handler in client._opener.handlers
+        )
+
+    async def test_an_oversized_reply_is_dropped(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        padding = "x" * gateway.MAX_REPLY_BYTES
+        with gateway_server() as (url, script):
+            script.raw_command_body = json.dumps({"reason": padding}).encode()
+            with caplog.at_level(logging.WARNING, logger="opcua_server.gateway"):
+                reply = await GatewayClient(url).request(
+                    "POST", "/api/v1/commands/load"
+                )
+        assert (reply.status, reply.body) == (200, {})
+        assert "larger than" in caplog.text
+
+    def test_a_non_finite_number_is_never_sent(self) -> None:
+        with pytest.raises(ValueError):
+            GatewayClient("http://127.0.0.1:1")._request(
+                "POST", "/api/v1/commands/load", {"load_w": math.nan}, None
+            )
+
+    @pytest.mark.parametrize(
+        "url", ["file:///etc/passwd", "ftp://gateway", "api-gateway:8000"]
+    )
+    def test_only_an_http_gateway_url_is_accepted(self, url: str) -> None:
+        with pytest.raises(ValueError, match="http"):
+            GatewayClient(url)
+
     async def test_an_unreachable_gateway_raises(self) -> None:
         with pytest.raises(GatewayUnavailableError, match="POST /auth/login"):
             await GatewayClient("http://127.0.0.1:1").login("operator1", PASSWORD)
@@ -302,6 +366,18 @@ class TestGatewaySession:
         with caplog.at_level(logging.WARNING, logger="opcua_server.gateway"):
             assert await session.tokens() is None
         assert "OPC UA sign-in failed" in caplog.text
+
+    @pytest.mark.parametrize(
+        "failure", [GatewayUnavailableError("refused"), RuntimeError("defect")]
+    )
+    async def test_a_failed_sign_in_closes_the_session_once(
+        self, failure: Exception, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        session = GatewaySession(FakeClient(None), signed_in(failure))  # type: ignore[arg-type]
+        with caplog.at_level(logging.WARNING, logger="opcua_server.gateway"):
+            assert await session.tokens() is None
+            assert await session.tokens() is None
+        assert caplog.text.count("OPC UA sign-in failed") == 1
 
     async def test_a_rejected_access_token_forces_a_refresh(self) -> None:
         client = FakeClient(tokens(900_000))

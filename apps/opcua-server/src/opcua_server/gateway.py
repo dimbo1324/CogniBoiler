@@ -13,21 +13,26 @@ blocked, and no HTTP library is added for a handful of calls.
 from __future__ import annotations
 
 import asyncio
+import http.client
 import json
 import logging
-import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from typing import Any
+from email.message import Message
+from typing import IO, Any, Protocol
 
 from cogniboiler_observability import CORRELATION_HEADER, current_correlation_id
+from cogniboiler_runtime import decode_json_object, now_ms
 
 logger = logging.getLogger(__name__)
 
 USER_AGENT = "cogniboiler-opcua-server"
 REQUEST_TIMEOUT_S = 10.0
 REFRESH_MARGIN_MS = 30_000
+MAX_REPLY_BYTES = 1_048_576
+ALLOWED_SCHEMES = frozenset({"http", "https"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,14 +58,40 @@ class GatewayUnavailableError(ConnectionError):
     """The gateway did not answer."""
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect is an answer, not an instruction: it would carry the bearer token."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: Message,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        return None
+
+
 class GatewayClient:
     def __init__(self, base_url: str) -> None:
+        if urllib.parse.urlsplit(base_url).scheme not in ALLOWED_SCHEMES:
+            raise ValueError("the gateway URL must start with http:// or https://")
         self._base_url = base_url.rstrip("/")
+        # No proxy from the environment and no redirects: the user's password and
+        # access token go to the configured gateway and nowhere else.
+        self._opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}), _NoRedirect()
+        )
 
     def _request(
         self, method: str, path: str, payload: dict[str, Any] | None, token: str | None
     ) -> GatewayReply:
-        data = None if payload is None else json.dumps(payload).encode("utf-8")
+        data = (
+            None
+            if payload is None
+            else json.dumps(payload, allow_nan=False).encode("utf-8")
+        )
         request = urllib.request.Request(
             f"{self._base_url}{path}", data=data, method=method
         )
@@ -74,12 +105,23 @@ class GatewayClient:
         if correlation_id:
             request.add_header(CORRELATION_HEADER, correlation_id)
         try:
-            with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_S) as response:
-                return GatewayReply(response.status, _json(response.read()))
+            with self._opener.open(request, timeout=REQUEST_TIMEOUT_S) as response:
+                return GatewayReply(response.status, _body(response, method, path))
         except urllib.error.HTTPError as error:
-            return GatewayReply(error.code, _json(error.read()))
-        except (urllib.error.URLError, TimeoutError, OSError) as error:
-            raise GatewayUnavailableError(f"{method} {path}: {error}") from error
+            with error:
+                return GatewayReply(error.code, _body(error, method, path))
+        except (
+            urllib.error.URLError,
+            http.client.HTTPException,
+            TimeoutError,
+            OSError,
+            ValueError,
+        ) as error:
+            # HTTPException: a reply cut short or a broken status line while the
+            # gateway restarts; ValueError: a header value http.client refuses.
+            raise GatewayUnavailableError(
+                f"{method} {path}: {type(error).__name__}: {error}"
+            ) from error
 
     async def request(
         self,
@@ -114,12 +156,27 @@ class GatewayClient:
         await self.request("POST", "/auth/logout", {"refresh_token": refresh_token})
 
 
-def _json(raw: bytes) -> dict[str, Any]:
-    try:
-        value = json.loads(raw.decode("utf-8")) if raw else {}
-    except UnicodeDecodeError, json.JSONDecodeError:
+class _Reply(Protocol):
+    headers: Message
+
+    def read(self, amt: int, /) -> bytes: ...
+
+
+def _body(response: _Reply, method: str, path: str) -> dict[str, Any]:
+    raw = response.read(MAX_REPLY_BYTES + 1)
+    if len(raw) > MAX_REPLY_BYTES:
+        logger.warning(
+            "Gateway reply to %s %s is larger than %d bytes; ignored",
+            method,
+            path,
+            MAX_REPLY_BYTES,
+        )
         return {}
-    return value if isinstance(value, dict) else {}
+    declared = response.headers.get("Content-Length", "")
+    if declared.isdigit() and len(raw) < int(declared):
+        # read(n) returns what arrived before the connection closed, silently.
+        raise http.client.IncompleteRead(raw, int(declared) - len(raw))
+    return decode_json_object(raw, max_bytes=MAX_REPLY_BYTES) or {}
 
 
 def _tokens(body: dict[str, Any]) -> GatewayTokens | None:
@@ -155,14 +212,18 @@ class GatewaySession:
             if self._tokens is None:
                 try:
                     self._tokens = await self._login
-                except GatewayUnavailableError as exc:
-                    logger.warning("OPC UA sign-in failed: %s", exc)
+                except Exception as exc:
+                    # The password went with the failed attempt: the session cannot
+                    # sign in again, so it says so once and stays closed.
+                    logger.warning(
+                        "OPC UA sign-in failed: %s: %s", type(exc).__name__, exc
+                    )
+                    self._closed = True
                     return None
                 if self._tokens is None:
                     self._closed = True
                     return None
-            now_ms = int(time.time() * 1000)
-            if self._tokens.access_expires_at_ms - now_ms <= REFRESH_MARGIN_MS:
+            if self._tokens.access_expires_at_ms - now_ms() <= REFRESH_MARGIN_MS:
                 self._tokens = await self._client.refresh(self._tokens.refresh_token)
                 if self._tokens is None:
                     self._closed = True
