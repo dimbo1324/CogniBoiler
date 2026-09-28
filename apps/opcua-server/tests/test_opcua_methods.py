@@ -26,7 +26,7 @@ from cogniboiler_observability import (
 )
 from opcua_fakes import PASSWORD, GatewayScript, RecordingOPC, gateway_server
 from opcua_server import __main__ as entry
-from opcua_server import subscriber, upstreams
+from opcua_server import service, subscriber, upstreams
 from opcua_server.client import AlarmReadClient, PLCStatusClient
 from opcua_server.gateway import GatewayClient, GatewaySession, GatewayTokens
 from opcua_server.identity import CURRENT_USER, GatewayUser, GatewayUserManager
@@ -729,11 +729,13 @@ class TestEntryPoint:
         assert args.gateway_url == "http://localhost:8000"
 
     async def test_it_wires_the_server_bridge_and_projections(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
         events: list[str] = []
 
         class Server:
+            bound_endpoint = "opc.tcp://0.0.0.0:4999/cogniboiler"
+
             def __init__(self, endpoint: str, **options: Any) -> None:
                 events.append(f"server {endpoint} {options['gateway_url']}")
 
@@ -744,8 +746,6 @@ class TestEntryPoint:
                 events.append("stopped")
 
         class Bridge:
-            stats = {"received": 0, "mapped": 0, "skipped": 0}
-
             def __init__(self, opc: Any, **options: Any) -> None:
                 events.append(f"bridge {options['mqtt_username']}")
 
@@ -763,25 +763,64 @@ class TestEntryPoint:
                 events.append("client closed")
 
         async def idle(*_: Any) -> None:
-            await asyncio.Event().wait()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                events.append("projection cancelled")
+                raise
 
-        monkeypatch.setattr(entry, "CogniBoilerOPCServer", Server)
-        monkeypatch.setattr(entry, "MQTTOPCBridge", Bridge)
-        monkeypatch.setattr(entry, "PLCStatusClient", Client)
-        monkeypatch.setattr(entry, "AlarmReadClient", Client)
-        monkeypatch.setattr(entry, "run_plc_projection", idle)
-        monkeypatch.setattr(entry, "run_alarm_projection", idle)
-        monkeypatch.setattr(entry, "start_metrics_server", lambda port, host: None)
+        async def drained(timeout_s: float) -> None:
+            events.append("sign-outs drained")
+
+        monkeypatch.setattr(service, "CogniBoilerOPCServer", Server)
+        monkeypatch.setattr(service, "MQTTOPCBridge", Bridge)
+        monkeypatch.setattr(service, "PLCStatusClient", Client)
+        monkeypatch.setattr(service, "AlarmReadClient", Client)
+        monkeypatch.setattr(service, "run_plc_projection", idle)
+        monkeypatch.setattr(service, "run_alarm_projection", idle)
+        monkeypatch.setattr(service, "start_metrics_server", lambda port, host: None)
+        monkeypatch.setattr(service, "drain_sign_outs", drained)
         monkeypatch.delenv("MQTT_USERNAME", raising=False)
         monkeypatch.setattr("sys.argv", ["opcua_server", "--opc-port", "4999"])
-        with pytest.raises(RuntimeError, match="broker config wrong"):
-            await entry.main(entry.parse_args())
+        with (
+            caplog.at_level(logging.INFO, logger="opcua_server"),
+            pytest.raises(RuntimeError, match="broker config wrong"),
+        ):
+            await service.main(entry.parse_args())
         assert (
             events[0]
             == "server opc.tcp://0.0.0.0:4999/cogniboiler http://localhost:8000"
         )
         assert "bridge opcua-server" in events
-        assert events[-3:] == ["stopped", "client closed", "client closed"]
+        assert events[-6:] == [
+            "projection cancelled",
+            "projection cancelled",
+            "sign-outs drained",
+            "stopped",
+            "client closed",
+            "client closed",
+        ]
+        assert "opc.tcp://0.0.0.0:4999/cogniboiler" in caplog.text
+        assert "opc.tcp://localhost" not in caplog.text
+
+    def test_it_runs_under_the_shared_service_runner(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ran: list[str] = []
+
+        async def main(args: Any) -> None:
+            ran.append(f"main {args.opc_port}")
+
+        def run_service(entry_point: Any) -> int:
+            asyncio.run(entry_point())
+            return 0
+
+        monkeypatch.setattr(entry, "main", main)
+        monkeypatch.setattr(entry, "run_service", run_service)
+        monkeypatch.setattr(entry, "configure_logging", lambda name: ran.append(name))
+        monkeypatch.setattr("sys.argv", ["opcua_server", "--opc-port", "4998"])
+        assert entry.run() == 0
+        assert ran == ["opcua-server", "main 4998"]
 
 
 class TestReadClients:
