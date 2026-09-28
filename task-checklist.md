@@ -38,11 +38,14 @@ Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 
 ## 3. Wave B — the remaining services and the console
 
-[ ] B1 api-gateway operational API and realtime (GW-API, TST-12/13/14, DUP-04)
-[ ] B2 physics-engine (PHY, TST-09/17/19/26)
-[ ] B3 opcua-server (OPC, TST-06, ARCH-07)
-[ ] B4 web console (WEB, TST-18/24)
-[ ] Wave B merged; full gate green; merged into local `main`
++ B1 api-gateway operational API and realtime (GW-API, TST-12/13/14, DUP-04)
++ B2 physics-engine (PHY, TST-09/17/19/26)
++ B3 opcua-server (OPC, TST-06, ARCH-07)
++ B4 web console (WEB, TST-18/24)
++ Wave B merged; full gate green; merged into local `main` — live stack: migration 0007
+  applied, `smoke` 13/13, `demo` 15/15 with clean logs, `console-e2e` 22/22. Two integration
+  defects caught at merge: a flaky observability test (fixed, e34c472) and two test modules
+  both named `test_boundaries.py` (renamed, fa975af)
 
 ## 4. Wave C — platform, scripts, shared helpers adopted
 
