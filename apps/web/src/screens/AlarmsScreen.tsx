@@ -10,7 +10,7 @@ import {
 } from "../alarms/queries";
 import { isCritical, severityGlyph, severityTone, SEVERITIES } from "../alarms/severity";
 import { fetchAlarm, fetchAlarmHistory, type AlarmHistoryFilter } from "../api/endpoints";
-import type { Alarm, AlarmState } from "../api/types";
+import type { AcknowledgeResponse, Alarm, AlarmState } from "../api/types";
 import { CommandResult } from "../components/CommandResult";
 import { Pager } from "../components/Pager";
 import { Icon } from "../components/ui/Icon";
@@ -164,9 +164,17 @@ function ActiveAlarms({
   const acknowledge = useAcknowledge();
   const acknowledgeAll = useAcknowledgeAll();
   const mayAcknowledge = useCan("acknowledge_alarms");
+  // One answer for the last acknowledgement, single or all: an old error must not outlive
+  // a later success, and the answer to "Acknowledge all" is shown too.
+  const [lastAnswer, setLastAnswer] = useState<{
+    data: AcknowledgeResponse | undefined;
+    error: unknown;
+  } | null>(null);
+  const settled = (data: AcknowledgeResponse | undefined, error: unknown) => {
+    setLastAnswer({ data, error });
+  };
   const alarms = sortAlarms(active.data ?? []);
   const unacknowledged = alarms.filter(isUnacknowledged).length;
-  const failure = acknowledge.error ?? acknowledgeAll.error;
 
   return (
     <Panel
@@ -178,7 +186,7 @@ function ActiveAlarms({
             type="button"
             disabled={unacknowledged === 0 || acknowledgeAll.isPending}
             onClick={() => {
-              acknowledgeAll.mutate("");
+              acknowledgeAll.mutate("", { onSettled: settled });
             }}
           >
             <Icon glyph={AlarmsIcon} tone="muted" />
@@ -188,7 +196,7 @@ function ActiveAlarms({
       }
     >
       {active.isError && <ErrorOf error={active.error} />}
-      <CommandResult result={acknowledge.data ?? undefined} error={failure} />
+      {lastAnswer && <CommandResult result={lastAnswer.data} error={lastAnswer.error} />}
       {alarms.length === 0 && !active.isLoading ? (
         <EmptyNote>No active alarms.</EmptyNote>
       ) : (
@@ -211,7 +219,7 @@ function ActiveAlarms({
                           type="button"
                           disabled={acknowledge.isPending}
                           onClick={() => {
-                            acknowledge.mutate({ alarmId: alarm.id });
+                            acknowledge.mutate({ alarmId: alarm.id }, { onSettled: settled });
                           }}
                         >
                           Acknowledge

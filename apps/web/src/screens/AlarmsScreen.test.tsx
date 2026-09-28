@@ -10,6 +10,7 @@ import {
   fetchAlarm,
   fetchAlarmHistory,
 } from "../api/endpoints";
+import { ApiError } from "../api/http";
 import { useCan } from "../session/SessionProvider";
 import { alarm } from "../test/fixtures";
 import { AlarmsScreen } from "./AlarmsScreen";
@@ -114,6 +115,36 @@ describe("active alarms", () => {
     expect((await screen.findByRole("alert")).textContent).toBe(
       "Refused: alarm is already acknowledged",
     );
+  });
+
+  it("shows the answer to the last acknowledgement, single or all", async () => {
+    vi.mocked(acknowledgeAlarm).mockRejectedValue(
+      new ApiError({
+        status: 503,
+        code: "alarms.unavailable",
+        title: "Service Unavailable",
+        detail: "The alarm service did not answer.",
+        errors: [],
+        retryAfterS: null,
+      }),
+    );
+    vi.mocked(acknowledgeAllAlarms).mockResolvedValue({
+      accepted: false,
+      reason: "nothing to acknowledge",
+      timestamp_ms: 1,
+      alarms: [],
+    });
+    renderScreen();
+    const row = await screen.findByTestId("alarm-8");
+    await userEvent.click(within(row).getByRole("button", { name: "Acknowledge" }));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "The alarm service did not answer.",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Acknowledge all (2)" }));
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toBe("Refused: nothing to acknowledge");
+    });
+    expect(screen.queryByText("The alarm service did not answer.")).toBeNull();
   });
 
   it("offers no acknowledgement to a viewer", async () => {

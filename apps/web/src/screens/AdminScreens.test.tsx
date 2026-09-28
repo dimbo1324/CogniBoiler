@@ -217,6 +217,22 @@ describe("UsersScreen", () => {
     ).toBe(true);
   });
 
+  it("offers no role change for a user without a role until one is chosen", async () => {
+    vi.mocked(fetchUsers).mockResolvedValue({
+      items: [user({ id: 4, username: "newcomer", role: null })],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    });
+    renderScreen(<UsersScreen />);
+    const row = await screen.findByTestId("user-newcomer");
+    const select = within(row).getByLabelText("Role of newcomer") as HTMLSelectElement;
+    expect(select.value).toBe("");
+    expect(within(row).queryByRole("button", { name: "Apply…" })).toBeNull();
+    await userEvent.selectOptions(select, "operator");
+    expect(within(row).getByRole("button", { name: "Apply…" })).toBeDefined();
+  });
+
   it("changes a role after confirmation", async () => {
     vi.mocked(updateUser).mockResolvedValue(user({ role: "engineer" }));
     renderScreen(<UsersScreen />);

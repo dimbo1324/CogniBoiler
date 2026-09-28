@@ -1,6 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import uPlot from "uplot";
 
+import { appliedTheme, watchAppliedTheme } from "../theme";
 import type { TrendParameter } from "../trends/parameters";
 
 const HEIGHT_PX = 150;
@@ -24,6 +25,9 @@ export function TrendChart({
 }) {
   const container = useRef<HTMLDivElement>(null);
   const chart = useRef<uPlot | null>(null);
+  const data = useRef<uPlot.AlignedData>([times, values]);
+  // uPlot takes its colours when it is created, so a theme change rebuilds the chart.
+  const theme = useSyncExternalStore(watchAppliedTheme, appliedTheme);
 
   useEffect(() => {
     const element = container.current;
@@ -53,7 +57,7 @@ export function TrendChart({
         },
       ],
     };
-    const instance = new uPlot(options, [[], []], element);
+    const instance = new uPlot(options, data.current, element);
     chart.current = instance;
     const observer = new ResizeObserver(() => {
       instance.setSize({ width: Math.max(element.clientWidth, 200), height: HEIGHT_PX });
@@ -64,10 +68,11 @@ export function TrendChart({
       instance.destroy();
       chart.current = null;
     };
-  }, [parameter, syncKey]);
+  }, [parameter, syncKey, theme]);
 
   useEffect(() => {
-    chart.current?.setData([times, values] as uPlot.AlignedData);
+    data.current = [times, values];
+    chart.current?.setData(data.current);
   }, [times, values]);
 
   return (

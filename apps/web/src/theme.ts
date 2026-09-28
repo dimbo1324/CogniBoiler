@@ -54,6 +54,23 @@ export function applyTheme(choice: ThemeChoice): ResolvedTheme {
   return resolved;
 }
 
+/** The theme on the page now, as the stylesheet sees it. */
+export function appliedTheme(): string | null {
+  return document.documentElement.getAttribute("data-theme");
+}
+
+/** Calls back whenever the theme on the page changes, however it was chosen. */
+export function watchAppliedTheme(onChange: () => void): () => void {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-theme"],
+  });
+  return () => {
+    observer.disconnect();
+  };
+}
+
 export function nextTheme(choice: ThemeChoice): ThemeChoice {
   const index = CYCLE.indexOf(choice);
   return CYCLE[(index + 1) % CYCLE.length] ?? DEFAULT_THEME;

@@ -102,7 +102,8 @@ function UserRow({
   self: boolean;
   ask: (change: PendingAction<unknown>) => void;
 }) {
-  const [role, setRole] = useState<Role>(user.role ?? "viewer");
+  // A user may have no role; nothing is chosen for them until the administrator does.
+  const [role, setRole] = useState<Role | "">(user.role ?? "");
   const [password, setPassword] = useState("");
   return (
     <tr data-testid={`user-${user.username}`} className={user.is_active ? "" : "severity-warning"}>
@@ -116,16 +117,17 @@ function UserRow({
           value={role}
           disabled={self}
           onChange={(event) => {
-            setRole(event.target.value as Role);
+            setRole(event.target.value as Role | "");
           }}
         >
+          {user.role === null && <option value="">no role</option>}
           {ROLES.map((item) => (
             <option key={item} value={item}>
               {item}
             </option>
           ))}
         </select>
-        {role !== user.role && (
+        {role !== "" && role !== user.role && (
           <button
             type="button"
             onClick={() => {
