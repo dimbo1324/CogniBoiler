@@ -128,6 +128,11 @@ class PhysicsRuntime:
         return self._last_error
 
     @property
+    def unavailable_reason(self) -> str:
+        """Why no further snapshots come: the failure, or the status it ended in."""
+        return self._last_error or f"physics runtime {self._status}"
+
+    @property
     def wall_step_s(self) -> float:
         """Wall-clock delay between physics steps while running."""
         return self.config.dt / self._speed_factor
@@ -184,9 +189,7 @@ class PhysicsRuntime:
             event = self._update_event
             await event.wait()
             if self._sequence <= last_sequence and self._status != "running":
-                raise RuntimeUnavailableError(
-                    self._last_error or f"physics runtime {self._status}"
-                )
+                raise RuntimeUnavailableError(self.unavailable_reason)
         return self._sequence, self._snapshot
 
     # ─── Commands ────────────────────────────────────────────────────────────
@@ -213,7 +216,7 @@ class PhysicsRuntime:
         async with self._lock:
             self._run_state = RunState.PAUSED
             self._resumed.clear()
-        logger.info("Simulation paused at t=%.1fs", self._snapshot.simulation_time_s)
+        logger.debug("Simulation paused at t=%.1fs", self._snapshot.simulation_time_s)
         return self.simulation_status()
 
     async def resume(self) -> SimulationStatus:
@@ -221,7 +224,7 @@ class PhysicsRuntime:
         async with self._lock:
             self._run_state = RunState.RUNNING
             self._resumed.set()
-        logger.info("Simulation resumed at t=%.1fs", self._snapshot.simulation_time_s)
+        logger.debug("Simulation resumed at t=%.1fs", self._snapshot.simulation_time_s)
         return self.simulation_status()
 
     async def set_speed(self, speed_factor: float) -> SimulationStatus:
@@ -232,7 +235,7 @@ class PhysicsRuntime:
                 f"[{SPEED_FACTOR_MIN:g}, {SPEED_FACTOR_MAX:g}]"
             )
         self._speed_factor = speed_factor
-        logger.info("Simulation speed set to %g×", speed_factor)
+        logger.debug("Simulation speed set to %g×", speed_factor)
         return self.simulation_status()
 
     async def step(self, steps: int) -> SimulationStatus:

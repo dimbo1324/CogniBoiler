@@ -287,14 +287,14 @@ class PlantSimulator:
     def inject_fault(self, spec: FaultSpec) -> ActiveFault:
         """Activate a fault now; it shows in the snapshot immediately."""
         fault = self._faults.inject(spec, self.simulation_time_s)
-        logger.warning("Fault injected: %s (%s)", fault.label, fault.fault_id)
+        logger.debug("Fault injected: %s (%s)", fault.label, fault.fault_id)
         self._refresh()
         return fault
 
     def clear_fault(self, fault_id: str) -> ActiveFault:
         """Deactivate one fault."""
         fault = self._faults.clear(fault_id)
-        logger.info("Fault cleared: %s (%s)", fault.label, fault.fault_id)
+        logger.debug("Fault cleared: %s (%s)", fault.label, fault.fault_id)
         self._refresh()
         return fault
 

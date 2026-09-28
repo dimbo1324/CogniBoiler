@@ -15,6 +15,11 @@ PROPERTY_FALLBACKS = Counter(
     "IF97 property calls outside the formulation, answered at saturation instead.",
     ["function"],
 )
+COMMANDS_REFUSED = Counter(
+    "physics_commands_refused_total",
+    "Requests the PhysicsService answered with accepted=false.",
+    ["rpc"],
+)
 RUNTIME_FAILURES = Counter(
     "physics_runtime_failures_total",
     "Plant steps that failed and degraded the runtime.",
