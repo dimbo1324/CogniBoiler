@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 
 import {
-  ROLES,
   createUser,
   fetchUsers,
   resetUserPassword,
@@ -18,12 +17,13 @@ import { useConfirmedAction, type PendingAction } from "../components/ConfirmedA
 import { Pager } from "../components/Pager";
 import { useUser } from "../session/SessionProvider";
 import { formatDateTime } from "../units";
+import { GATEWAY_LIMITS } from "../api/limits";
 import { queryKeys } from "../api/queryKeys";
+import { ROLES } from "../session/roles";
 
 const PAGE = 50;
-// The gateway's password policy (schemas/auth.py).
-export const PASSWORD_MIN_LENGTH = 12;
-export const USERNAME_PATTERN = /^[A-Za-z0-9._-]{3,64}$/u;
+const PASSWORD_MIN_LENGTH = GATEWAY_LIMITS.passwordMinLength;
+const USERNAME_PATTERN = GATEWAY_LIMITS.usernamePattern;
 
 function CreateUser({ onCreated }: { onCreated: (message: string) => void }) {
   const queryClient = useQueryClient();

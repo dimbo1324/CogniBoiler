@@ -31,6 +31,7 @@ import { useCan } from "../session/SessionProvider";
 import {
   barToPascals,
   celsiusToKelvin,
+  convertRange,
   formatReading,
   fractionToPercent,
   kelvinToCelsius,
@@ -40,6 +41,7 @@ import {
   percentToFraction,
   wattsToMegawatts,
 } from "../units";
+import { GATEWAY_LIMITS } from "../api/limits";
 import { queryKeys } from "../api/queryKeys";
 
 // The rates the PLC ramps at (plc_controller/control.py), for the sentences that promise
@@ -47,13 +49,13 @@ import { queryKeys } from "../api/queryKeys";
 const LOAD_RAMP_MW_PER_MIN = 30;
 const PRESSURE_RAMP_BAR_PER_MIN = 5;
 
-// The gateway's limits (schemas/command.py), in display units.
+// The gateway's limits, in the units the operator types.
 export const LIMITS = {
-  loadMw: [0, 300],
-  pressureBar: [50, 185],
-  levelM: [0.5, 9],
-  steamTempC: [126.85, 574.85],
-  valvePct: [0, 100],
+  loadMw: convertRange(GATEWAY_LIMITS.loadW, wattsToMegawatts, 1),
+  pressureBar: convertRange(GATEWAY_LIMITS.pressurePa, pascalsToBar, 2),
+  levelM: GATEWAY_LIMITS.waterLevelM,
+  steamTempC: convertRange(GATEWAY_LIMITS.steamTempK, kelvinToCelsius, 2),
+  valvePct: convertRange(GATEWAY_LIMITS.valveFraction, fractionToPercent, 1),
 } as const;
 
 type Ask = (command: PendingAction<CommandAck>) => void;

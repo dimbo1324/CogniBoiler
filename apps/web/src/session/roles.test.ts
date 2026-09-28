@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { atLeast, can } from "./roles";
+import { ROLES, atLeast, can } from "./roles";
 
 describe("roles", () => {
+  it("lists the roles from least to most privileged", () => {
+    expect(ROLES).toEqual(["viewer", "operator", "engineer", "admin"]);
+  });
+
   it("orders viewer < operator < engineer < admin", () => {
     expect(atLeast("operator", "viewer")).toBe(true);
     expect(atLeast("operator", "engineer")).toBe(false);

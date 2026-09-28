@@ -336,8 +336,4 @@ describe("gateway routes", () => {
       body: { current_password: "old-password", new_password: "new-password-1" },
     });
   });
-
-  it("lists the roles from least to most privileged", () => {
-    expect(endpoints.ROLES).toEqual(["viewer", "operator", "engineer", "admin"]);
-  });
 });

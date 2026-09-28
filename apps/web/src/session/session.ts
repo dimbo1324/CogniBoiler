@@ -5,6 +5,7 @@
 import { ApiError, bindCredentials, type Credentials } from "../api/http";
 import { refreshSession, signIn, signOut } from "../api/endpoints";
 import type { Role, TokenResponse } from "../api/types";
+import { ROLES } from "./roles";
 
 export interface SessionUser {
   username: string;
@@ -28,8 +29,6 @@ export const UNREACHABLE_NOTICE =
   "The gateway cannot be reached. Sign-in will work once it answers.";
 export const SIGN_OUT_FAILED_NOTICE =
   "Sign-out could not reach the gateway; the session may still be open. Sign in and sign out again once it answers.";
-
-const ROLES: readonly Role[] = ["viewer", "operator", "engineer", "admin"];
 
 function asRole(value: string): Role {
   return (ROLES as readonly string[]).includes(value) ? (value as Role) : "viewer";

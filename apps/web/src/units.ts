@@ -55,6 +55,18 @@ export function percentToFraction(percent: number): number {
 }
 
 /**
+ * A range in SI units as the operator types it, each bound rounded to `digits` decimals:
+ * 400 K is 126.85 °C, not 126.85000000000002.
+ */
+export function convertRange(
+  [low, high]: readonly [number, number],
+  convert: (value: number) => number,
+  digits: number,
+): readonly [number, number] {
+  return [Number(convert(low).toFixed(digits)), Number(convert(high).toFixed(digits))];
+}
+
+/**
  * The number an operator typed, or null. `Number("")` is 0, and a number input reports ""
  * for text it cannot parse ("12,5" in an en-US browser), so a cleared field would otherwise
  * become a valid command to close a valve.

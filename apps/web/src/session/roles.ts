@@ -3,6 +3,9 @@
 
 import type { Role } from "../api/types";
 
+/** From least to most privileged. */
+export const ROLES: readonly Role[] = ["viewer", "operator", "engineer", "admin"];
+
 const LEVEL: Record<Role, number> = { viewer: 1, operator: 2, engineer: 3, admin: 4 };
 
 export function atLeast(role: Role | null | undefined, minimum: Role): boolean {

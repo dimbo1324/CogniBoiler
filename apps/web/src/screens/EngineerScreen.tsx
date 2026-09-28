@@ -33,15 +33,13 @@ import {
 import { Panel } from "../components/ui/Panel";
 import { useLive } from "../live/LiveProvider";
 import { formatDateTime, formatDuration, formatReading, parseDecimal } from "../units";
+import { GATEWAY_LIMITS } from "../api/limits";
 import { queryKeys } from "../api/queryKeys";
 
 type Answer = SimulationAck | FaultAck;
 
-// The gateway's bounds for these two fields (schemas/plant.py): one hour of steps, and a
-// fault that takes at most an hour to develop.
-const STEPS_MIN = 1;
-const STEPS_MAX = 3600;
-const FAULT_RAMP_MAX_S = 3600;
+const [STEPS_MIN, STEPS_MAX] = GATEWAY_LIMITS.steps;
+const [FAULT_RAMP_MIN_S, FAULT_RAMP_MAX_S] = GATEWAY_LIMITS.faultRampS;
 
 interface FaultKindSpec {
   kind: FaultKind;
@@ -253,7 +251,9 @@ function FaultSection({ ask }: { ask: (action: PendingAction<Answer>) => void })
         ? severityValue
         : null;
   const rampToSend =
-    rampValue !== null && rampValue >= 0 && rampValue <= FAULT_RAMP_MAX_S ? rampValue : null;
+    rampValue !== null && rampValue >= FAULT_RAMP_MIN_S && rampValue <= FAULT_RAMP_MAX_S
+      ? rampValue
+      : null;
   const targetValid = spec.target === "none" || targets.includes(target);
   const valid = targetValid && severityToSend !== null && rampToSend !== null;
   const faults = live.plant?.faults ?? [];
@@ -317,7 +317,7 @@ function FaultSection({ ask }: { ask: (action: PendingAction<Answer>) => void })
           Develops over [s]
           <input
             type="number"
-            min={0}
+            min={FAULT_RAMP_MIN_S}
             max={FAULT_RAMP_MAX_S}
             value={ramp}
             onChange={(event) => {

@@ -5,7 +5,7 @@ import type { components } from "./schema.gen";
 
 type Schemas = components["schemas"];
 
-export type Role = "viewer" | "operator" | "engineer" | "admin";
+export type Role = Schemas["UserCreateRequest"]["role"];
 
 export type TokenResponse = Schemas["TokenResponse"];
 export type Profile = Schemas["ProfileResponse"];
@@ -24,6 +24,8 @@ export type AlarmPage = Schemas["AlarmPageResponse"];
 export type AlarmDetail = Schemas["AlarmDetailResponse"];
 export type AcknowledgeResponse = Schemas["AcknowledgeResponse"];
 
+// The schema gives only a pattern for this query parameter, so the union is written out;
+// contract.test.ts checks it against the pattern.
 export type HistoryMeasurement = "boiler_sensors" | "turbine_sensors" | "plant_status";
 export type HistoryResponse = Schemas["HistoryResponse"];
 export type Kpi = Schemas["KpiResponse"];

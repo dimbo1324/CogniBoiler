@@ -20,7 +20,6 @@ import type {
   PlcMode,
   PlcStatus,
   Profile,
-  Role,
   ScenarioList,
   ScenarioRunPage,
   SessionsRevoked,
@@ -273,5 +272,3 @@ export function revokeUserSessions(userId: number): Promise<SessionsRevoked> {
 export function fetchPlatform(signal?: AbortSignal): Promise<Platform> {
   return request("GET", "/api/v1/platform", { signal });
 }
-
-export const ROLES: readonly Role[] = ["viewer", "operator", "engineer", "admin"];
