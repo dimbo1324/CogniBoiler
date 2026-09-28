@@ -21,7 +21,7 @@ from physics_engine.constants import (
 )
 
 
-@dataclass
+@dataclass(frozen=True)
 class BoilerState:
     """
     Represents the instantaneous physical state of the boiler.

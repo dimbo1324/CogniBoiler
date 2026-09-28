@@ -87,7 +87,7 @@ def part_load_efficiency(design_efficiency: float, steam_flow: float) -> float:
     return round(efficiency / _EFFICIENCY_RESOLUTION) * _EFFICIENCY_RESOLUTION
 
 
-@dataclass
+@dataclass(frozen=True)
 class TurbineState:
     """
     Operating state of the turbine at a single time step.

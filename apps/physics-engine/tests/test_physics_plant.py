@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, replace
 from typing import Any
 
 import cogniboiler_pb2 as pb
@@ -129,6 +129,19 @@ class TestScenarios:
             plant.step(1)
         assert plant.snapshot is before
         assert plant.snapshot.step_count == 0
+
+
+class TestSnapshots:
+    def test_a_snapshot_cannot_be_changed_by_one_of_its_readers(self) -> None:
+        plant = PlantSimulator()
+        snapshot = plant.step(1)
+        with pytest.raises(FrozenInstanceError):
+            snapshot.boiler.pressure = 0.0  # type: ignore[misc]
+        with pytest.raises(FrozenInstanceError):
+            snapshot.turbine.electrical_power = 0.0  # type: ignore[misc]
+        commanded = snapshot.controls.fuel_valve_command
+        snapshot.controls.fuel_valve_command = 0.0
+        assert plant.step(1).controls.fuel_valve_command == commanded
 
 
 class TestValvesAndInstruments:

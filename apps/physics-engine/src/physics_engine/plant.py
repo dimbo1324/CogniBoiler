@@ -110,7 +110,11 @@ class PlantHeat:
 
 @dataclass(frozen=True)
 class PlantSnapshot:
-    """Everything known about the plant after a step."""
+    """Everything known about the plant after a step.
+
+    Boiler and turbine states are frozen; `controls` is the plant's own mutable type,
+    so the snapshot holds a copy that no reader can use to reach the plant.
+    """
 
     simulation_time_s: float
     step_count: int
