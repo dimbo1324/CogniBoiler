@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 
 import {
   clearAllFaults,
@@ -14,15 +14,17 @@ import {
   stepSimulation,
 } from "../api/endpoints";
 import type { FaultAck, FaultKind, SimulationAck, SimulationStatus } from "../api/types";
-import { CommandResult } from "../components/CommandResult";
-import { ConfirmDialog } from "../components/ConfirmDialog";
+import {
+  LastActionPanel,
+  useConfirmedAction,
+  type PendingAction,
+} from "../components/ConfirmedAction";
 import { Pager } from "../components/Pager";
 import { Icon } from "../components/ui/Icon";
 import { EmptyNote, ErrorOf } from "../components/ui/Note";
 import {
   AuditIcon,
   EngineerIcon,
-  OkIcon,
   PauseIcon,
   RunIcon,
   UnitIcon,
@@ -40,14 +42,6 @@ type Answer = SimulationAck | FaultAck;
 const STEPS_MIN = 1;
 const STEPS_MAX = 3600;
 const FAULT_RAMP_MAX_S = 3600;
-
-interface PendingAction {
-  title: string;
-  body: ReactNode;
-  confirmLabel: string;
-  danger?: boolean;
-  run: () => Promise<Answer>;
-}
 
 interface FaultKindSpec {
   kind: FaultKind;
@@ -189,7 +183,7 @@ function SimulationSection({
   );
 }
 
-function ScenarioSection({ ask }: { ask: (action: PendingAction) => void }) {
+function ScenarioSection({ ask }: { ask: (action: PendingAction<Answer>) => void }) {
   const scenarios = useQuery({
     queryKey: queryKeys.simulation.scenarios,
     queryFn: ({ signal }) => fetchScenarios(signal),
@@ -237,7 +231,7 @@ function ScenarioSection({ ask }: { ask: (action: PendingAction) => void }) {
   );
 }
 
-function FaultSection({ ask }: { ask: (action: PendingAction) => void }) {
+function FaultSection({ ask }: { ask: (action: PendingAction<Answer>) => void }) {
   const live = useLive();
   const [kind, setKind] = useState<FaultKind>("feedwater_pump_failure");
   const [target, setTarget] = useState("");
@@ -472,58 +466,20 @@ function RunsSection() {
 
 export function EngineerScreen() {
   const live = useLive();
-  const queryClient = useQueryClient();
-  const [pending, setPending] = useState<PendingAction | null>(null);
-  const [last, setLast] = useState<string | null>(null);
-  const action = useMutation({
-    mutationFn: (run: () => Promise<Answer>) => run(),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.simulation.all }),
-  });
-  const run = (label: string, perform: () => Promise<Answer>) => {
-    setLast(label);
-    action.mutate(perform);
-  };
+  const action = useConfirmedAction<Answer>(queryKeys.simulation.all);
 
   return (
     <div className="stack">
-      {last && (
-        <Panel
-          title="Last action"
-          glyph={OkIcon}
-          headline={<span className="muted">: {last}</span>}
-        >
-          <CommandResult result={action.data} error={action.error} />
-        </Panel>
-      )}
+      <LastActionPanel title="Last action" last={action.last} />
       {live.plant ? (
-        <SimulationSection status={live.plant.simulation} run={run} />
+        <SimulationSection status={live.plant.simulation} run={action.runNow} />
       ) : (
         <EmptyNote status>Waiting for the plant…</EmptyNote>
       )}
-      <FaultSection ask={setPending} />
-      <ScenarioSection ask={setPending} />
+      <FaultSection ask={action.ask} />
+      <ScenarioSection ask={action.ask} />
       <RunsSection />
-      {pending && (
-        <ConfirmDialog
-          title={pending.title}
-          confirmLabel={pending.confirmLabel}
-          danger={pending.danger}
-          busy={action.isPending}
-          onCancel={() => {
-            setPending(null);
-          }}
-          onConfirm={() => {
-            setLast(pending.title);
-            action.mutate(pending.run, {
-              onSettled: () => {
-                setPending(null);
-              },
-            });
-          }}
-        >
-          {pending.body}
-        </ConfirmDialog>
-      )}
+      {action.dialog}
     </div>
   );
 }

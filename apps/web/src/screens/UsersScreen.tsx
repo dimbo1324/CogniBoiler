@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, type FormEvent } from "react";
 
 import {
   ROLES,
@@ -14,7 +14,7 @@ import { ErrorOf } from "../components/ui/Note";
 import { OkIcon, UsersIcon } from "../components/ui/icons";
 import { Panel } from "../components/ui/Panel";
 import type { Role, User } from "../api/types";
-import { ConfirmDialog } from "../components/ConfirmDialog";
+import { useConfirmedAction, type PendingAction } from "../components/ConfirmedAction";
 import { Pager } from "../components/Pager";
 import { useUser } from "../session/SessionProvider";
 import { formatDateTime } from "../units";
@@ -24,15 +24,6 @@ const PAGE = 50;
 // The gateway's password policy (schemas/auth.py).
 export const PASSWORD_MIN_LENGTH = 12;
 export const USERNAME_PATTERN = /^[A-Za-z0-9._-]{3,64}$/u;
-
-interface PendingChange {
-  title: string;
-  body: ReactNode;
-  confirmLabel: string;
-  danger?: boolean;
-  run: () => Promise<unknown>;
-  done: string;
-}
 
 function CreateUser({ onCreated }: { onCreated: (message: string) => void }) {
   const queryClient = useQueryClient();
@@ -109,7 +100,7 @@ function UserRow({
 }: {
   user: User;
   self: boolean;
-  ask: (change: PendingChange) => void;
+  ask: (change: PendingAction<unknown>) => void;
 }) {
   const [role, setRole] = useState<Role>(user.role ?? "viewer");
   const [password, setPassword] = useState("");
@@ -234,17 +225,19 @@ function UserRow({
 
 export function UsersScreen() {
   const me = useUser();
-  const queryClient = useQueryClient();
   const [offset, setOffset] = useState(0);
-  const [pending, setPending] = useState<PendingChange | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const users = useQuery({
     queryKey: queryKeys.users.page(offset),
     queryFn: ({ signal }) => fetchUsers(PAGE, offset, signal),
   });
-  const change = useMutation({
-    mutationFn: (run: () => Promise<unknown>) => run(),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.users.all }),
+  const change = useConfirmedAction<unknown>(queryKeys.users.all, {
+    onConfirm: () => {
+      setMessage(null);
+    },
+    onSuccess: (action) => {
+      setMessage(action.done ?? null);
+    },
   });
 
   return (
@@ -257,7 +250,7 @@ export function UsersScreen() {
             {message}
           </p>
         )}
-        {change.error && <ErrorOf error={change.error} />}
+        {change.last?.error ? <ErrorOf error={change.last.error} /> : null}
         {users.isError && <ErrorOf error={users.error} />}
         <div className="table-scroll">
           <table>
@@ -277,7 +270,7 @@ export function UsersScreen() {
                   key={`${String(user.id)}:${user.role ?? ""}:${String(user.is_active)}`}
                   user={user}
                   self={user.username === me.username}
-                  ask={setPending}
+                  ask={change.ask}
                 />
               ))}
             </tbody>
@@ -285,31 +278,7 @@ export function UsersScreen() {
         </div>
         <Pager offset={offset} limit={PAGE} total={users.data?.total ?? 0} onChange={setOffset} />
       </Panel>
-      {pending && (
-        <ConfirmDialog
-          title={pending.title}
-          confirmLabel={pending.confirmLabel}
-          danger={pending.danger}
-          busy={change.isPending}
-          onCancel={() => {
-            setPending(null);
-          }}
-          onConfirm={() => {
-            const done = pending.done;
-            setMessage(null);
-            change.mutate(pending.run, {
-              onSuccess: () => {
-                setMessage(done);
-              },
-              onSettled: () => {
-                setPending(null);
-              },
-            });
-          }}
-        >
-          {pending.body}
-        </ConfirmDialog>
-      )}
+      {change.dialog}
     </div>
   );
 }

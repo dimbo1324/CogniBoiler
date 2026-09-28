@@ -1,5 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 
 import {
   resetEmergencyStop,
@@ -9,8 +8,11 @@ import {
   updateSetpoints,
 } from "../api/endpoints";
 import type { CommandAck, PlcMode, PlcStatus, ValveCommandRequest } from "../api/types";
-import { CommandResult } from "../components/CommandResult";
-import { ConfirmDialog } from "../components/ConfirmDialog";
+import {
+  LastActionPanel,
+  useConfirmedAction,
+  type PendingAction,
+} from "../components/ConfirmedAction";
 import { PlcModeBadge } from "../components/PlcModeBadge";
 import { tripDescription } from "../components/PlcPanel";
 import { Icon } from "../components/ui/Icon";
@@ -18,7 +20,6 @@ import { EmptyNote, ErrorNote } from "../components/ui/Note";
 import {
   ControlIcon,
   EmergencyStopIcon,
-  OkIcon,
   PlcIcon,
   PowerIcon,
   PressureIcon,
@@ -55,13 +56,7 @@ export const LIMITS = {
   valvePct: [0, 100],
 } as const;
 
-interface PendingCommand {
-  title: string;
-  body: ReactNode;
-  confirmLabel: string;
-  danger?: boolean;
-  run: () => Promise<CommandAck>;
-}
+type Ask = (command: PendingAction<CommandAck>) => void;
 
 export function inRange(value: number | null, [low, high]: readonly [number, number]): boolean {
   return value !== null && Number.isFinite(value) && value >= low && value <= high;
@@ -113,7 +108,7 @@ function NumberField({
   );
 }
 
-function LoadSection({ plc, ask }: { plc: PlcStatus; ask: (command: PendingCommand) => void }) {
+function LoadSection({ plc, ask }: { plc: PlcStatus; ask: Ask }) {
   const [load, setLoad] = useState(() => formatReading(wattsToMegawatts(plc.load_demand_w), 0));
   const target = readInRange(load, LIMITS.loadMw);
   return (
@@ -167,7 +162,7 @@ const MODE_TEXT: Record<Exclude<PlcMode, "estop">, string> = {
   manual: "The PLC holds the current valve positions until an operator moves them.",
 };
 
-function ModeSection({ plc, ask }: { plc: PlcStatus; ask: (command: PendingCommand) => void }) {
+function ModeSection({ plc, ask }: { plc: PlcStatus; ask: Ask }) {
   const choose = (mode: Exclude<PlcMode, "estop">) => {
     ask({
       title: `Switch the PLC to ${mode.toUpperCase()}`,
@@ -259,7 +254,7 @@ function positionsOf(plc: PlcStatus): Record<ValveName, string> {
   };
 }
 
-function ValvesSection({ plc, ask }: { plc: PlcStatus; ask: (command: PendingCommand) => void }) {
+function ValvesSection({ plc, ask }: { plc: PlcStatus; ask: Ask }) {
   const [positions, setPositions] = useState(() => positionsOf(plc));
   const command = valveCommand(positions);
   return (
@@ -321,13 +316,7 @@ function ValvesSection({ plc, ask }: { plc: PlcStatus; ask: (command: PendingCom
   );
 }
 
-function SetpointsSection({
-  plc,
-  ask,
-}: {
-  plc: PlcStatus;
-  ask: (command: PendingCommand) => void;
-}) {
+function SetpointsSection({ plc, ask }: { plc: PlcStatus; ask: Ask }) {
   const [pressure, setPressure] = useState(() =>
     formatReading(pascalsToBar(plc.setpoints.pressure_pa), 1),
   );
@@ -400,7 +389,7 @@ function SetpointsSection({
   );
 }
 
-function ResetSection({ plc, ask }: { plc: PlcStatus; ask: (command: PendingCommand) => void }) {
+function ResetSection({ plc, ask }: { plc: PlcStatus; ask: Ask }) {
   if (!plc.emergency_stop_active) {
     return null;
   }
@@ -442,18 +431,11 @@ function ResetSection({ plc, ask }: { plc: PlcStatus; ask: (command: PendingComm
 
 export function ControlScreen() {
   const live = useLive();
-  const queryClient = useQueryClient();
-  const [pending, setPending] = useState<PendingCommand | null>(null);
-  const [last, setLast] = useState<string | null>(null);
+  const command = useConfirmedAction<CommandAck>(queryKeys.plc.all);
   const mayOperate = useCan("set_load");
   const mayValves = useCan("manual_valves");
   const maySetpoints = useCan("set_setpoints");
   const mayReset = useCan("reset_estop");
-
-  const command = useMutation({
-    mutationFn: (run: () => Promise<CommandAck>) => run(),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.plc.all }),
-  });
 
   if (live.plc === null) {
     return <EmptyNote status>Waiting for the PLC…</EmptyNote>;
@@ -461,41 +443,13 @@ export function ControlScreen() {
   const plc = live.plc;
   return (
     <div className="stack">
-      {last && (
-        <Panel
-          title="Last command"
-          glyph={OkIcon}
-          headline={<span className="muted">: {last}</span>}
-        >
-          <CommandResult result={command.data} error={command.error} />
-        </Panel>
-      )}
-      {mayOperate && <LoadSection plc={plc} ask={setPending} />}
-      {mayOperate && <ModeSection plc={plc} ask={setPending} />}
-      {mayReset && <ResetSection plc={plc} ask={setPending} />}
-      {mayValves && <ValvesSection plc={plc} ask={setPending} />}
-      {maySetpoints && <SetpointsSection plc={plc} ask={setPending} />}
-      {pending && (
-        <ConfirmDialog
-          title={pending.title}
-          confirmLabel={pending.confirmLabel}
-          danger={pending.danger}
-          busy={command.isPending}
-          onCancel={() => {
-            setPending(null);
-          }}
-          onConfirm={() => {
-            setLast(pending.title);
-            command.mutate(pending.run, {
-              onSettled: () => {
-                setPending(null);
-              },
-            });
-          }}
-        >
-          {pending.body}
-        </ConfirmDialog>
-      )}
+      <LastActionPanel title="Last command" last={command.last} />
+      {mayOperate && <LoadSection plc={plc} ask={command.ask} />}
+      {mayOperate && <ModeSection plc={plc} ask={command.ask} />}
+      {mayReset && <ResetSection plc={plc} ask={command.ask} />}
+      {mayValves && <ValvesSection plc={plc} ask={command.ask} />}
+      {maySetpoints && <SetpointsSection plc={plc} ask={command.ask} />}
+      {command.dialog}
     </div>
   );
 }
