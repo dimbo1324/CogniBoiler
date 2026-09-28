@@ -1,7 +1,13 @@
-"""Mapping of AlarmService protobuf messages to the REST and WebSocket schema."""
+"""Mapping of AlarmService protobuf messages to the REST and WebSocket schema.
+
+A state this gateway does not know (the proto default, or one added to the contract
+later) is shown as active and unacknowledged: for an alarm display, not knowing must
+never read as "nothing to see".
+"""
 
 from __future__ import annotations
 
+import logging
 from typing import cast
 
 import cogniboiler_pb2 as pb2
@@ -11,6 +17,8 @@ from api_gateway.schemas.ops import (
     AlarmStateName,
     AlarmTransitionResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 _STATE_NAMES: dict[int, str] = {
     int(pb2.AlarmState.ALARM_ACTIVE_UNACK): "ACTIVE_UNACK",
@@ -22,13 +30,25 @@ _ACKNOWLEDGED = frozenset({"ACTIVE_ACK", "CLEARED"})
 _CLEARED = frozenset({"CLEARED_UNACK", "CLEARED"})
 
 
-def _state(value: int) -> AlarmStateName:
-    return cast(AlarmStateName, _STATE_NAMES.get(int(value), "CLEARED"))
+_UNKNOWN_STATE: AlarmStateName = "ACTIVE_UNACK"
+
+
+def _state(value: int, alarm_id: int) -> AlarmStateName:
+    name = _STATE_NAMES.get(int(value))
+    if name is None:
+        logger.warning(
+            "Alarm %d has state %d, unknown to the gateway; shown as %s",
+            alarm_id,
+            int(value),
+            _UNKNOWN_STATE,
+        )
+        return _UNKNOWN_STATE
+    return cast(AlarmStateName, name)
 
 
 def alarm_from_proto(message: pb2.AlarmMsg) -> AlarmResponse:
     """Map an AlarmService alarm to the REST schema."""
-    state = _state(message.state)
+    state = _state(message.state, message.alarm_id)
     return AlarmResponse(
         alarm_id=str(message.alarm_id),
         id=message.alarm_id,
@@ -62,11 +82,11 @@ def transition_from_proto(message: pb2.AlarmTransitionMsg) -> AlarmTransitionRes
         id=message.transition_id,
         alarm_id=message.alarm_id,
         from_state=(
-            _state(message.from_state)
+            _state(message.from_state, message.alarm_id)
             if message.from_state != pb2.AlarmState.ALARM_STATE_UNSPECIFIED
             else None
         ),
-        to_state=_state(message.to_state),
+        to_state=_state(message.to_state, message.alarm_id),
         at_ms=message.at_ms,
         actor=message.actor,
         comment=message.comment or None,

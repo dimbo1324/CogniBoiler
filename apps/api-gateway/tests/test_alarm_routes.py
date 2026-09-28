@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import cogniboiler_pb2 as pb2
 import pytest
-from api_gateway.alarm_state import alarm_from_proto
+from api_gateway.alarm_state import alarm_from_proto, transition_from_proto
 from fastapi import FastAPI
 from gateway_fakes import FakeAlarmClient, alarm, not_found
 from httpx import AsyncClient
@@ -36,7 +37,6 @@ class TestMapping:
             (pb2.AlarmState.ALARM_ACTIVE_ACK, "ACTIVE_ACK", True, False),
             (pb2.AlarmState.ALARM_CLEARED_UNACK, "CLEARED_UNACK", False, True),
             (pb2.AlarmState.ALARM_CLEARED, "CLEARED", True, True),
-            (pb2.AlarmState.ALARM_STATE_UNSPECIFIED, "CLEARED", True, True),
         ],
     )
     def test_states_and_flags(
@@ -46,6 +46,27 @@ class TestMapping:
         assert mapped.state == name
         assert mapped.acknowledged is acknowledged
         assert mapped.cleared is cleared
+
+    @pytest.mark.parametrize("state", [pb2.AlarmState.ALARM_STATE_UNSPECIFIED, 99])
+    def test_a_state_the_gateway_does_not_know_is_shown_as_active_unacknowledged(
+        self, state: int, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.WARNING, logger="api_gateway.alarm_state"):
+            mapped = alarm_from_proto(alarm(3, state=state))
+        assert mapped.state == "ACTIVE_UNACK"
+        assert (mapped.acknowledged, mapped.cleared) == (False, False)
+        (record,) = caplog.records
+        assert "3" in record.getMessage() and str(int(state)) in record.getMessage()
+
+    def test_an_unspecified_from_state_of_a_transition_is_null(self) -> None:
+        mapped = transition_from_proto(
+            pb2.AlarmTransitionMsg(
+                alarm_id=3,
+                from_state=pb2.AlarmState.ALARM_STATE_UNSPECIFIED,
+                to_state=pb2.AlarmState.ALARM_ACTIVE_UNACK,
+            )
+        )
+        assert (mapped.from_state, mapped.to_state) == (None, "ACTIVE_UNACK")
 
     def test_unset_times_and_names_become_null(self) -> None:
         mapped = alarm_from_proto(alarm(3))
