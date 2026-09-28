@@ -4,3 +4,10 @@ coverage
 e2e-results
 e2e-report
 *.tsbuildinfo
+# Not part of the served console. A VITE_* variable in an .env file would be inlined
+# into the public bundle.
+.env*
+e2e
+readme
+readme-results
+playwright*.config.ts
