@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api_gateway.auth.password import hash_password
 from api_gateway.config import settings
-from api_gateway.dependencies import AsyncSessionLocal
+from api_gateway.dependencies import session_factory
 from api_gateway.models.user import Role, User, UserRole
 
 logger = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ async def seed_roles_and_demo_users() -> None:
     Passwords come from settings (DEMO_*_PASSWORD); a user whose password is empty is
     not created, so no credential is ever hardcoded here.
     """
-    async with AsyncSessionLocal() as session:
+    async with session_factory()() as session:
         role_names = [name for name, _ in ROLE_DESCRIPTIONS]
         role_rows = (
             (await session.execute(select(Role).where(Role.name.in_(role_names))))

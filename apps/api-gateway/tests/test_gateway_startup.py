@@ -41,7 +41,7 @@ async def seeded_database(
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    monkeypatch.setattr(db_init, "AsyncSessionLocal", factory)
+    monkeypatch.setattr(db_init, "session_factory", lambda: factory)
     for field, value in DEMO_PASSWORDS.items():
         monkeypatch.setattr(settings, field, value)
     yield factory
@@ -148,6 +148,10 @@ class TestSeeding:
 
 
 class TestLifespan:
+    @pytest.fixture(autouse=True)
+    def configured_database(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(settings, "database_url", "sqlite+aiosqlite://")
+
     async def test_clients_and_sources_live_as_long_as_the_application(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -254,6 +258,23 @@ class TestLifespan:
         monkeypatch.setattr(settings, "auto_init_db", False)
         monkeypatch.setattr(settings, "jwt_private_key", "")
         with pytest.raises(RuntimeError, match="jwt_private_key"):
+            async with main.lifespan(main.create_app()):
+                pass
+        assert made == []
+
+    async def test_no_database_url_stops_start_up_with_a_clear_message(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        made: list[str] = []
+
+        def refuse(config: object) -> Any:
+            made.append("client")
+            return FakePhysicsClient()
+
+        monkeypatch.setattr(main, "PhysicsGatewayClient", refuse)
+        monkeypatch.setattr(settings, "auto_init_db", False)
+        monkeypatch.setattr(settings, "database_url", "")
+        with pytest.raises(RuntimeError, match="DATABASE_URL is not set"):
             async with main.lifespan(main.create_app()):
                 pass
         assert made == []

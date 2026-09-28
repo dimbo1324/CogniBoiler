@@ -62,9 +62,9 @@ class Settings(BaseSettings):
     # Argon2 runs allowed at once (64 MiB each); further sign-ins wait their turn.
     login_max_concurrent_hashes: int = Field(default=4, ge=1)
 
-    # Database: DATABASE_URL carries the account and its password; the default names no
-    # account, so a gateway started without it cannot sign in anywhere by accident.
-    database_url: str = "postgresql+asyncpg://localhost:5432/cogniboiler"
+    # Database: DATABASE_URL carries the account and its password. There is no default,
+    # so a gateway started without it stops with a message instead of trying a server.
+    database_url: str = ""
     auto_init_db: bool = False
 
     # Demo users seeded by AUTO_INIT_DB; an empty password skips that user.
@@ -102,6 +102,15 @@ class Settings(BaseSettings):
 
     # Readiness probe
     ready_check_timeout_s: float = 2.0
+
+    def require_database_url(self) -> str:
+        """DATABASE_URL, or a RuntimeError that says it is missing."""
+        if not self.database_url:
+            raise RuntimeError(
+                "DATABASE_URL is not set: set it in the environment or in .env "
+                "(python dev_tools_scripts_runner.py dev-secrets writes one)"
+            )
+        return self.database_url
 
 
 settings = Settings()

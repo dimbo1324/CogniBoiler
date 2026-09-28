@@ -29,6 +29,7 @@ from api_gateway.clients import (
 )
 from api_gateway.config import settings
 from api_gateway.db_init import seed_roles_and_demo_users
+from api_gateway.dependencies import get_db
 from api_gateway.historian_query import HistorianQueryClient, HistorianQueryConfig
 from api_gateway.observability import ObservabilityMiddleware, observe_app
 from api_gateway.observability import router as metrics_router
@@ -63,6 +64,8 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Upstream clients and realtime sources live exactly as long as the application."""
     validate_signing_keys()
+    if get_db not in app.dependency_overrides:
+        settings.require_database_url()
     if settings.auto_init_db:
         await seed_roles_and_demo_users()
 

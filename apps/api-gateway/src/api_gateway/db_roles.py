@@ -80,7 +80,7 @@ def main() -> int:
             return 1
         passwords[role] = value
     try:
-        asyncio.run(provision(settings.database_url, passwords))
+        asyncio.run(provision(settings.require_database_url(), passwords))
     except RuntimeError as exc:
         logger.error("Provisioning the application roles failed: %s", exc)
         return 1

@@ -2,19 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
-
-import pytest_asyncio
-from api_gateway.main import create_app
-from httpx import ASGITransport, AsyncClient
-
-
-@pytest_asyncio.fixture
-async def client() -> AsyncGenerator[AsyncClient]:
-    async with AsyncClient(
-        transport=ASGITransport(app=create_app()), base_url="http://test"
-    ) as c:
-        yield c
+from httpx import AsyncClient
 
 
 async def test_a_caller_correlation_id_is_adopted_and_returned(

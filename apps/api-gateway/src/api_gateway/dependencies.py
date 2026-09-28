@@ -21,12 +21,15 @@ Connection pool:
 Configuration:
     database_url is read from settings (env var DATABASE_URL or .env file).
     Format: postgresql+asyncpg://user:password@host:port/dbname
+    The engine is made on first use, so importing this module needs no database;
+    without DATABASE_URL that first use raises an error that names it.
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
+from functools import cache
 from typing import Annotated
 
 from fastapi import Depends, FastAPI
@@ -36,27 +39,32 @@ from api_gateway.config import settings
 
 # ─── Engine and session factory ───────────────────────────────────────────────
 
-# create_async_engine is module-level — one engine per process.
-# pool_pre_ping=True verifies connections before use (handles stale connections
-# after database restarts without raising errors to the application).
-engine = create_async_engine(
-    settings.database_url,
-    pool_pre_ping=True,
-    echo=settings.debug,  # log SQL statements in debug mode
-    # A failed statement is logged without its values: they carry user names and
-    # token digests, which do not belong in a log.
-    hide_parameters=True,
-)
 
-# async_sessionmaker replaces the older sessionmaker for async usage.
-# expire_on_commit=False prevents lazy-loading errors after commit —
-# attributes remain accessible without an active session.
-AsyncSessionLocal = async_sessionmaker(
-    bind=engine,
-    expire_on_commit=False,
-    autoflush=False,
-    autocommit=False,
-)
+@cache
+def _session_factory(database_url: str) -> async_sessionmaker[AsyncSession]:
+    # One engine per URL and process. pool_pre_ping=True verifies connections before
+    # use (handles stale connections after database restarts).
+    engine = create_async_engine(
+        database_url,
+        pool_pre_ping=True,
+        echo=settings.debug,  # log SQL statements in debug mode
+        # A failed statement is logged without its values: they carry user names and
+        # token digests, which do not belong in a log.
+        hide_parameters=True,
+    )
+    # expire_on_commit=False prevents lazy-loading errors after commit —
+    # attributes remain accessible without an active session.
+    return async_sessionmaker(
+        bind=engine,
+        expire_on_commit=False,
+        autoflush=False,
+        autocommit=False,
+    )
+
+
+def session_factory() -> async_sessionmaker[AsyncSession]:
+    """Sessions of the configured database; the engine is made on first use."""
+    return _session_factory(settings.require_database_url())
 
 
 # ─── Dependency ───────────────────────────────────────────────────────────────
@@ -80,7 +88,7 @@ async def get_db() -> AsyncGenerator[AsyncSession]:
             db.add(entry)
             await db.commit()
     """
-    async with AsyncSessionLocal() as session:
+    async with session_factory()() as session:
         yield session
 
 

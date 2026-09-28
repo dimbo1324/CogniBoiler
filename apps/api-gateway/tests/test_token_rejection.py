@@ -17,6 +17,7 @@ from typing import Any
 
 import jwt
 import pytest
+from api_gateway import dependencies
 from api_gateway.auth import jwt_handler
 from api_gateway.auth.jwt_handler import (
     AUDIENCE,
@@ -342,10 +343,26 @@ class TestSettingsArePinned:
 
 
 class TestNoWorkingDefaults:
-    def test_the_database_default_carries_no_credentials(self) -> None:
-        url = make_url(Settings(_env_file=None).database_url)
-        assert url.password is None
-        assert url.username is None
+    def test_there_is_no_default_database(self) -> None:
+        assert Settings(_env_file=None).database_url == ""
+
+    def test_without_a_database_url_the_first_session_says_what_is_missing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "database_url", "")
+        with pytest.raises(RuntimeError, match="DATABASE_URL is not set"):
+            dependencies.session_factory()
+
+    def test_the_engine_is_made_on_first_use_once_per_url(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "database_url", "sqlite+aiosqlite:///first.db")
+        first = dependencies.session_factory()
+        assert dependencies.session_factory() is first
+        monkeypatch.setattr(settings, "database_url", "sqlite+aiosqlite:///other.db")
+        other = dependencies.session_factory()
+        assert other is not first
+        assert make_url(str(other.kw["bind"].url)).database == "other.db"
 
     def test_no_browser_origin_is_trusted_by_default(self) -> None:
         assert Settings(_env_file=None).cors_allowed_origins == []

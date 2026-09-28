@@ -15,7 +15,32 @@ from typing import Any
 
 import pytest
 from api_gateway import db_roles
+from api_gateway.config import settings
 from sqlalchemy.exc import DBAPIError
+
+
+@pytest.fixture(autouse=True)
+def configured_database(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        settings, "database_url", "postgresql+asyncpg://owner@db/cogniboiler"
+    )
+
+
+def test_without_a_database_url_it_stops_and_says_so(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("GATEWAY_DB_PASSWORD", "gateway-secret")
+    monkeypatch.setenv("ALARMS_DB_PASSWORD", "alarms-secret")
+    monkeypatch.setattr(settings, "database_url", "")
+    called: list[object] = []
+
+    async def provision(*args: object) -> None:
+        called.append(args)
+
+    monkeypatch.setattr(db_roles, "provision", provision)
+    assert db_roles.main() == 1
+    assert called == []
+    assert "DATABASE_URL is not set" in "".join(capsys.readouterr())
 
 
 def test_it_refuses_to_run_without_every_password(

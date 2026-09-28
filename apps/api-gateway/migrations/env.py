@@ -42,7 +42,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Override sqlalchemy.url from application settings (reads .env)
-config.set_main_option("sqlalchemy.url", settings.database_url)
+config.set_main_option("sqlalchemy.url", settings.require_database_url())
 
 # Metadata for --autogenerate support
 target_metadata = Base.metadata
