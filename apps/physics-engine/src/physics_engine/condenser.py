@@ -46,9 +46,8 @@ CONDENSER_UA: float = 40.0e6  # W/K
 COOLING_WATER_FLOW: float = 8_000.0  # kg/s — typical for 300 MW unit
 COOLING_WATER_TEMP_DESIGN: float = 288.15  # K  — 15°C design CW inlet
 
-# Deaerator: direct-contact heater, removes dissolved O2 from condensate.
-# Operates at fixed pressure; condensate exits at saturation temperature.
-DEAERATOR_PRESSURE: float = 3.5e5  # Pa — 3.5 bar
+# Deaerator: direct-contact heater at a fixed 3.5 bar, removes dissolved O2 from
+# condensate, which leaves it at saturation temperature.
 DEAERATOR_TEMP: float = 412.15  # K  — saturation temp at 3.5 bar ≈ 139°C
 
 # Condenser pressure limits [Pa]

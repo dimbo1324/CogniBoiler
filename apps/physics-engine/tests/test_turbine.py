@@ -8,6 +8,11 @@ Test categories:
 """
 
 import pytest
+from physics_engine.constants import (
+    MAX_STEAM_FLOW,
+    PRESSURE_NOMINAL,
+    TEMP_STEAM_NOMINAL,
+)
 from physics_engine.models import BoilerParameters, ControlInputs
 from physics_engine.system import BoilerTurbineSystem, SystemState
 from physics_engine.turbine import TurbineModel, TurbineState
@@ -24,7 +29,11 @@ def turbine() -> TurbineModel:
 @pytest.fixture  # type: ignore[misc]
 def nominal_state(turbine: TurbineModel) -> TurbineState:
     """Turbine state at nominal boiler output: 552.5°C, 140 bar, 277.8 kg/s."""
-    return turbine.nominal_state()
+    return turbine.calculate(
+        steam_temp_in=TEMP_STEAM_NOMINAL,
+        steam_pressure_in=PRESSURE_NOMINAL,
+        steam_flow=MAX_STEAM_FLOW,
+    )
 
 
 @pytest.fixture  # type: ignore[misc]
@@ -142,12 +151,12 @@ class TestTurbinePhysics:
         assert part.isentropic_efficiency < rated.isentropic_efficiency
 
     def test_isentropic_efficiency_applied_correctly(
-        self, turbine: TurbineModel
+        self, turbine: TurbineModel, nominal_state: TurbineState
     ) -> None:
         """
         Actual work must equal η_is × ideal work to within floating-point tolerance.
         """
-        state = turbine.nominal_state()
+        state = nominal_state
         expected = turbine.params.isentropic_efficiency * state.specific_work_ideal
         assert abs(state.specific_work_actual - expected) < 1.0, (
             f"η_is not applied correctly: "

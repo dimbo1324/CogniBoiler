@@ -62,7 +62,6 @@ TUBE_NOMINAL_DAMAGE_RATE: float = 1.0 / (
 
 # Alarm / warning thresholds
 HEALTH_WARNING_THRESHOLD: float = 0.80  # 80% → schedule maintenance window
-HEALTH_ALARM_THRESHOLD: float = 0.95  # 95% → maintenance overdue
 HEALTH_CRITICAL_THRESHOLD: float = 1.00  # 100% → failure risk; forced outage risk
 
 

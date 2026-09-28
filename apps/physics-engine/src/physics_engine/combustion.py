@@ -23,13 +23,6 @@ from physics_engine.constants import (
     TEMP_AMBIENT,
 )
 
-# ─── Natural gas composition (mole fractions) ─────────────────────────────────
-# Typical pipeline natural gas composition
-METHANE_FRACTION: float = 0.92  # CH4
-ETHANE_FRACTION: float = 0.04  # C2H6
-PROPANE_FRACTION: float = 0.02  # C3H8
-NITROGEN_FRACTION: float = 0.02  # N2 (inert)
-
 # Stoichiometric air-fuel ratio of the fuel as fired [kg_air / kg_fuel]
 STOICHIOMETRIC_AFR: float = FUEL_STOICHIOMETRIC_AIR
 
@@ -123,11 +116,7 @@ class CombustionModel:
         return max(0.0, min(1.0, eta))
 
     def _adiabatic_flame_temp(
-        self,
-        fuel_flow: float,
-        air_flow: float,
-        heat_released: float,
-        flue_gas_flow: float,
+        self, heat_released: float, flue_gas_flow: float
     ) -> float:
         """
         Estimate adiabatic flame temperature [K].
@@ -185,7 +174,7 @@ class CombustionModel:
         q_available = q_released + q_air_preheat
 
         # ── Adiabatic flame temperature ───────────────────────────────────────
-        t_flame = self._adiabatic_flame_temp(m_fuel, m_air, q_released, m_flue)
+        t_flame = self._adiabatic_flame_temp(q_released, m_flue)
 
         return CombustionState(
             fuel_flow=m_fuel,
@@ -197,23 +186,3 @@ class CombustionModel:
             excess_air_ratio=lam,
             eta_combustion=eta,
         )
-
-    def flue_gas_heat_loss(
-        self, flue_gas_temp_exit: float, flue_gas_flow: float
-    ) -> float:
-        """
-        Heat lost with exiting flue gas through the stack [W].
-
-        This is the main boiler efficiency loss. Lower exit temp = better efficiency.
-        Typical stack temperature target: 120–160°C (393–433 K).
-
-        Args:
-            flue_gas_temp_exit: Flue gas temperature leaving the boiler [K].
-            flue_gas_flow: Flue gas mass flow [kg/s].
-
-        Returns:
-            Heat loss rate [W].
-        """
-        target_stack_temp = 423.15  # K — 150°C target stack temperature
-        delta_t = max(flue_gas_temp_exit - target_stack_temp, 0.0)
-        return flue_gas_flow * CP_FLUE_GAS * delta_t

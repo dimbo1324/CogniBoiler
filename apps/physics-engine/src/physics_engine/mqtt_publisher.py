@@ -33,13 +33,10 @@ from aiomqtt import MqttError as AioMqttError
 from cogniboiler_observability import MQTT_PUBLISH_ERRORS, MQTT_PUBLISHED
 from cogniboiler_runtime import MqttSession
 
-from physics_engine.models import BoilerState
 from physics_engine.plant import PlantSnapshot
 from physics_engine.proto_mapping import (
-    boiler_state_to_proto,
     boiler_to_proto,
     plant_status_to_proto,
-    turbine_state_to_proto,
     turbine_to_proto,
 )
 from physics_engine.runtime import (
@@ -47,7 +44,6 @@ from physics_engine.runtime import (
     RuntimeUnavailableError,
     SimulationStatus,
 )
-from physics_engine.turbine import TurbineState
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +74,6 @@ class MQTTConfig:
     port: int = 1883
     keepalive: int = 60  # seconds
     client_id: str = "physics-engine"
-    interval_s: float = 0.1  # publish every 100 ms = 10 Hz
     username: str | None = None
     password: str | None = None
 
@@ -96,8 +91,7 @@ class MQTTPublisher:
 
     Usage (one-shot, for testing):
         async with pub.connected() as client:
-            await pub.publish_boiler(client, boiler_state)
-            await pub.publish_turbine(client, turbine_state)
+            await pub.publish_snapshot(client, snapshot, status)
     """
 
     def __init__(self, config: MQTTConfig | None = None) -> None:
@@ -138,32 +132,6 @@ class MQTTPublisher:
             raise
         self._published += 1
         MQTT_PUBLISHED.labels(topic).inc()
-
-    async def publish_boiler(
-        self,
-        client: Client,
-        state: BoilerState,
-    ) -> None:
-        """
-        Serialize BoilerState to BoilerStateMsg and publish to sensors/boiler.
-
-        One MQTT message per call, QoS 0.
-        """
-        payload = boiler_state_to_proto(state).SerializeToString()
-        await self._publish(client, TOPIC_BOILER, payload)
-
-    async def publish_turbine(
-        self,
-        client: Client,
-        state: TurbineState,
-    ) -> None:
-        """
-        Serialize TurbineState to TurbineStateMsg and publish to sensors/turbine.
-
-        One MQTT message per call, QoS 0.
-        """
-        payload = turbine_state_to_proto(state).SerializeToString()
-        await self._publish(client, TOPIC_TURBINE, payload)
 
     async def publish_heartbeat(self, client: Client) -> None:
         """Publish system sync heartbeat with current timestamp."""
@@ -207,7 +175,7 @@ class MQTTPublisher:
 
         Usage:
             async with publisher.connected() as client:
-                await publisher.publish_boiler(client, state)
+                await publisher.publish_snapshot(client, snapshot, status)
         """
         return Client(
             hostname=self.config.host,

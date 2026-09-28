@@ -1,15 +1,6 @@
 """Physical constants and design data of the CogniBoiler 300 MW gas-fired drum unit."""
 
-# ─── Thermodynamic constants ────────────────────────────────────────────────
-SPECIFIC_HEAT_WATER: float = 4186.0  # J/(kg·K)  — specific heat of liquid water
-SPECIFIC_HEAT_STEAM: float = 2010.0  # J/(kg·K)  — specific heat of superheated steam
-LATENT_HEAT_VAPORIZATION: float = (
-    2.26e6  # J/kg      — heat of vaporization at ~100°C (reference)
-)
-WATER_DENSITY: float = 850.0  # kg/m³     — density of hot pressurized water (~300°C)
-
 # ─── Boiler drum geometry ───────────────────────────────────────────────────
-DRUM_VOLUME: float = 50.0  # m³        — total drum volume
 DRUM_CROSS_SECTION: float = 6.0  # m²        — cross-sectional area of drum
 DRUM_HEIGHT: float = 8.0  # m         — total drum height
 NOMINAL_WATER_LEVEL: float = 4.8  # m   — normal water level, 60 % of drum height
@@ -19,7 +10,6 @@ PRESSURE_MIN: float = 20.0e5  # Pa — minimum operating pressure (20 bar, safet
 PRESSURE_MAX: float = 180.0e5  # Pa        — maximum operating pressure (180 bar)
 PRESSURE_NOMINAL: float = 140.0e5  # Pa        — nominal operating pressure (140 bar)
 
-TEMP_STEAM_MIN: float = 813.15  # K         — min superheated steam temp (540°C)
 TEMP_STEAM_MAX: float = 838.15  # K         — max superheated steam temp (565°C)
 TEMP_STEAM_NOMINAL: float = 825.65  # K         — nominal steam temp (552.5°C)
 TEMP_STEAM_RATED: float = 811.0  # K — turbine inlet design temperature after spray
@@ -72,7 +62,6 @@ BOILER_STORAGE_HEAT_CAPACITY: float = 2.0e8  # J/K
 # Rated flow at nominal pressure needs the valve about 85 % open.
 STEAM_VALVE_COEFFICIENT: float = 290.0  # kg/s — fully open valve at nominal pressure
 MAX_STEAM_FLOW: float = 277.8  # kg/s       — max steam flow (1000 t/h)
-MIN_STEAM_FLOW: float = 138.9  # kg/s       — min steam flow (500 t/h)
 MAX_FEEDWATER_FLOW: float = 380.0  # kg/s — feedwater valve fully open, pump healthy
 MAX_SPRAY_FLOW: float = 30.0  # kg/s — attemperator spray valve fully open
 # Spray is capped to this fraction of the steam flow: more water than that would reach

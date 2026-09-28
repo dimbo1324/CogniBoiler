@@ -7,14 +7,12 @@ from physics_engine.constants import (
     BOILER_STORAGE_HEAT_CAPACITY,
     DRUM_CROSS_SECTION,
     DRUM_HEIGHT,
-    DRUM_VOLUME,
     HEAT_LOSS_COEFFICIENT,
     HEAT_TRANSFER_GAS_WATER,
     MAX_FEEDWATER_FLOW,
     MAX_FUEL_FLOW,
     MAX_SPRAY_FLOW,
     MAX_STEAM_FLOW,
-    MIN_STEAM_FLOW,
     NOMINAL_WATER_LEVEL,
     PRESSURE_NOMINAL,
     STEAM_VALVE_COEFFICIENT,
@@ -206,7 +204,6 @@ class BoilerParameters:
     """
 
     # Geometry
-    drum_volume: float = DRUM_VOLUME  # m³
     drum_cross_section: float = DRUM_CROSS_SECTION  # m²
     drum_height: float = DRUM_HEIGHT  # m
 
@@ -217,7 +214,6 @@ class BoilerParameters:
     # Operating limits
     max_fuel_flow: float = MAX_FUEL_FLOW  # kg/s
     max_steam_flow: float = MAX_STEAM_FLOW  # kg/s
-    min_steam_flow: float = MIN_STEAM_FLOW  # kg/s
     steam_valve_coeff: float = STEAM_VALVE_COEFFICIENT  # kg/s, open valve, nominal P
 
     # Boundary conditions

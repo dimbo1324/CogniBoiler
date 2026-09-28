@@ -3,7 +3,7 @@ Tests for MQTTPublisher (protobuf edition).
 
 Strategy: mock aiomqtt.Client — no real broker needed.
 We verify:
-  - correct topic names (sensors/boiler, sensors/turbine)
+  - correct topic names and their order (sensors/plant first)
   - payload deserializes to correct protobuf message type
   - field values match the physics state
   - error counting on publish failure
@@ -16,15 +16,23 @@ from unittest.mock import AsyncMock, MagicMock
 
 import cogniboiler_pb2 as pb
 import pytest
+from physics_engine.constants import (
+    MAX_STEAM_FLOW,
+    PRESSURE_NOMINAL,
+    TEMP_STEAM_NOMINAL,
+)
 from physics_engine.models import BoilerParameters, BoilerState
 from physics_engine.mqtt_publisher import (
     TOPIC_BOILER,
     TOPIC_HEARTBEAT,
+    TOPIC_PLANT,
     TOPIC_TURBINE,
     MQTTConfig,
     MQTTPublisher,
 )
+from physics_engine.plant import PlantSimulator, PlantSnapshot
 from physics_engine.proto_mapping import boiler_state_to_proto, turbine_state_to_proto
+from physics_engine.runtime import RunState, SimulationStatus
 from physics_engine.turbine import TurbineModel, TurbineState
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -38,8 +46,31 @@ def boiler_state() -> BoilerState:
 
 @pytest.fixture
 def turbine_state() -> TurbineState:
-    """Nominal turbine state from TurbineModel."""
-    return TurbineModel().nominal_state()
+    """Turbine state at the nominal inlet: 552.5 °C, 140 bar, 277.8 kg/s."""
+    return TurbineModel().calculate(
+        steam_temp_in=TEMP_STEAM_NOMINAL,
+        steam_pressure_in=PRESSURE_NOMINAL,
+        steam_flow=MAX_STEAM_FLOW,
+    )
+
+
+@pytest.fixture(scope="module")
+def snapshot() -> PlantSnapshot:
+    """The nominal plant after one step."""
+    return PlantSimulator().step(1)
+
+
+@pytest.fixture
+def status(snapshot: PlantSnapshot) -> SimulationStatus:
+    return SimulationStatus(
+        run_state=RunState.RUNNING,
+        speed_factor=1.0,
+        simulation_time_s=snapshot.simulation_time_s,
+        step_count=snapshot.step_count,
+        scenario=snapshot.scenario,
+        run_id=snapshot.run_id,
+        step_s=snapshot.step_s,
+    )
 
 
 @pytest.fixture
@@ -135,128 +166,60 @@ class TestTurbineStateToProto:
 
 
 class TestMQTTPublisher:
-    @pytest.mark.asyncio
-    async def test_publish_boiler_calls_publish_once(
+    async def test_a_snapshot_goes_out_plant_first_as_four_messages(
         self,
         publisher: MQTTPublisher,
         mock_client: MagicMock,
-        boiler_state: BoilerState,
+        snapshot: PlantSnapshot,
+        status: SimulationStatus,
     ) -> None:
-        await publisher.publish_boiler(mock_client, boiler_state)
-        assert mock_client.publish.call_count == 1
+        await publisher.publish_snapshot(mock_client, snapshot, status)
+        topics = [call.args[0] for call in mock_client.publish.call_args_list]
+        assert topics == [TOPIC_PLANT, TOPIC_BOILER, TOPIC_TURBINE, TOPIC_HEARTBEAT]
+        assert publisher.published == 4
 
-    @pytest.mark.asyncio
-    async def test_publish_boiler_uses_correct_topic(
+    async def test_the_boiler_payload_carries_the_measured_pressure(
         self,
         publisher: MQTTPublisher,
         mock_client: MagicMock,
-        boiler_state: BoilerState,
+        snapshot: PlantSnapshot,
+        status: SimulationStatus,
     ) -> None:
-        await publisher.publish_boiler(mock_client, boiler_state)
-        topic = mock_client.publish.call_args.args[0]
-        assert topic == TOPIC_BOILER
+        await publisher.publish_snapshot(mock_client, snapshot, status)
+        raw = mock_client.publish.call_args_list[1].args[1]
+        msg = pb.BoilerStateMsg.FromString(raw)
+        assert msg.pressure_pa == pytest.approx(snapshot.boiler.pressure)
 
-    @pytest.mark.asyncio
-    async def test_publish_boiler_payload_is_valid_protobuf(
+    async def test_the_turbine_payload_carries_the_power(
         self,
         publisher: MQTTPublisher,
         mock_client: MagicMock,
-        boiler_state: BoilerState,
+        snapshot: PlantSnapshot,
+        status: SimulationStatus,
     ) -> None:
-        await publisher.publish_boiler(mock_client, boiler_state)
-        raw = mock_client.publish.call_args.args[1]
-        msg = pb.BoilerStateMsg()
-        msg.ParseFromString(raw)
-        assert msg.pressure_pa == pytest.approx(boiler_state.pressure)
+        await publisher.publish_snapshot(mock_client, snapshot, status)
+        raw = mock_client.publish.call_args_list[2].args[1]
+        msg = pb.TurbineStateMsg.FromString(raw)
+        assert msg.electrical_power_w == pytest.approx(
+            snapshot.turbine.electrical_power
+        )
 
-    @pytest.mark.asyncio
-    async def test_publish_turbine_calls_publish_once(
-        self,
-        publisher: MQTTPublisher,
-        mock_client: MagicMock,
-        turbine_state: TurbineState,
-    ) -> None:
-        await publisher.publish_turbine(mock_client, turbine_state)
-        assert mock_client.publish.call_count == 1
-
-    @pytest.mark.asyncio
-    async def test_publish_turbine_uses_correct_topic(
-        self,
-        publisher: MQTTPublisher,
-        mock_client: MagicMock,
-        turbine_state: TurbineState,
-    ) -> None:
-        await publisher.publish_turbine(mock_client, turbine_state)
-        topic = mock_client.publish.call_args.args[0]
-        assert topic == TOPIC_TURBINE
-
-    @pytest.mark.asyncio
-    async def test_publish_turbine_payload_is_valid_protobuf(
-        self,
-        publisher: MQTTPublisher,
-        mock_client: MagicMock,
-        turbine_state: TurbineState,
-    ) -> None:
-        await publisher.publish_turbine(mock_client, turbine_state)
-        raw = mock_client.publish.call_args.args[1]
-        msg = pb.TurbineStateMsg()
-        msg.ParseFromString(raw)
-        assert msg.electrical_power_w == pytest.approx(turbine_state.electrical_power)
-
-    @pytest.mark.asyncio
-    async def test_publish_heartbeat_uses_correct_topic(
-        self,
-        publisher: MQTTPublisher,
-        mock_client: MagicMock,
-    ) -> None:
-        await publisher.publish_heartbeat(mock_client)
-        topic = mock_client.publish.call_args.args[0]
-        assert topic == TOPIC_HEARTBEAT
-
-    @pytest.mark.asyncio
     async def test_publish_heartbeat_payload_is_numeric_string(
         self,
         publisher: MQTTPublisher,
         mock_client: MagicMock,
     ) -> None:
         await publisher.publish_heartbeat(mock_client)
-        payload = mock_client.publish.call_args.args[1]
-        ts = int(payload.decode())
-        assert ts > 0
+        topic, payload = mock_client.publish.call_args.args[:2]
+        assert topic == TOPIC_HEARTBEAT
+        assert int(payload.decode()) > 0
 
-    @pytest.mark.asyncio
-    async def test_published_counter_increments(
+    async def test_a_failed_publish_is_counted_and_raised_so_the_session_reconnects(
         self,
         publisher: MQTTPublisher,
-        mock_client: MagicMock,
-        boiler_state: BoilerState,
+        snapshot: PlantSnapshot,
+        status: SimulationStatus,
     ) -> None:
-        assert publisher.published == 0
-        await publisher.publish_boiler(mock_client, boiler_state)
-        assert publisher.published == 1
-
-    @pytest.mark.asyncio
-    async def test_error_counter_increments_on_mqtt_error(
-        self,
-        publisher: MQTTPublisher,
-        boiler_state: BoilerState,
-    ) -> None:
-        from aiomqtt import MqttError
-
-        error_client = MagicMock()
-        error_client.publish = AsyncMock(side_effect=MqttError("broker down"))
-        with pytest.raises(MqttError):
-            await publisher.publish_boiler(error_client, boiler_state)
-        assert publisher.errors == 1
-        assert publisher.published == 0
-
-    @pytest.mark.asyncio
-    async def test_a_failed_publish_raises_so_the_session_can_reconnect(
-        self,
-        publisher: MQTTPublisher,
-        boiler_state: BoilerState,
-    ) -> None:
-        """A lost connection must reach mirror_runtime, which reconnects."""
         from aiomqtt import MqttError
 
         error_client = MagicMock()
@@ -264,13 +227,14 @@ class TestMQTTPublisher:
             side_effect=MqttError("The client is not currently connected.")
         )
         with pytest.raises(MqttError, match="not currently connected"):
-            await publisher.publish_boiler(error_client, boiler_state)
+            await publisher.publish_snapshot(error_client, snapshot, status)
+        assert publisher.errors == 1
+        assert publisher.published == 0
 
     def test_config_defaults(self) -> None:
         cfg = MQTTConfig()
         assert cfg.host == "localhost"
         assert cfg.port == 1883
-        assert cfg.interval_s == pytest.approx(0.1)
 
     def test_initial_stats_zero(self, publisher: MQTTPublisher) -> None:
         assert publisher.published == 0

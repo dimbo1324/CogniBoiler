@@ -21,11 +21,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from physics_engine import steam_tables
-from physics_engine.constants import (
-    PRESSURE_NOMINAL,
-    RATED_STEAM_FLOW,
-    TEMP_STEAM_NOMINAL,
-)
+from physics_engine.constants import PRESSURE_NOMINAL, RATED_STEAM_FLOW
 
 # ─── Turbine design constants ──────────────────────────────────────────────────
 
@@ -56,10 +52,6 @@ TURBINE_PART_LOAD_PENALTY: float = 0.12
 # The isentropic efficiency is rounded to this step before the expansion cache is keyed
 # on it, so a slowly changing load does not evict every cached expansion.
 _EFFICIENCY_RESOLUTION: float = 0.002
-
-# Nominal steam inlet conditions (matches boiler superheater output)
-TURBINE_NOMINAL_INLET_PRESSURE: float = PRESSURE_NOMINAL  # 140 bar
-TURBINE_NOMINAL_INLET_TEMP: float = TEMP_STEAM_NOMINAL  # 825.65 K / 552.5°C
 
 # Expansions are cached on inputs rounded to these resolutions: far below what the
 # plant can resolve, coarse enough that a steady operating point is computed once.
@@ -150,8 +142,6 @@ class TurbineParameters:
     mechanical_efficiency: float = TURBINE_MECHANICAL_EFFICIENCY
     exhaust_pressure: float = TURBINE_EXHAUST_PRESSURE  # Pa
     min_steam_flow: float = TURBINE_MIN_STEAM_FLOW  # kg/s
-    nominal_inlet_pressure: float = TURBINE_NOMINAL_INLET_PRESSURE  # Pa
-    nominal_inlet_temp: float = TURBINE_NOMINAL_INLET_TEMP  # K
 
 
 @dataclass(frozen=True)
@@ -334,19 +324,4 @@ class TurbineModel:
             exhaust_pressure=exhaust_pressure,
             exhaust_temp=expansion.exhaust_temp,
             isentropic_efficiency=expansion.isentropic_efficiency,
-        )
-
-    def nominal_state(self) -> TurbineState:
-        """
-        Calculate turbine state at nominal design point.
-
-        Uses nominal boiler output: 552.5°C, 140 bar, 277.8 kg/s.
-        Useful for sanity-checking: expected output ~220–260 MW.
-        """
-        from physics_engine.constants import MAX_STEAM_FLOW
-
-        return self.calculate(
-            steam_temp_in=self.params.nominal_inlet_temp,
-            steam_pressure_in=self.params.nominal_inlet_pressure,
-            steam_flow=MAX_STEAM_FLOW,
         )
