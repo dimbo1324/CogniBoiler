@@ -5,12 +5,18 @@ Run with:  python -m unittest discover -s scripts -t .
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
+import os
+import stat
 import tempfile
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest import mock
 
+from scripts.backup import __main__ as backup
 from scripts.backup.__main__ import (
     directory_size,
     folder_name,
@@ -103,6 +109,50 @@ class ManifestTest(unittest.TestCase):
         self.assertEqual(written["project"], "cogniboiler")
         self.assertEqual(written["files"], {"postgres.sql": 12, "influxdb": 34})
         self.assertNotIn("token", json.dumps(written).lower())
+
+
+def _fake_run(
+    command: list[str], root: Path, *, capture_to: Path | None = None
+) -> bool:
+    """Stands in for docker compose: a dump on stdout, a folder for `cp`."""
+    if capture_to is not None:
+        capture_to.write_bytes(b"-- dump\n")
+    if "cp" in command:
+        copied = Path(command[-1])
+        copied.mkdir()
+        (copied / "shard").write_bytes(b"influx")
+    return True
+
+
+class MainTest(unittest.TestCase):
+    def _backup(self, root: Path) -> int:
+        with (
+            mock.patch.object(backup, "repo_root", return_value=root),
+            mock.patch.object(backup, "run", side_effect=_fake_run),
+            contextlib.redirect_stdout(io.StringIO()),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            return backup.main([])
+
+    def test_a_complete_backup_has_both_halves_and_a_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.assertEqual(self._backup(root), 0)
+            (folder,) = (root / "backups").iterdir()
+            self.assertEqual((folder / "postgres.sql").read_bytes(), b"-- dump\n")
+            self.assertTrue((folder / "influxdb" / "shard").is_file())
+            written = json.loads((folder / "manifest.json").read_text("utf-8"))
+            self.assertEqual(written["project"], "cogniboiler")
+
+    @unittest.skipUnless(os.name == "posix", "file modes are POSIX permissions")
+    def test_only_the_owner_may_read_the_backup(self) -> None:
+        # The dump holds password hashes, sessions and the audit log; the InfluxDB
+        # backup holds its API tokens.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.assertEqual(self._backup(root), 0)
+            (folder,) = (root / "backups").iterdir()
+            self.assertEqual(stat.S_IMODE(folder.stat().st_mode), 0o700)
 
 
 class DirectorySizeTest(unittest.TestCase):

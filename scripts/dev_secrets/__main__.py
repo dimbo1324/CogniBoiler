@@ -16,6 +16,7 @@ from typing import Any
 from scripts._toolkit.config import load_config, repo_root
 from scripts._toolkit.console import fail, heading, info, ok, warn
 from scripts._toolkit.envfile import EnvFileError, merge, parse, values
+from scripts._toolkit.files import write_private
 from scripts._toolkit.processes import capture
 from scripts._toolkit.reexec import has_module, reexec_under_uv
 
@@ -184,9 +185,7 @@ def main(argv: list[str]) -> int:
         fail(str(error))
         return 1
 
-    temporary = target_path.with_name(target_path.name + ".tmp")
-    temporary.write_text(rendered, encoding="utf-8", newline="\n")
-    temporary.replace(target_path)
+    write_private(target_path, rendered)
 
     for key in generated:
         ok(f"generated {key}")

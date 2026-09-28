@@ -3,7 +3,11 @@
 PostgreSQL (users, roles, sessions, the append-only audit log, scenario runs and the alarm
 lifecycle) is dumped with `pg_dump`; InfluxDB (telemetry, KPIs, labels and events) with
 `influx backup`. Both run inside their container, which already holds the credentials, so
-no password or token is ever passed on a command line or written into the backup folder.
+no password or token is ever passed on a command line.
+
+The folder itself is as sensitive as `.env`: the dump holds password hashes and session
+records, and the InfluxDB backup holds its API tokens. On POSIX only its owner may enter
+it.
 
 The stack must be up: these are the live databases, read through Compose. `restore` puts a
 folder written here back.
@@ -22,6 +26,7 @@ from typing import Any
 
 from scripts._toolkit.config import load_config, repo_root
 from scripts._toolkit.console import fail, heading, info, ok, summary
+from scripts._toolkit.files import make_private_dir
 from scripts._toolkit.processes import NOT_FOUND
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -134,7 +139,7 @@ def main(argv: list[str]) -> int:
 
     heading(f"backup — {target.relative_to(root).as_posix()}")
     try:
-        target.mkdir(parents=True, exist_ok=False)
+        make_private_dir(target)
     except OSError as error:
         fail(f"cannot create {target}: {error}")
         return 1
