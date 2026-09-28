@@ -147,6 +147,7 @@ class CogniBoilerOPCServer:
         self._ns: int = NS_IDX
         self._nodes: dict[int, Node] = {}
         self._started: bool = False
+        self._refused_nodes: set[int] = set()
         self._methods = MethodHandlers(self._gateway)
 
     # ─── Lifecycle ────────────────────────────────────────────────────────────
@@ -333,6 +334,9 @@ class CogniBoilerOPCServer:
         """
         Write a new value to a variable node.
 
+        A value the node cannot hold, or a write the address space refuses, keeps
+        the last value and is logged once per node.
+
         Raises:
             KeyError: If node_id is not registered in the address space.
         """
@@ -372,15 +376,38 @@ class CogniBoilerOPCServer:
             if source_timestamp_ms
             else now
         )
+        try:
+            coerced = _coerce(descriptor.kind, value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            self._refused(descriptor, type(exc).__name__)
+            return
         data_value = ua.DataValue(
-            Value=ua.Variant(
-                _coerce(descriptor.kind, value), _VARIANT_TYPES[descriptor.kind]
-            ),
+            Value=ua.Variant(coerced, _VARIANT_TYPES[descriptor.kind]),
             StatusCode=status(code),
             SourceTimestamp=timestamp(source),
             ServerTimestamp=timestamp(now),
         )
-        await self._server.write_attribute_value(node.nodeid, data_value)
+        # Server.write_attribute_value drops the result: a refused write would leave
+        # the node's last value in place, with its Good status, and nobody told.
+        result = await self._server.iserver.aspace.write_attribute_value(
+            node.nodeid, AttributeIds.Value, data_value
+        )
+        if not result.is_good():
+            self._refused(descriptor, result.name)
+            return
+        self._refused_nodes.discard(descriptor.node_id)
+
+    def _refused(self, descriptor: VariableDescriptor, reason: str) -> None:
+        """Warn once per node until a write to it succeeds again."""
+        if descriptor.node_id in self._refused_nodes:
+            return
+        self._refused_nodes.add(descriptor.node_id)
+        logger.warning(
+            "OPC UA node %d (%s) keeps its last value: the write was refused, %s",
+            descriptor.node_id,
+            descriptor.browse_name,
+            reason,
+        )
 
     def get_registered_node_ids(self) -> list[int]:
         """Return all node IDs currently registered in the address space."""

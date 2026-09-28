@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator, Iterator
 from functools import cache
 from pathlib import Path
@@ -23,6 +24,7 @@ from opcua_server.address_space import (
     NODEID_PLC_FOLDER,
     NODEID_PRESSURE,
     NODEID_ROOT,
+    NODEID_RUN_ID,
     NS_IDX,
 )
 from opcua_server.identity import drain_sign_outs
@@ -159,6 +161,40 @@ class TestReading:
         server, _ = opc
         with pytest.raises(KeyError):
             await server.update_variable(123_456, 1.0)
+
+    async def test_a_value_the_node_cannot_hold_is_reported_once(
+        self, opc: tuple[CogniBoilerOPCServer, str], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        server, endpoint = opc
+        with caplog.at_level(logging.WARNING, logger="opcua_server.server"):
+            await server.update_variable(NODEID_RUN_ID, ["not", "an", "integer"])
+            await server.update_variable(NODEID_RUN_ID, ["again"])
+        assert caplog.text.count("RunId") == 1
+        await server.update_variable(NODEID_RUN_ID, 7)
+        async with Client(url=endpoint) as client:
+            assert await node(client, NODEID_RUN_ID).read_value() == 7
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="opcua_server.server"):
+            await server.update_variable(NODEID_RUN_ID, ["after a good write"])
+        assert caplog.text.count("RunId") == 1
+
+    async def test_a_write_the_address_space_refuses_is_reported_once(
+        self,
+        opc: tuple[CogniBoilerOPCServer, str],
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        server, _ = opc
+        aspace = server._server.iserver.aspace
+
+        async def refuse(*_: Any) -> ua.StatusCode:
+            return ua.StatusCode(StatusCodes.BadTypeMismatch)
+
+        monkeypatch.setattr(aspace, "write_attribute_value", refuse)
+        with caplog.at_level(logging.WARNING, logger="opcua_server.server"):
+            await server.update_variable(NODEID_PRESSURE, 1.0)
+            await server.update_variable(NODEID_PRESSURE, 2.0)
+        assert caplog.text.count("BadTypeMismatch") == 1
 
     async def test_values_are_not_writable_by_clients(
         self, opc: tuple[CogniBoilerOPCServer, str]
