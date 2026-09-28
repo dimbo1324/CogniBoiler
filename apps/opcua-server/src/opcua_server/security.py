@@ -42,6 +42,7 @@ SECURITY_POLICIES = [
 ]
 CERT_ENV = "OPCUA_SERVER_CERT"
 KEY_ENV = "OPCUA_SERVER_KEY"
+EXPIRY_WARNING = dt.timedelta(days=30)
 
 
 @dataclass(frozen=True)
@@ -118,6 +119,42 @@ def self_signed_certificate(
     )
 
 
+def check_certificate(
+    certificate: ServerCertificate, now: dt.datetime | None = None
+) -> None:
+    """
+    Refuse a pair that cannot work, before any client finds out one handshake at a
+    time: a key that is not the certificate's, or a certificate already expired. Warn
+    when it expires within EXPIRY_WARNING. Messages never carry key material.
+    """
+    try:
+        parsed = x509.load_pem_x509_certificate(certificate.certificate_pem)
+        key = serialization.load_pem_private_key(
+            certificate.private_key_pem, password=None
+        )
+    except (ValueError, TypeError) as exc:
+        raise ValueError(
+            f"{CERT_ENV} or {KEY_ENV} is not a PEM certificate and unencrypted key: "
+            f"{type(exc).__name__}"
+        ) from None
+    public = serialization.PublicFormat.SubjectPublicKeyInfo
+    if key.public_key().public_bytes(
+        serialization.Encoding.DER, public
+    ) != parsed.public_key().public_bytes(serialization.Encoding.DER, public):
+        raise ValueError(f"the key in {KEY_ENV} does not match {CERT_ENV}")
+    moment = now or dt.datetime.now(dt.UTC)
+    expires = parsed.not_valid_after_utc
+    if expires <= moment:
+        raise ValueError(
+            f"the certificate in {CERT_ENV} expired at {expires:%Y-%m-%dT%H:%M:%SZ}"
+        )
+    if expires - moment <= EXPIRY_WARNING:
+        logger.warning(
+            "The OPC UA server certificate expires at %s UTC; renew it with dev-secrets",
+            f"{expires:%Y-%m-%dT%H:%M:%S}",
+        )
+
+
 async def secure(server: Server, certificate: ServerCertificate | None) -> None:
     """Install the certificate and the endpoints; call after init(), before start()."""
     if certificate is None:
@@ -127,6 +164,7 @@ async def secure(server: Server, certificate: ServerCertificate | None) -> None:
             KEY_ENV,
         )
         certificate = self_signed_certificate()
+    check_certificate(certificate)
     await server.set_application_uri(APPLICATION_URI)
     server.set_security_policy(SECURITY_POLICIES)
     await server.load_certificate(certificate.certificate_pem, format="pem")

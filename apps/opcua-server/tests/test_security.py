@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import datetime as dt
+import logging
+
 import pytest
 from asyncua import ua
 from asyncua.common.utils import ServiceError
 from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from opcua_server.identity import (
@@ -16,7 +20,9 @@ from opcua_server.identity import (
 from opcua_server.security import (
     APPLICATION_URI,
     SECURITY_POLICIES,
+    ServerCertificate,
     certificate_from_environment,
+    secure,
     self_signed_certificate,
 )
 from opcua_server.ua_types import StatusCodes
@@ -99,3 +105,104 @@ def test_the_certificate_comes_from_the_environment_only_as_a_pair(
     found = certificate_from_environment()
     assert found is not None
     assert found.private_key_pem.startswith(b"-----BEGIN PRIVATE KEY")
+
+
+def issued(
+    certificate: ServerCertificate, not_before: dt.datetime, not_after: dt.datetime
+) -> ServerCertificate:
+    """The same key pair, re-issued with another validity window."""
+    key = load_pem_private_key(certificate.private_key_pem, password=None)
+    assert isinstance(key, rsa.RSAPrivateKey)
+    original = x509.load_pem_x509_certificate(certificate.certificate_pem)
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(original.subject)
+        .issuer_name(original.issuer)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(not_before)
+        .not_valid_after(not_after)
+    )
+    rebuilt = builder.sign(key, hashes.SHA256())
+    return ServerCertificate(
+        rebuilt.public_bytes(serialization.Encoding.PEM), certificate.private_key_pem
+    )
+
+
+class RecordingServer:
+    def __init__(self) -> None:
+        self.loaded: list[bytes] = []
+
+    async def set_application_uri(self, uri: str) -> None:
+        self.uri = uri
+
+    def set_security_policy(self, policies: object) -> None:
+        self.policies = policies
+
+    async def load_certificate(self, pem: bytes, format: str) -> None:
+        self.loaded.append(pem)
+
+    async def load_private_key(self, pem: bytes, format: str) -> None:
+        self.loaded.append(pem)
+
+
+class TestCertificateAtStartup:
+    async def test_a_matching_valid_pair_is_loaded_without_a_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        pair = self_signed_certificate()
+        server = RecordingServer()
+        with caplog.at_level(logging.WARNING, logger="opcua_server.security"):
+            await secure(server, pair)  # type: ignore[arg-type]
+        assert server.loaded == [pair.certificate_pem, pair.private_key_pem]
+        assert caplog.text == ""
+
+    async def test_without_a_pair_a_temporary_one_is_made_and_warned_about(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        server = RecordingServer()
+        with caplog.at_level(logging.WARNING, logger="opcua_server.security"):
+            await secure(server, None)  # type: ignore[arg-type]
+        assert len(server.loaded) == 2
+        assert "temporary self-signed certificate" in caplog.text
+
+    async def test_a_key_of_another_certificate_is_refused(self) -> None:
+        mixed = ServerCertificate(
+            self_signed_certificate().certificate_pem,
+            self_signed_certificate().private_key_pem,
+        )
+        server = RecordingServer()
+        with pytest.raises(ValueError, match="does not match") as refused:
+            await secure(server, mixed)  # type: ignore[arg-type]
+        assert "PRIVATE KEY" not in str(refused.value)
+        assert server.loaded == []
+
+    async def test_an_expired_certificate_is_refused(self) -> None:
+        now = dt.datetime.now(dt.UTC)
+        expired = issued(
+            self_signed_certificate(),
+            now - dt.timedelta(days=400),
+            now - dt.timedelta(days=1),
+        )
+        with pytest.raises(ValueError, match="expired"):
+            await secure(RecordingServer(), expired)  # type: ignore[arg-type]
+
+    async def test_a_certificate_close_to_expiry_is_warned_about(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        now = dt.datetime.now(dt.UTC)
+        expiring = issued(
+            self_signed_certificate(),
+            now - dt.timedelta(days=300),
+            now + dt.timedelta(days=5),
+        )
+        server = RecordingServer()
+        with caplog.at_level(logging.WARNING, logger="opcua_server.security"):
+            await secure(server, expiring)  # type: ignore[arg-type]
+        assert len(server.loaded) == 2
+        assert "expires" in caplog.text
+
+    async def test_a_pem_that_does_not_parse_is_refused(self) -> None:
+        broken = ServerCertificate(b"not a certificate", b"not a key")
+        with pytest.raises(ValueError, match="OPCUA_SERVER_CERT"):
+            await secure(RecordingServer(), broken)  # type: ignore[arg-type]
