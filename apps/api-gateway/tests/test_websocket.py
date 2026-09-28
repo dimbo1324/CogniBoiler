@@ -356,6 +356,28 @@ class TestSession:
             "token_expires_at_ms": fresh.expires_at_ms // 1000 * 1000,
         }
 
+    def test_a_renewal_from_a_closed_session_of_the_same_user_is_refused(
+        self, live: Live
+    ) -> None:
+        viewer = live.sessions["viewer1"]
+
+        async def second_session_then_close_it(db: AsyncSession) -> str:
+            account = await load_account(db, username="viewer1")
+            assert account is not None
+            tokens = await open_session(
+                db, account, ClientInfo(ip="127.0.0.1", user_agent="pytest")
+            )
+            await revoke_user_sessions(db, viewer.user_id, "admin")
+            await db.commit()
+            return tokens.access.token
+
+        with live.client.websocket_connect("/ws") as connection:
+            authenticate(connection, viewer.access)
+            closed_token = live.run(second_session_then_close_it)
+            connection.send_json({"type": "auth", "access_token": closed_token})
+            code, _ = close_code(connection)
+        assert code == 4401
+
     def test_a_token_of_another_user_closes_the_connection(self, live: Live) -> None:
         with live.client.websocket_connect("/ws") as connection:
             authenticate(connection, live.sessions["viewer1"].access)

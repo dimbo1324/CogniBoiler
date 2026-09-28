@@ -302,6 +302,19 @@ class TestAuthEndpoints:
 
 class TestStatusEndpoint:
     @pytest.mark.asyncio
+    async def test_status_is_503_when_physics_is_down(
+        self, app: FastAPI, client: AsyncClient, viewer_tokens: dict[str, str]
+    ) -> None:
+        app.state.physics_client.down = True
+        response = await client.get(
+            "/api/v1/status",
+            headers={"Authorization": f"Bearer {viewer_tokens['access']}"},
+        )
+        assert response.status_code == 503
+        assert response.json()["code"] == "upstream.unavailable"
+        assert response.json()["service"] == "PhysicsService"
+
+    @pytest.mark.asyncio
     async def test_status_requires_auth(self, client: AsyncClient) -> None:
         # No token provided — HTTPBearer returns 401
         response = await client.get("/api/v1/status")
