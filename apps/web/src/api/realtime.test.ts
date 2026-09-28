@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vite
 
 import { plantState } from "../test/fixtures";
 import {
+  CLOSE_BAD_REQUEST,
   CLOSE_TRY_AGAIN_LATER,
   CLOSE_UNAUTHORIZED,
   RealtimeClient,
@@ -9,6 +10,7 @@ import {
   type ConnectionState,
   type RealtimeHandlers,
   type SocketLike,
+  type UnauthorizedAnswer,
 } from "./realtime";
 import type { DataFrame } from "./types";
 
@@ -42,6 +44,12 @@ class FakeSocket implements SocketLike {
     this.readyState = 3;
     this.onclose?.({ code } as CloseEvent);
   }
+
+  goLive(): void {
+    this.open();
+    this.receive({ type: "welcome", user: "operator", role: "operator" });
+    this.receive({ type: "subscribed", channels: [] });
+  }
 }
 
 describe("RealtimeClient", () => {
@@ -49,12 +57,13 @@ describe("RealtimeClient", () => {
   let states: ConnectionState[];
   let frames: DataFrame[];
   let handlers: RealtimeHandlers & {
-    unauthorized: Mock<() => Promise<string | null>>;
+    unauthorized: Mock<() => Promise<UnauthorizedAnswer>>;
     resync: Mock<() => void>;
   };
   let token: string | null;
+  let logged: Mock<(...args: unknown[]) => void>;
 
-  function client(): RealtimeClient {
+  function client(backoffMs: readonly number[] = [100, 200]): RealtimeClient {
     return new RealtimeClient({
       url: "ws://console/ws",
       channels: ["telemetry", "alarms"],
@@ -66,7 +75,7 @@ describe("RealtimeClient", () => {
         sockets.push(socket);
         return socket;
       },
-      backoffMs: [100, 200],
+      backoffMs,
     });
   }
 
@@ -91,13 +100,18 @@ describe("RealtimeClient", () => {
       state: (state) => {
         states.push(state);
       },
-      unauthorized: vi.fn<() => Promise<string | null>>(() => Promise.resolve("token-2")),
+      unauthorized: vi.fn<() => Promise<UnauthorizedAnswer>>(() =>
+        Promise.resolve({ token: "token-2" }),
+      ),
       resync: vi.fn<() => void>(),
     };
+    logged = vi.fn<(...args: unknown[]) => void>();
+    vi.spyOn(console, "error").mockImplementation(logged);
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("authenticates in the first frame, subscribes after the welcome and goes live", () => {
@@ -115,6 +129,7 @@ describe("RealtimeClient", () => {
     });
     socket.receive({ type: "subscribed", channels: ["alarms", "telemetry"] });
     expect(states).toEqual(["connecting", "live"]);
+    expect(handlers.resync).not.toHaveBeenCalled();
 
     socket.receive({
       type: "data",
@@ -127,36 +142,99 @@ describe("RealtimeClient", () => {
     realtime.stop();
   });
 
-  it("ignores frames that are not data or not JSON", () => {
+  it("ignores frames that are not data, and reports one that is not JSON", () => {
     const realtime = client();
     realtime.start();
     const socket = latest();
     socket.open();
     socket.onmessage?.(new MessageEvent("message", { data: "not json" }));
     socket.receive({ type: "pong" });
+    socket.receive({ type: "renewed", token_expires_at_ms: 1 });
     socket.receive({ type: "data", channel: "plc" });
     expect(frames).toHaveLength(0);
+    expect(logged).toHaveBeenCalledTimes(1);
     realtime.stop();
   });
 
-  it("renews the token when the server refuses it and connects again", async () => {
+  it("reports the gateway's error and closing frames", () => {
+    const realtime = client();
+    realtime.start();
+    latest().open();
+    latest().receive({ type: "error", code: "ws.unknown_message", detail: "unknown type" });
+    latest().receive({ type: "closing", code: 1013, reason: "client too slow; reload state" });
+    expect(logged).toHaveBeenCalledTimes(2);
+    expect(logged.mock.calls[0]).toContain("ws.unknown_message");
+    expect(logged.mock.calls[1]).toContain("client too slow; reload state");
+    realtime.stop();
+  });
+
+  it("stops and reports when the gateway refuses a malformed frame", () => {
+    const realtime = client();
+    realtime.start();
+    latest().open();
+    latest().serverClose(CLOSE_BAD_REQUEST);
+    expect(realtime.state).toBe("stopped");
+    expect(logged).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(10_000);
+    expect(sockets).toHaveLength(1);
+  });
+
+  it("renews the token when the server refuses it and connects again after the backoff", async () => {
     const realtime = client();
     realtime.start();
     latest().open();
     token = "token-2";
     latest().serverClose(CLOSE_UNAUTHORIZED);
     await vi.waitFor(() => {
-      expect(sockets).toHaveLength(2);
+      expect(handlers.unauthorized).toHaveBeenCalledTimes(1);
     });
+    expect(sockets).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(sockets).toHaveLength(2);
 
-    expect(handlers.unauthorized).toHaveBeenCalledTimes(1);
     latest().open();
     expect(latest().sent[0]).toEqual({ type: "auth", access_token: "token-2" });
     realtime.stop();
   });
 
-  it("stops for good when the session cannot be renewed", async () => {
-    handlers.unauthorized.mockResolvedValue(null);
+  it("backs off between repeated refusals of a renewed token", async () => {
+    const realtime = client([100, 200, 400]);
+    realtime.start();
+    const delays: number[] = [];
+    for (let refusal = 0; refusal < 3; refusal += 1) {
+      const before = sockets.length;
+      latest().open();
+      latest().serverClose(CLOSE_UNAUTHORIZED);
+      let waited = 0;
+      while (sockets.length === before && waited < 1000) {
+        await vi.advanceTimersByTimeAsync(50);
+        waited += 50;
+      }
+      delays.push(waited);
+    }
+    expect(delays).toEqual([100, 200, 400]);
+    expect(handlers.unauthorized).toHaveBeenCalledTimes(3);
+    realtime.stop();
+  });
+
+  it("keeps trying while the session is kept but could not be renewed now", async () => {
+    handlers.unauthorized.mockResolvedValueOnce("retry");
+    const realtime = client();
+    realtime.start();
+    latest().open();
+    latest().serverClose(CLOSE_UNAUTHORIZED);
+    await vi.waitFor(() => {
+      expect(handlers.unauthorized).toHaveBeenCalledTimes(1);
+    });
+    expect(realtime.state).toBe("reconnecting");
+    await vi.advanceTimersByTimeAsync(100);
+    expect(sockets).toHaveLength(2);
+    expect(states).not.toContain("stopped");
+    realtime.stop();
+  });
+
+  it("stops for good when the session has ended", async () => {
+    handlers.unauthorized.mockResolvedValue("ended");
     const realtime = client();
     realtime.start();
     latest().open();
@@ -168,16 +246,67 @@ describe("RealtimeClient", () => {
     expect(sockets).toHaveLength(1);
   });
 
-  it("reloads state and reconnects after falling behind", () => {
+  it("asks for a token before connecting when the session has none", async () => {
+    token = null;
+    handlers.unauthorized.mockImplementation(() => {
+      token = "token-2";
+      return Promise.resolve({ token: "token-2" });
+    });
+    const realtime = client();
+    realtime.start();
+    expect(sockets).toHaveLength(0);
+    await vi.waitFor(() => {
+      expect(handlers.unauthorized).toHaveBeenCalledTimes(1);
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(sockets).toHaveLength(1);
+    realtime.stop();
+  });
+
+  it("does not reconnect when stopped while a renewal is on its way", async () => {
+    let answer: (value: UnauthorizedAnswer) => void = () => undefined;
+    handlers.unauthorized.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
     const realtime = client();
     realtime.start();
     latest().open();
+    latest().serverClose(CLOSE_UNAUTHORIZED);
+    realtime.stop();
+    answer({ token: "token-2" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sockets).toHaveLength(1);
+    expect(realtime.state).toBe("stopped");
+  });
+
+  it("reloads state once when live again after falling behind", () => {
+    const realtime = client();
+    realtime.start();
+    latest().goLive();
     latest().serverClose(CLOSE_TRY_AGAIN_LATER);
 
-    expect(handlers.resync).toHaveBeenCalled();
     expect(realtime.state).toBe("reconnecting");
+    expect(handlers.resync).not.toHaveBeenCalled();
     vi.advanceTimersByTime(100);
     expect(sockets).toHaveLength(2);
+    latest().goLive();
+    expect(handlers.resync).toHaveBeenCalledTimes(1);
+    realtime.stop();
+  });
+
+  it("reloads nothing on each failed attempt, only once when live again", () => {
+    const realtime = client();
+    realtime.start();
+    latest().goLive();
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      latest().serverClose(1006);
+      vi.advanceTimersByTime(200);
+    }
+    expect(handlers.resync).not.toHaveBeenCalled();
+    latest().goLive();
+    expect(handlers.resync).toHaveBeenCalledTimes(1);
     realtime.stop();
   });
 
@@ -204,10 +333,26 @@ describe("RealtimeClient", () => {
     realtime.stop();
   });
 
+  it("ignores the close of a socket it already replaced", () => {
+    const realtime = client();
+    realtime.start();
+    const first = latest();
+    const closeFirst = first.onclose;
+    first.serverClose(1006);
+    vi.advanceTimersByTime(100);
+    expect(sockets).toHaveLength(2);
+    closeFirst?.({ code: 1006 } as CloseEvent);
+    vi.advanceTimersByTime(10_000);
+    expect(sockets).toHaveLength(2);
+    realtime.stop();
+  });
+
   it("hands a renewed token to the open connection and closes cleanly on stop", () => {
     const realtime = client();
     realtime.start();
     const socket = latest();
+    realtime.renew("token-0");
+    expect(socket.sent).toHaveLength(0);
     socket.open();
     realtime.renew("token-3");
     expect(socket.sent[1]).toEqual({ type: "auth", access_token: "token-3" });

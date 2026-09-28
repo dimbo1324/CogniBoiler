@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useActiveAlarms } from "../alarms/queries";
 import { refreshSession, signOut } from "../api/endpoints";
+import { ApiError } from "../api/http";
 import type { RealtimeOptions } from "../api/realtime";
 import type { AlarmChange, DataFrame } from "../api/types";
 import { Layout } from "../components/Layout";
@@ -151,6 +152,8 @@ describe("LiveProvider", () => {
         },
       },
       { type: "data", channel: "alarms", kind: "change", ts_ms: 1, data: alarmChange },
+      { type: "data", channel: "alarms", kind: "change", ts_ms: 2, data: alarmChange },
+      { type: "data", channel: "alarms", kind: "change", ts_ms: 3, data: alarmChange },
     ];
     act(() => {
       client().options.handlers.state("live");
@@ -159,12 +162,20 @@ describe("LiveProvider", () => {
       }
     });
     expect(screen.getByTestId("probe").textContent).toBe("signed_in live plant manual 1 events");
+    expect(invalidate).not.toHaveBeenCalled();
+    // A burst of frames reloads each key once.
+    await waitFor(() => {
+      expect(invalidate).toHaveBeenCalledTimes(2);
+    });
     const keys = invalidate.mock.calls.map((call) => call[0]?.queryKey);
     expect(keys).toEqual([["plc"], ["alarms"]]);
+
+    invalidate.mockClear();
     act(() => {
       client().options.handlers.resync();
     });
-    expect(invalidate).toHaveBeenLastCalledWith();
+    // Only what the stream keeps current; history ranges are never refetched by a reconnect.
+    expect(invalidate.mock.calls.map((call) => call[0]?.queryKey)).toEqual([["alarms"], ["plc"]]);
   });
 
   it("renews a refused token through the session and hands every new token over", async () => {
@@ -174,10 +185,48 @@ describe("LiveProvider", () => {
       tokens({ access_token: "access-2", access_expires_at_ms: Date.now() + 900_000 }),
     );
     await act(async () => {
-      expect(await client().options.handlers.unauthorized()).toBe("access-2");
+      expect(await client().options.handlers.unauthorized()).toEqual({ token: "access-2" });
     });
     expect(client().renew).toHaveBeenCalledWith("access-2");
     expect(manager.accessToken()).toBe("access-2");
+  });
+
+  it("keeps the channels trying while a renewal fails but the session is kept", async () => {
+    const { manager } = renderShell(<Probe />);
+    await screen.findByText(/signed_in/u);
+    vi.mocked(refreshSession).mockRejectedValue(
+      new ApiError({
+        status: 502,
+        code: "http.502",
+        title: "Bad Gateway",
+        detail: "The gateway answered HTTP 502.",
+        errors: [],
+        retryAfterS: null,
+      }),
+    );
+    await act(async () => {
+      expect(await client().options.handlers.unauthorized()).toBe("retry");
+    });
+    expect(manager.snapshot().status).toBe("signed_in");
+  });
+
+  it("stops the channels for good once the session has ended", async () => {
+    const { manager } = renderShell(<Probe />);
+    await screen.findByText(/signed_in/u);
+    vi.mocked(refreshSession).mockRejectedValue(
+      new ApiError({
+        status: 401,
+        code: "auth.refresh_reused",
+        title: "Unauthorized",
+        detail: "refused",
+        errors: [],
+        retryAfterS: null,
+      }),
+    );
+    await act(async () => {
+      expect(await client().options.handlers.unauthorized()).toBe("ended");
+    });
+    expect(manager.snapshot().status).toBe("signed_out");
   });
 
   it("closes the channels when the console unmounts", async () => {

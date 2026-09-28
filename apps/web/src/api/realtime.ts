@@ -4,7 +4,8 @@
 // Protocol: the access token goes in the first frame (never in the URL, so it stays out of
 // access logs); after "welcome" the client subscribes. The server closes with 4401 when the
 // token expires or the session ends, 4400 on a malformed frame and 1013 when this client
-// fell behind on events — then state must be reloaded over REST before trusting the stream.
+// fell behind on events. After any lost connection, state is reloaded over REST once the
+// stream is live again, since frames may have been missed in between.
 
 import type { Channel, DataFrame } from "./types";
 
@@ -14,11 +15,17 @@ export const CLOSE_TRY_AGAIN_LATER = 1013;
 
 export type ConnectionState = "connecting" | "live" | "reconnecting" | "stopped";
 
+/**
+ * What the session answers when the server refused the token: a fresh token; "retry" when
+ * no token could be had now but the session is kept (the gateway is restarting); "ended"
+ * when the session is over, which stops the connection for good.
+ */
+export type UnauthorizedAnswer = { token: string } | "retry" | "ended";
+
 export interface RealtimeHandlers {
   frame(frame: DataFrame): void;
   state(state: ConnectionState): void;
-  /** The server refused the token: renew it; null ends the connection for good. */
-  unauthorized(): Promise<string | null>;
+  unauthorized(): Promise<UnauthorizedAnswer>;
   /** Frames may have been lost; reload whatever the stream keeps current. */
   resync(): void;
 }
@@ -72,6 +79,7 @@ export class RealtimeClient {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private running = false;
   private connectionState: ConnectionState = "stopped";
+  private framesMissed = false;
 
   constructor(options: RealtimeOptions) {
     this.options = options;
@@ -151,6 +159,7 @@ export class RealtimeClient {
     try {
       message = JSON.parse(raw);
     } catch {
+      console.error("realtime: the gateway sent a frame that is not JSON");
       return;
     }
     if (message === null || typeof message !== "object") {
@@ -170,6 +179,18 @@ export class RealtimeClient {
     if (frame.type === "subscribed") {
       this.attempt = 0;
       this.setState("live");
+      if (this.framesMissed) {
+        this.framesMissed = false;
+        this.options.handlers.resync();
+      }
+      return;
+    }
+    if (frame.type === "error") {
+      console.error("realtime: the gateway refused a frame:", frame.code);
+      return;
+    }
+    if (frame.type === "closing") {
+      console.error("realtime: the gateway is closing the connection:", frame.reason ?? frame.code);
       return;
     }
     if (isDataFrame(frame)) {
@@ -181,27 +202,34 @@ export class RealtimeClient {
     if (!this.running) {
       return;
     }
+    this.framesMissed = true;
+    if (code === CLOSE_BAD_REQUEST) {
+      // The console sent a frame the gateway cannot read: a defect that reconnecting would
+      // only repeat. The badge shows the channel offline; REST keeps working.
+      console.error("realtime: the gateway refused a malformed frame (4400); live data stopped");
+      this.stop();
+      return;
+    }
     if (code === CLOSE_UNAUTHORIZED) {
       void this.handleUnauthorized();
       return;
-    }
-    if (code === CLOSE_TRY_AGAIN_LATER) {
-      this.options.handlers.resync();
     }
     this.scheduleReconnect();
   }
 
   private async handleUnauthorized(): Promise<void> {
     this.setState("reconnecting");
-    const token = await this.options.handlers.unauthorized();
+    const answer = await this.options.handlers.unauthorized();
     if (!this.running) {
       return;
     }
-    if (token === null) {
+    if (answer === "ended") {
       this.stop();
       return;
     }
-    this.connect("reconnecting");
+    // Through the backoff even with a fresh token: a server that keeps refusing it must not
+    // turn into a loop of refreshes, each rotating the refresh cookie.
+    this.scheduleReconnect();
   }
 
   private scheduleReconnect(): void {
@@ -210,7 +238,6 @@ export class RealtimeClient {
     this.attempt += 1;
     this.timer = setTimeout(() => {
       this.timer = null;
-      this.options.handlers.resync();
       this.connect("reconnecting");
     }, delay);
   }

@@ -1,4 +1,4 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryKey } from "@tanstack/react-query";
 import {
   createContext,
   useContext,
@@ -16,6 +16,10 @@ import { queryKeys } from "../api/queryKeys";
 // Twice a second is smooth on the mimic and trends and light on a laptop; the gateway caps
 // every client at 10 Hz anyway.
 const TELEMETRY_RATE_HZ = 2;
+// A trip raises several alarms and PLC events at once: one reload for the whole burst.
+const INVALIDATE_COALESCE_MS = 250;
+// What the stream keeps current; history ranges and other REST answers do not change with it.
+const STREAM_KEYS: readonly QueryKey[] = [queryKeys.alarms.all, queryKeys.plc.all];
 
 const LiveContext = createContext<LiveStore | null>(null);
 
@@ -26,6 +30,18 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [store] = useState(() => new LiveStore());
 
   useEffect(() => {
+    const stale = new Map<string, QueryKey>();
+    let flush: ReturnType<typeof setTimeout> | null = null;
+    const invalidateSoon = (queryKey: QueryKey) => {
+      stale.set(JSON.stringify(queryKey), queryKey);
+      flush ??= setTimeout(() => {
+        flush = null;
+        for (const key of stale.values()) {
+          void queryClient.invalidateQueries({ queryKey: key });
+        }
+        stale.clear();
+      }, INVALIDATE_COALESCE_MS);
+    };
     const client = new RealtimeClient({
       url: realtimeUrl(window.location),
       channels: ["telemetry", "plc", "alarms"],
@@ -35,18 +51,26 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         frame: (frame) => {
           store.apply(frame);
           if (frame.channel === "alarms") {
-            void queryClient.invalidateQueries({ queryKey: queryKeys.alarms.all });
+            invalidateSoon(queryKeys.alarms.all);
           }
           if (frame.channel === "plc" && frame.kind === "event") {
-            void queryClient.invalidateQueries({ queryKey: queryKeys.plc.all });
+            invalidateSoon(queryKeys.plc.all);
           }
         },
         state: (state) => {
           store.setConnection(state);
         },
-        unauthorized: () => manager.renew(),
+        unauthorized: async () => {
+          const token = await manager.renew();
+          if (token !== null) {
+            return { token };
+          }
+          return manager.snapshot().status === "signed_in" ? "retry" : "ended";
+        },
         resync: () => {
-          void queryClient.invalidateQueries();
+          for (const queryKey of STREAM_KEYS) {
+            void queryClient.invalidateQueries({ queryKey });
+          }
         },
       },
     });
@@ -57,6 +81,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     return () => {
       stopRenewals();
       client.stop();
+      if (flush !== null) {
+        clearTimeout(flush);
+      }
     };
   }, [manager, queryClient, store]);
 
