@@ -383,7 +383,7 @@ class TestHistorianQueries:
 
     def test_a_recent_short_range_reads_raw_data(self, influx: FakeInflux) -> None:
         client = HistorianQueryClient(CONFIG)
-        client.fetch_history(
+        result = client.fetch_history(
             measurement="boiler_sensors",
             start_ms=30 * DAY_MS - 3_600_000,
             end_ms=30 * DAY_MS,
@@ -396,15 +396,18 @@ class TestHistorianQueries:
         assert "aggregateWindow(every: 5s" in flux
         assert 'r._field == "pressure_pa"' in flux
         assert 'r.agg == "mean"' not in flux
+        assert (result.window_s, result.source.name) == (5, "raw")
 
     def test_an_old_range_reads_the_one_minute_means(self, influx: FakeInflux) -> None:
         client = HistorianQueryClient(CONFIG)
-        client.fetch_history(
+        result = client.fetch_history(
             measurement="boiler_sensors",
             start_ms=10 * DAY_MS,
             end_ms=10 * DAY_MS + 3_600_000,
             limit=100,
+            window_s=3,
         )
+        assert (result.window_s, result.source.name) == (60, "aggregate")
         flux = influx.queries[-1][0]
         assert 'from(bucket: "sensors_1m")' in flux
         assert 'r.agg == "mean"' in flux

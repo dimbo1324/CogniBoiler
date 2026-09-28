@@ -19,6 +19,8 @@ FastAPI test pattern:
 
 from __future__ import annotations
 
+import time
+
 import jwt as pyjwt
 import pytest
 from api_gateway.auth.identity import role_level
@@ -29,6 +31,7 @@ from api_gateway.auth.jwt_handler import (
     issue_refresh_token,
 )
 from api_gateway.auth.password import hash_password, verify_password
+from api_gateway.historian_query import HistoryResult, HistorySource
 from fastapi import FastAPI
 from gateway_fakes import FakeHistorianClient
 from httpx import AsyncClient
@@ -496,26 +499,18 @@ class TestCommandsEndpoints:
 class RecordedHistorianClient(FakeHistorianClient):
     """Returns one row shaped exactly like a pivoted InfluxDB Flux record."""
 
-    def fetch_history(
-        self,
-        *,
-        measurement: str,
-        start_ms: int,
-        end_ms: int,
-        limit: int,
-        window_s: int = 0,
-        fields: tuple[str, ...] = (),
-    ) -> list[dict[str, object]]:
+    def __init__(self) -> None:
         from datetime import UTC, datetime
 
-        return [
+        super().__init__()
+        self.rows = [
             {
                 "result": "_result",
                 "table": 0,
                 "_start": datetime(2026, 9, 15, 6, 0, tzinfo=UTC),
                 "_stop": datetime(2026, 9, 15, 6, 15, tzinfo=UTC),
                 "_time": datetime(2026, 9, 15, 6, 10, tzinfo=UTC),
-                "_measurement": measurement,
+                "_measurement": "boiler_sensors",
                 "quality": "good",
                 "pressure_pa": 140.0e5,
                 "water_level_m": 4.8,
@@ -534,7 +529,7 @@ class FailingHistorianClient(FakeHistorianClient):
         limit: int,
         window_s: int = 0,
         fields: tuple[str, ...] = (),
-    ) -> list[dict[str, object]]:
+    ) -> HistoryResult:
         raise ConnectionRefusedError("influxdb:8086 refused the connection")
 
 
@@ -556,6 +551,26 @@ class TestHistoryEndpoint:
             "pressure_pa": 140.0e5,
             "water_level_m": 4.8,
         }
+
+    @pytest.mark.asyncio
+    async def test_the_window_is_the_one_the_points_were_averaged_over(
+        self, app: FastAPI, client: AsyncClient, viewer_tokens: dict[str, str]
+    ) -> None:
+        historian = FakeHistorianClient()
+        historian.source = HistorySource("sensors_1m", aggregated=True)
+        app.state.historian_client = historian
+        now_ms = int(time.time() * 1000)
+        response = await client.get(
+            "/api/v1/history",
+            params={
+                "start_ms": now_ms - 8 * 86_400_000,
+                "end_ms": now_ms - 8 * 86_400_000 + 600_000,
+                "limit": 200,
+            },
+            headers={"Authorization": f"Bearer {viewer_tokens['access']}"},
+        )
+        assert response.status_code == 200
+        assert response.json()["window_s"] == 60
 
     @pytest.mark.asyncio
     async def test_an_unreachable_historian_is_503_not_500(

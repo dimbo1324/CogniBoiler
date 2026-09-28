@@ -10,7 +10,7 @@ import cogniboiler_pb2 as pb2
 import grpc
 import grpc.aio
 from api_gateway.auth.password import hash_password
-from api_gateway.historian_query import HistorySource
+from api_gateway.historian_query import HistoryResult, HistorySource
 from api_gateway.models.user import Role, User, UserRole
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -465,6 +465,8 @@ class FakeHistorianClient:
         self.calls: list[tuple[str, Any]] = []
         self.kpi_values: dict[tuple[str, str], float] = {}
         self.up = True
+        self.source = HistorySource("sensors", aggregated=False)
+        self.rows: list[dict[str, Any]] = []
 
     def close(self) -> None:
         return None
@@ -481,9 +483,11 @@ class FakeHistorianClient:
         limit: int,
         window_s: int = 0,
         fields: tuple[str, ...] = (),
-    ) -> list[dict[str, object]]:
+    ) -> HistoryResult:
         self.calls.append(("fetch_history", (measurement, start_ms, end_ms)))
-        return []
+        self.calls.append(("fields", fields))
+        effective = max(window_s, 60) if self.source.aggregated else window_s
+        return HistoryResult(effective, list(self.rows), self.source)
 
     def fetch_kpi_inputs(
         self, *, start_ms: int, end_ms: int

@@ -94,6 +94,15 @@ class HistorySource:
         return "aggregate" if self.aggregated else "raw"
 
 
+@dataclass(frozen=True, slots=True)
+class HistoryResult:
+    """The rows of a history query and the window each row is really the mean of."""
+
+    window_s: int
+    rows: list[dict[str, Any]]
+    source: HistorySource
+
+
 def history_window_s(start_ms: int, end_ms: int, max_points: int) -> int:
     """
     The smallest standard window that keeps a range within max_points.
@@ -276,7 +285,8 @@ class HistorianQueryClient:
         limit: int,
         window_s: int = 0,
         fields: Sequence[str] = (),
-    ) -> list[dict[str, Any]]:
+    ) -> HistoryResult:
+        """Rows of one measurement; the aggregates are never finer than a minute."""
         source = choose_source(self.config, start_ms, end_ms, _now_ms())
         if source.aggregated:
             window_s = max(window_s, AGGREGATE_WINDOW_S)
@@ -290,7 +300,7 @@ class HistorianQueryClient:
             fields=fields,
             aggregated=source.aggregated,
         )
-        return self.query_rows(flux)
+        return HistoryResult(window_s, self.query_rows(flux), source)
 
     def fetch_kpi_inputs(
         self, *, start_ms: int, end_ms: int

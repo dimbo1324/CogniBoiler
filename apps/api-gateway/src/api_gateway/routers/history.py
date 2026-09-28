@@ -85,7 +85,7 @@ async def get_history(
     names = parse_fields(fields)
     window_s = history_window_s(start, end, limit)
     try:
-        raw_points = await asyncio.to_thread(
+        result = await asyncio.to_thread(
             historian.fetch_history,
             measurement=measurement,
             start_ms=start,
@@ -105,12 +105,12 @@ async def get_history(
                 key: value for key, value in item.items() if key not in _FLUX_METADATA
             },
         )
-        for item in raw_points
+        for item in result.rows
     ]
     return HistoryResponse(
         measurement=measurement,
         start_ms=start,
         end_ms=end,
-        window_s=window_s,
+        window_s=result.window_s,
         points=points,
     )
