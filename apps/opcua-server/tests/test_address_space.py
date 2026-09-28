@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import cogniboiler_pb2 as pb
 import pytest
+from google.protobuf.descriptor import FieldDescriptor
 from opcua_server.address_space import (
     ALL_VARIABLES,
     BOILER_FIELD_TO_NODEID,
@@ -26,7 +27,9 @@ from opcua_server.address_space import (
     NS_IDX,
     TURBINE_FIELD_TO_NODEID,
     TURBINE_VARIABLES,
+    VARIABLES_BY_NODE_ID,
 )
+from opcua_server.projection import alarm_updates, plant_updates, plc_updates
 from opcua_server.subscriber import (
     TOPIC_BOILER,
     TOPIC_HEARTBEAT,
@@ -142,9 +145,10 @@ class TestAddressSpace:
 
     def test_boiler_field_keys_are_valid_proto_fields(self) -> None:
         """All keys must be real BoilerStateMsg field names."""
-        dummy = pb.BoilerStateMsg()
+        fields = pb.BoilerStateMsg.DESCRIPTOR.fields_by_name
         for field in BOILER_FIELD_TO_NODEID:
-            assert hasattr(dummy, field), f"'{field}' is not a BoilerStateMsg field"
+            assert field in fields, f"'{field}' is not a BoilerStateMsg field"
+            assert fields[field].type == FieldDescriptor.TYPE_DOUBLE
 
     # ─── TURBINE_FIELD_TO_NODEID tests ───────────────────────────────────────
 
@@ -166,9 +170,10 @@ class TestAddressSpace:
 
     def test_turbine_field_keys_are_valid_proto_fields(self) -> None:
         """All keys must be real TurbineStateMsg field names."""
-        dummy = pb.TurbineStateMsg()
+        fields = pb.TurbineStateMsg.DESCRIPTOR.fields_by_name
         for field in TURBINE_FIELD_TO_NODEID:
-            assert hasattr(dummy, field), f"'{field}' is not a TurbineStateMsg field"
+            assert field in fields, f"'{field}' is not a TurbineStateMsg field"
+            assert fields[field].type == FieldDescriptor.TYPE_DOUBLE
 
 
 # ─── MQTTOPCBridge fixtures ───────────────────────────────────────────────────
@@ -185,6 +190,25 @@ def bridge(opc: MagicMock) -> MQTTOPCBridge:
 
 
 # ─── MQTTOPCBridge tests ─────────────────────────────────────────────────────
+
+
+class TestProjectionNodeIds:
+    @pytest.mark.parametrize(
+        "updates",
+        [
+            plant_updates(pb.PlantStatusMsg()),
+            plc_updates(pb.PLCStatusMsg()),
+            alarm_updates(pb.AlarmListMsg()),
+        ],
+        ids=["plant", "plc", "alarms"],
+    )
+    def test_every_projected_node_is_in_the_catalogue(
+        self, updates: list[tuple[int, object]]
+    ) -> None:
+        node_ids = [node_id for node_id, _ in updates]
+        assert node_ids
+        assert set(node_ids) <= set(VARIABLES_BY_NODE_ID)
+        assert len(node_ids) == len(set(node_ids))
 
 
 class TestMQTTOPCBridge:

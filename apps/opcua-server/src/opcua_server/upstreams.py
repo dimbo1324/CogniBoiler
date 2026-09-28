@@ -15,15 +15,17 @@ import logging
 
 import grpc
 
-from opcua_server.address_space import ALARM_VARIABLES, PLC_VARIABLES
+from opcua_server.address_space import (
+    ALARM_VARIABLES,
+    NODEID_ALARM_COMMUNICATION,
+    NODEID_PLC_COMMUNICATION,
+    PLC_VARIABLES,
+)
 from opcua_server.client import AlarmReadClient, PLCStatusClient
 from opcua_server.projection import Update, alarm_updates, plc_updates
 from opcua_server.server import CogniBoilerOPCServer
 
 logger = logging.getLogger(__name__)
-
-NODEID_PLC_COMMUNICATION = 2712
-NODEID_ALARM_COMMUNICATION = 2804
 
 
 async def _write(opc: CogniBoilerOPCServer, updates: list[Update]) -> None:

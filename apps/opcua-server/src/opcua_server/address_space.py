@@ -256,38 +256,66 @@ HEALTH_VARIABLES: list[VariableDescriptor] = [
     _d(2558, "MaintenanceCritical", "Maintenance Critical", "-", "Maintenance is overdue", H, False, BOOL),
 ]  # fmt: skip
 
+# ─── Simulation, PLC and alarm variables, named for the projections ────────
+
+NODEID_SCENARIO: int = 2600
+NODEID_RUN_ID: int = 2601
+NODEID_SIMULATION_TIME: int = 2602
+NODEID_SPEED_FACTOR: int = 2603
+NODEID_PAUSED: int = 2604
+NODEID_ACTIVE_FAULTS: int = 2605
+NODEID_INSTRUMENTS_NOT_GOOD: int = 2606
+NODEID_PLC_MODE: int = 2700
+NODEID_EMERGENCY_STOP_ACTIVE: int = 2701
+NODEID_TRIP_CAUSE: int = 2702
+NODEID_RESET_PERMITTED: int = 2703
+NODEID_RESET_BLOCKERS: int = 2704
+NODEID_LOAD_DEMAND: int = 2705
+NODEID_LOAD_SETPOINT: int = 2706
+NODEID_PRESSURE_SETPOINT: int = 2707
+NODEID_LEVEL_SETPOINT: int = 2708
+NODEID_STEAM_TEMP_SETPOINT: int = 2709
+NODEID_WARNING_COUNT: int = 2710
+NODEID_TRIP_COUNT: int = 2711
+NODEID_PLC_COMMUNICATION: int = 2712
+NODEID_OPEN_ALARM_COUNT: int = 2800
+NODEID_UNACKNOWLEDGED_COUNT: int = 2801
+NODEID_CRITICAL_ACTIVE_COUNT: int = 2802
+NODEID_OPEN_ALARMS: int = 2803
+NODEID_ALARM_COMMUNICATION: int = 2804
+
 SIMULATION_VARIABLES: list[VariableDescriptor] = [
-    _d(2600, "Scenario", "Scenario", "-", "Scenario the plant was started from", S, "", TEXT),
-    _d(2601, "RunId", "Run Id", "-", "Changes whenever a scenario is loaded", S, 0, INT),
-    _d(2602, "SimulationTime", "Simulation Time", "s", "Simulated time since the scenario was loaded [s]", S),
-    _d(2603, "SpeedFactor", "Speed Factor", "1", "Simulated seconds per wall-clock second [1]", S, 1.0),
-    _d(2604, "Paused", "Paused", "-", "The simulation is paused", S, False, BOOL),
-    _d(2605, "ActiveFaults", "Active Faults", "-", "Labels of the injected faults", S, [], TEXTS),
-    _d(2606, "InstrumentsNotGood", "Instruments Not Good", "1", "Instruments reporting uncertain or bad quality [1]", S, 0, INT),
+    _d(NODEID_SCENARIO, "Scenario", "Scenario", "-", "Scenario the plant was started from", S, "", TEXT),
+    _d(NODEID_RUN_ID, "RunId", "Run Id", "-", "Changes whenever a scenario is loaded", S, 0, INT),
+    _d(NODEID_SIMULATION_TIME, "SimulationTime", "Simulation Time", "s", "Simulated time since the scenario was loaded [s]", S),
+    _d(NODEID_SPEED_FACTOR, "SpeedFactor", "Speed Factor", "1", "Simulated seconds per wall-clock second [1]", S, 1.0),
+    _d(NODEID_PAUSED, "Paused", "Paused", "-", "The simulation is paused", S, False, BOOL),
+    _d(NODEID_ACTIVE_FAULTS, "ActiveFaults", "Active Faults", "-", "Labels of the injected faults", S, [], TEXTS),
+    _d(NODEID_INSTRUMENTS_NOT_GOOD, "InstrumentsNotGood", "Instruments Not Good", "1", "Instruments reporting uncertain or bad quality [1]", S, 0, INT),
 ]  # fmt: skip
 
 PLC_VARIABLES: list[VariableDescriptor] = [
-    _d(2700, "Mode", "Control Mode", "-", "auto | manual | estop", L, "", TEXT),
-    _d(2701, "EmergencyStopActive", "Emergency Stop Active", "-", "The E-Stop latch is set", L, False, BOOL),
-    _d(2702, "TripCause", "Trip Cause", "-", "Parameter, value and limit of the latched trip", L, "", TEXT),
-    _d(2703, "ResetPermitted", "Reset Permitted", "-", "An E-Stop reset would be accepted now", L, False, BOOL),
-    _d(2704, "ResetBlockers", "Reset Blockers", "-", "Why a reset would be refused now", L, [], TEXTS),
-    _d(2705, "LoadDemand", "Load Demand", "W", "Electrical load target set by the operator [W]", L),
-    _d(2706, "LoadSetpoint", "Load Setpoint", "W", "Ramped working load setpoint [W]", L),
-    _d(2707, "PressureSetpoint", "Pressure Setpoint", "Pa", "Drum pressure target [Pa]", L),
-    _d(2708, "LevelSetpoint", "Level Setpoint", "m", "Drum level target [m]", L),
-    _d(2709, "SteamTempSetpoint", "Steam Temperature Setpoint", "K", "Steam temperature target [K]", L),
-    _d(2710, "WarningCount", "Warning Count", "1", "Warnings raised by the interlocks [1]", L, 0, INT),
-    _d(2711, "TripCount", "Trip Count", "1", "Trips latched by the interlocks [1]", L, 0, INT),
-    _d(2712, "PlcCommunication", "PLC Communication", "-", "The OPC UA server reaches PLCService", L, False, BOOL),
+    _d(NODEID_PLC_MODE, "Mode", "Control Mode", "-", "auto | manual | estop", L, "", TEXT),
+    _d(NODEID_EMERGENCY_STOP_ACTIVE, "EmergencyStopActive", "Emergency Stop Active", "-", "The E-Stop latch is set", L, False, BOOL),
+    _d(NODEID_TRIP_CAUSE, "TripCause", "Trip Cause", "-", "Parameter, value and limit of the latched trip", L, "", TEXT),
+    _d(NODEID_RESET_PERMITTED, "ResetPermitted", "Reset Permitted", "-", "An E-Stop reset would be accepted now", L, False, BOOL),
+    _d(NODEID_RESET_BLOCKERS, "ResetBlockers", "Reset Blockers", "-", "Why a reset would be refused now", L, [], TEXTS),
+    _d(NODEID_LOAD_DEMAND, "LoadDemand", "Load Demand", "W", "Electrical load target set by the operator [W]", L),
+    _d(NODEID_LOAD_SETPOINT, "LoadSetpoint", "Load Setpoint", "W", "Ramped working load setpoint [W]", L),
+    _d(NODEID_PRESSURE_SETPOINT, "PressureSetpoint", "Pressure Setpoint", "Pa", "Drum pressure target [Pa]", L),
+    _d(NODEID_LEVEL_SETPOINT, "LevelSetpoint", "Level Setpoint", "m", "Drum level target [m]", L),
+    _d(NODEID_STEAM_TEMP_SETPOINT, "SteamTempSetpoint", "Steam Temperature Setpoint", "K", "Steam temperature target [K]", L),
+    _d(NODEID_WARNING_COUNT, "WarningCount", "Warning Count", "1", "Warnings raised by the interlocks [1]", L, 0, INT),
+    _d(NODEID_TRIP_COUNT, "TripCount", "Trip Count", "1", "Trips latched by the interlocks [1]", L, 0, INT),
+    _d(NODEID_PLC_COMMUNICATION, "PlcCommunication", "PLC Communication", "-", "The OPC UA server reaches PLCService", L, False, BOOL),
 ]  # fmt: skip
 
 ALARM_VARIABLES: list[VariableDescriptor] = [
-    _d(2800, "OpenAlarmCount", "Open Alarms", "1", "Alarms not both cleared and acknowledged [1]", A, 0, INT),
-    _d(2801, "UnacknowledgedCount", "Unacknowledged Alarms", "1", "Open alarms waiting for acknowledgement [1]", A, 0, INT),
-    _d(2802, "CriticalActiveCount", "Critical Active Alarms", "1", "Critical alarms whose condition is present [1]", A, 0, INT),
-    _d(2803, "OpenAlarms", "Open Alarm List", "-", "id | severity | state | message of each open alarm", A, [], TEXTS),
-    _d(2804, "AlarmServiceCommunication", "Alarm Service Communication", "-", "The OPC UA server reaches AlarmService", A, False, BOOL),
+    _d(NODEID_OPEN_ALARM_COUNT, "OpenAlarmCount", "Open Alarms", "1", "Alarms not both cleared and acknowledged [1]", A, 0, INT),
+    _d(NODEID_UNACKNOWLEDGED_COUNT, "UnacknowledgedCount", "Unacknowledged Alarms", "1", "Open alarms waiting for acknowledgement [1]", A, 0, INT),
+    _d(NODEID_CRITICAL_ACTIVE_COUNT, "CriticalActiveCount", "Critical Active Alarms", "1", "Critical alarms whose condition is present [1]", A, 0, INT),
+    _d(NODEID_OPEN_ALARMS, "OpenAlarms", "Open Alarm List", "-", "id | severity | state | message of each open alarm", A, [], TEXTS),
+    _d(NODEID_ALARM_COMMUNICATION, "AlarmServiceCommunication", "Alarm Service Communication", "-", "The OPC UA server reaches AlarmService", A, False, BOOL),
 ]  # fmt: skip
 
 ALL_VARIABLES: list[VariableDescriptor] = (

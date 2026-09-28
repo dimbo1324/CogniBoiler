@@ -12,6 +12,31 @@ from opcua_server.address_space import (
     CONDENSER_FIELD_TO_NODEID,
     EMISSIONS_FIELD_TO_NODEID,
     HEALTH_FIELD_TO_NODEID,
+    NODEID_ACTIVE_FAULTS,
+    NODEID_ALARM_COMMUNICATION,
+    NODEID_CRITICAL_ACTIVE_COUNT,
+    NODEID_EMERGENCY_STOP_ACTIVE,
+    NODEID_INSTRUMENTS_NOT_GOOD,
+    NODEID_LEVEL_SETPOINT,
+    NODEID_LOAD_DEMAND,
+    NODEID_LOAD_SETPOINT,
+    NODEID_OPEN_ALARM_COUNT,
+    NODEID_OPEN_ALARMS,
+    NODEID_PAUSED,
+    NODEID_PLC_COMMUNICATION,
+    NODEID_PLC_MODE,
+    NODEID_PRESSURE_SETPOINT,
+    NODEID_RESET_BLOCKERS,
+    NODEID_RESET_PERMITTED,
+    NODEID_RUN_ID,
+    NODEID_SCENARIO,
+    NODEID_SIMULATION_TIME,
+    NODEID_SPEED_FACTOR,
+    NODEID_STEAM_TEMP_SETPOINT,
+    NODEID_TRIP_CAUSE,
+    NODEID_TRIP_COUNT,
+    NODEID_UNACKNOWLEDGED_COUNT,
+    NODEID_WARNING_COUNT,
     PERFORMANCE_FIELD_TO_NODEID,
     SENSOR_TO_NODEID,
     InitialValue,
@@ -43,13 +68,16 @@ def plant_updates(msg: pb.PlantStatusMsg) -> list[Update]:
         *field_updates(msg.condenser, CONDENSER_FIELD_TO_NODEID),
         *field_updates(msg.performance, PERFORMANCE_FIELD_TO_NODEID),
         *field_updates(msg.health, HEALTH_FIELD_TO_NODEID),
-        (2600, simulation.scenario),
-        (2601, int(simulation.run_id)),
-        (2602, simulation.simulation_time_s),
-        (2603, simulation.speed_factor),
-        (2604, simulation.run_state == pb.SimulationRunState.SIMULATION_PAUSED),
-        (2605, sorted(fault.label for fault in msg.active_faults)),
-        (2606, not_good),
+        (NODEID_SCENARIO, simulation.scenario),
+        (NODEID_RUN_ID, int(simulation.run_id)),
+        (NODEID_SIMULATION_TIME, simulation.simulation_time_s),
+        (NODEID_SPEED_FACTOR, simulation.speed_factor),
+        (
+            NODEID_PAUSED,
+            simulation.run_state == pb.SimulationRunState.SIMULATION_PAUSED,
+        ),
+        (NODEID_ACTIVE_FAULTS, sorted(fault.label for fault in msg.active_faults)),
+        (NODEID_INSTRUMENTS_NOT_GOOD, not_good),
     ]
 
 
@@ -70,19 +98,19 @@ def plc_updates(status: pb.PLCStatusMsg) -> list[Update]:
         else ""
     )
     return [
-        (2700, pb.ControlMode.Name(status.mode).lower()),
-        (2701, status.emergency_stop_active),
-        (2702, trip_cause),
-        (2703, status.reset_permitted),
-        (2704, list(status.reset_blockers)),
-        (2705, status.load_demand_w),
-        (2706, status.load_setpoint_w),
-        (2707, status.setpoints.pressure_pa),
-        (2708, status.setpoints.water_level_m),
-        (2709, status.setpoints.steam_temp_k),
-        (2710, int(status.warning_count)),
-        (2711, int(status.trip_count)),
-        (2712, True),
+        (NODEID_PLC_MODE, pb.ControlMode.Name(status.mode).lower()),
+        (NODEID_EMERGENCY_STOP_ACTIVE, status.emergency_stop_active),
+        (NODEID_TRIP_CAUSE, trip_cause),
+        (NODEID_RESET_PERMITTED, status.reset_permitted),
+        (NODEID_RESET_BLOCKERS, list(status.reset_blockers)),
+        (NODEID_LOAD_DEMAND, status.load_demand_w),
+        (NODEID_LOAD_SETPOINT, status.load_setpoint_w),
+        (NODEID_PRESSURE_SETPOINT, status.setpoints.pressure_pa),
+        (NODEID_LEVEL_SETPOINT, status.setpoints.water_level_m),
+        (NODEID_STEAM_TEMP_SETPOINT, status.setpoints.steam_temp_k),
+        (NODEID_WARNING_COUNT, int(status.warning_count)),
+        (NODEID_TRIP_COUNT, int(status.trip_count)),
+        (NODEID_PLC_COMMUNICATION, True),
     ]
 
 
@@ -102,16 +130,16 @@ def alarm_updates(alarms: pb.AlarmListMsg) -> list[Update]:
         in (pb.AlarmState.ALARM_ACTIVE_UNACK, pb.AlarmState.ALARM_ACTIVE_ACK)
     )
     return [
-        (2800, len(open_alarms)),
-        (2801, unacknowledged),
-        (2802, critical_active),
+        (NODEID_OPEN_ALARM_COUNT, len(open_alarms)),
+        (NODEID_UNACKNOWLEDGED_COUNT, unacknowledged),
+        (NODEID_CRITICAL_ACTIVE_COUNT, critical_active),
         (
-            2803,
+            NODEID_OPEN_ALARMS,
             [
                 f"{alarm.alarm_id} | {alarm.severity} | "
                 f"{_ALARM_STATES.get(alarm.state, 'UNKNOWN')} | {alarm.message}"
                 for alarm in open_alarms
             ],
         ),
-        (2804, True),
+        (NODEID_ALARM_COMMUNICATION, True),
     ]
