@@ -148,7 +148,9 @@ async def test_the_correlation_id_travels_in_grpc_metadata() -> None:
             with pytest.raises(grpc.aio.AioRpcError):
                 await refuse(b"")
     finally:
-        await server.stop(grace=None)
+        # The refused call's handler counts itself after the client already has the
+        # error; a grace period lets it finish instead of being cancelled.
+        await server.stop(grace=5.0)
 
     assert (
         REGISTRY.get_sample_value(
