@@ -25,13 +25,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from dataclasses import dataclass
 
 from aiomqtt import Client, Will
 from aiomqtt import MqttError as AioMqttError
 from cogniboiler_observability import MQTT_PUBLISH_ERRORS, MQTT_PUBLISHED
-from cogniboiler_runtime import MqttSession
+from cogniboiler_runtime import DEFAULT_RECONNECT_DELAY_S, MqttSession, now_ms
 
 from physics_engine.plant import PlantSnapshot
 from physics_engine.proto_mapping import (
@@ -49,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 
 MQTT_ERRORS: tuple[type[BaseException], ...] = (AioMqttError,)
-RECONNECT_DELAY_S: float = 5.0
+RECONNECT_DELAY_S: float = DEFAULT_RECONNECT_DELAY_S
 # A clean stop disconnects politely, and the broker then drops the will: "offline" has to
 # be said explicitly, but a link that is already gone must not hold the shutdown up.
 OFFLINE_ANNOUNCE_TIMEOUT_S: float = 2.0
@@ -135,7 +134,7 @@ class MQTTPublisher:
 
     async def publish_heartbeat(self, client: Client) -> None:
         """Publish system sync heartbeat with current timestamp."""
-        payload = str(int(time.time() * 1000)).encode()
+        payload = str(now_ms()).encode()
         await self._publish(client, TOPIC_HEARTBEAT, payload)
 
     async def publish_availability(self, client: Client, status: str) -> None:
