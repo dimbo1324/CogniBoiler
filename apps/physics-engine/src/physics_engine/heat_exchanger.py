@@ -41,8 +41,6 @@ ECO_OVERALL_HTC: float = 60.0  # W/(m²·K)
 # Feedwater leaving the economizer stays this far below saturation (no steaming).
 ECO_SUBCOOLING_MARGIN: float = 10.0  # K
 
-CP_FLUE_GAS: float = FLUE_GAS_CP  # J/(kg·K)
-
 
 def counterflow_effectiveness(ua: float, c_a: float, c_b: float) -> float:
     """Effectiveness of a counterflow exchanger with conductance `ua` [W/K]."""
@@ -126,7 +124,7 @@ class SuperheaterModel:
         steam_flow: float,
         flue_gas_temp_in: float,
         flue_gas_flow: float,
-        cp_flue_gas: float = CP_FLUE_GAS,
+        cp_flue_gas: float = FLUE_GAS_CP,
     ) -> SuperheaterState:
         """
         Calculate superheater performance at given operating conditions.
@@ -191,7 +189,7 @@ class EvaporatorBankModel:
         saturation_temp: float,
         flue_gas_temp_in: float,
         flue_gas_flow: float,
-        cp_flue_gas: float = CP_FLUE_GAS,
+        cp_flue_gas: float = FLUE_GAS_CP,
     ) -> EvaporatorBankState:
         """Heat raised into the drum circuit and the gas temperature leaving."""
         c_gas = flue_gas_flow * cp_flue_gas
@@ -234,7 +232,7 @@ class EconomizerModel:
         pressure_pa: float,
         flue_gas_temp_in: float,
         flue_gas_flow: float,
-        cp_flue_gas: float = CP_FLUE_GAS,
+        cp_flue_gas: float = FLUE_GAS_CP,
     ) -> EconomizerState:
         """
         Calculate economizer performance at given operating conditions.

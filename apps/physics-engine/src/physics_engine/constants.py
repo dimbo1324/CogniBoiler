@@ -14,6 +14,7 @@ TEMP_STEAM_MAX: float = 838.15  # K         — max superheated steam temp (565�
 TEMP_STEAM_NOMINAL: float = 825.65  # K         — nominal steam temp (552.5°C)
 TEMP_STEAM_RATED: float = 811.0  # K — turbine inlet design temperature after spray
 
+TEMP_FURNACE_GAS_NOMINAL: float = 1273.15  # K — furnace gas at ~1000°C
 TEMP_FEEDWATER: float = 423.15  # K         — feedwater inlet temperature (150°C)
 TEMP_AMBIENT: float = 293.15  # K         — ambient temperature (20°C)
 

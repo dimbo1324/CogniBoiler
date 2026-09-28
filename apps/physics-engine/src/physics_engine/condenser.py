@@ -58,8 +58,16 @@ DESIGN_BACKPRESSURE: float = 7_000.0  # Pa — 0.07 bar (design point)
 # Reference heat duty at full load (300 MW electrical, ~30% efficiency loss)
 DESIGN_HEAT_DUTY: float = 700.0e6  # W — 700 MW rejected to cooling water
 
-# Specific heat of water [J/(kg·K)]
+# Specific heat of the cooling water [J/(kg·K)]
 CP_WATER: float = 4_186.0
+
+# The condensing temperature is searched between a minimum approach to the cooling water
+# and the 75 °C a vacuum condenser can reach.
+MIN_CONDENSING_APPROACH_K: float = 3.0
+MAX_CONDENSING_TEMP_K: float = 348.15
+
+# With no steam to condense the cooling water still leaves slightly warmer than it came.
+IDLE_COOLING_WATER_RISE_K: float = 1.0
 
 
 # ─── Condenser state ──────────────────────────────────────────────────────────
@@ -206,7 +214,7 @@ class CondenserModel:
                 backpressure_pa=MIN_BACKPRESSURE,
                 condensate_temp=t_cond,
                 feedwater_temp=DEAERATOR_TEMP,
-                cooling_water_temp_out=t_cw_in + 1.0,
+                cooling_water_temp_out=t_cw_in + IDLE_COOLING_WATER_RISE_K,
                 heat_rejected_w=0.0,
                 condenser_loading=0.0,
             )
@@ -272,8 +280,8 @@ class CondenserModel:
         Uses bisection between (T_cw_in + 3 K) and 75°C max.
         Typically converges in < 20 iterations to < 0.1 K.
         """
-        t_lo = t_cw_in + 3.0  # K — minimum: 3 K above cooling water
-        t_hi = 348.15  # K — 75°C maximum for vacuum condenser
+        t_lo = t_cw_in + MIN_CONDENSING_APPROACH_K
+        t_hi = MAX_CONDENSING_TEMP_K
 
         for _ in range(40):
             t_mid = (t_lo + t_hi) / 2.0

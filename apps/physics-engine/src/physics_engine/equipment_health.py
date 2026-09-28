@@ -251,31 +251,17 @@ class HealthTracker:
             self._turbine_starts += 1.0
 
         self._last_power_mw = power_mw
-
-        # ── Determine alarm state ─────────────────────────────────────────────
-        worst = max(self._turbine_damage, self._tube_damage)
-        alarm = worst >= HEALTH_WARNING_THRESHOLD
-        critical = worst >= HEALTH_CRITICAL_THRESHOLD
-
-        return EquipmentHealth(
-            turbine_hours=self._turbine_hours,
-            turbine_starts=self._turbine_starts,
-            turbine_damage=self._turbine_damage,
-            boiler_tube_hours=self._tube_hours,
-            boiler_tube_damage=self._tube_damage,
-            pump_hours=self._pump_hours,
-            maintenance_alarm=alarm,
-            maintenance_critical=critical,
-        )
+        return self._snapshot()
 
     # ── Inspection helpers ────────────────────────────────────────────────────
 
     @property
     def current_health(self) -> EquipmentHealth:
         """Read current health snapshot without advancing time."""
+        return self._snapshot()
+
+    def _snapshot(self) -> EquipmentHealth:
         worst = max(self._turbine_damage, self._tube_damage)
-        alarm = worst >= HEALTH_WARNING_THRESHOLD
-        critical = worst >= HEALTH_CRITICAL_THRESHOLD
         return EquipmentHealth(
             turbine_hours=self._turbine_hours,
             turbine_starts=self._turbine_starts,
@@ -283,8 +269,8 @@ class HealthTracker:
             boiler_tube_hours=self._tube_hours,
             boiler_tube_damage=self._tube_damage,
             pump_hours=self._pump_hours,
-            maintenance_alarm=alarm,
-            maintenance_critical=critical,
+            maintenance_alarm=worst >= HEALTH_WARNING_THRESHOLD,
+            maintenance_critical=worst >= HEALTH_CRITICAL_THRESHOLD,
         )
 
     def reset(self) -> None:

@@ -39,6 +39,7 @@ from scipy.integrate._ivp.ivp import OdeResult
 from physics_engine import properties
 from physics_engine.combustion import CombustionModel
 from physics_engine.constants import (
+    FLUE_GAS_CP,
     FUEL_HEATING_VALUE,
     PRESSURE_MAX,
     PRESSURE_MIN,
@@ -49,7 +50,6 @@ from physics_engine.constants import (
 )
 from physics_engine.faults import NO_DISTURBANCES, PlantDisturbances
 from physics_engine.heat_exchanger import (
-    CP_FLUE_GAS,
     EconomizerModel,
     EvaporatorBankModel,
     SuperheaterModel,
@@ -63,12 +63,11 @@ ODE_RTOL: float = 1e-4
 ODE_ATOL: float = 1e-6
 ODE_MAX_STEP: float = 5.0  # seconds
 
-# Flue gas inventory of the furnace [kg] — about 10 000 m³ at ~0.21 kg/m³ — and its Cp
-# [J/(kg·K)]. After a fuel trip this gas gives its heat to the water walls, so an
+# Flue gas inventory of the furnace [kg] — about 10 000 m³ at ~0.21 kg/m³ — at the mean
+# flue gas Cp (constants.FLUE_GAS_CP). After a fuel trip this gas gives its heat to the water walls, so an
 # oversized inventory would make the drum pressure climb long after the flame is out.
 # Only the product mass x Cp matters for that; it is 2.75e6 J/K, as calibrated in S2.
 FURNACE_GAS_MASS: float = 2115.0
-FURNACE_GAS_CP: float = CP_FLUE_GAS
 
 # Spring-loaded drum safety valves: mechanical protection that acts without the PLC.
 # They start to lift at 172 bar and discharge their rated capacity at 178 bar, which
@@ -281,7 +280,7 @@ class BoilerModel:
 
         # ── Gas path ──────────────────────────────────────────────────────────
         q_walls = p.heat_transfer_coeff * (gas_temp - water_temp)
-        q_gas_exit = gas_flow * FURNACE_GAS_CP * (gas_temp - p.ambient_temp)
+        q_gas_exit = gas_flow * FLUE_GAS_CP * (gas_temp - p.ambient_temp)
 
         sh = self.superheater.calculate(
             pressure_pa=pressure,
@@ -304,7 +303,7 @@ class BoilerModel:
         h_feedwater_in = properties.liquid_enthalpy(p.feedwater_temp)
         h_economizer_out = h_feedwater_in + eco.water_enthalpy_gain
         stack_temp = eco.flue_gas_temp_out
-        stack_loss = gas_flow * FURNACE_GAS_CP * max(stack_temp - p.ambient_temp, 0.0)
+        stack_loss = gas_flow * FLUE_GAS_CP * max(stack_temp - p.ambient_temp, 0.0)
         q_loss = p.heat_loss_coeff * max(water_temp - p.ambient_temp, 0.0)
 
         # ── Derivatives ───────────────────────────────────────────────────────
@@ -320,7 +319,7 @@ class BoilerModel:
         dp_dt = (properties.saturation_pressure(water_temp) - pressure) / TAU_PRESSURE
         dh_dt = (feedwater - steam_out) / (rho_water * p.drum_cross_section)
         dt_gas_dt = (comb.heat_available - q_walls - q_gas_exit) / (
-            FURNACE_GAS_MASS * FURNACE_GAS_CP
+            FURNACE_GAS_MASS * FLUE_GAS_CP
         )
 
         return BoilerBalance(

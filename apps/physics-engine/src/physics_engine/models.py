@@ -18,6 +18,7 @@ from physics_engine.constants import (
     STEAM_VALVE_COEFFICIENT,
     TEMP_AMBIENT,
     TEMP_FEEDWATER,
+    TEMP_FURNACE_GAS_NOMINAL,
 )
 
 
@@ -244,6 +245,6 @@ class BoilerParameters:
             internal_energy=u_nominal,
             pressure=PRESSURE_NOMINAL,
             water_level=water_level_nominal,
-            flue_gas_temp=1273.15,  # K — ~1000°C nominal furnace temperature
+            flue_gas_temp=TEMP_FURNACE_GAS_NOMINAL,
             water_temp=t_sat,
         )

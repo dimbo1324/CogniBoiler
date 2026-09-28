@@ -23,18 +23,8 @@ from physics_engine.constants import (
     TEMP_AMBIENT,
 )
 
-# Stoichiometric air-fuel ratio of the fuel as fired [kg_air / kg_fuel]
-STOICHIOMETRIC_AFR: float = FUEL_STOICHIOMETRIC_AIR
-
 # Specific heat of combustion air [J/(kg·K)]
 CP_AIR: float = 1010.0
-
-# Mean specific heat of flue gas [J/(kg·K)]
-CP_FLUE_GAS: float = FLUE_GAS_CP
-
-
-# Reference lower heating value of natural gas [J/kg]
-LHV_NATURAL_GAS: float = FUEL_HEATING_VALUE  # 42.0 MJ/kg
 
 
 @dataclass
@@ -127,7 +117,7 @@ class CombustionModel:
         if flue_gas_flow <= 0.0:
             return TEMP_AMBIENT
 
-        delta_t = heat_released / (flue_gas_flow * CP_FLUE_GAS)
+        delta_t = heat_released / (flue_gas_flow * FLUE_GAS_CP)
         return self.air_preheat_temp + delta_t
 
     def calculate(
@@ -158,13 +148,13 @@ class CombustionModel:
 
         # ── Fuel and air flows ────────────────────────────────────────────────
         m_fuel = fuel_valve * self.max_fuel_flow
-        m_air = m_fuel * STOICHIOMETRIC_AFR * lam
+        m_air = m_fuel * FUEL_STOICHIOMETRIC_AIR * lam
         m_flue = m_fuel + m_air
         # ── Combustion efficiency ─────────────────────────────────────────────
         eta = self._combustion_efficiency(lam) * max(0.0, min(1.0, efficiency_factor))
 
         # ── Heat release ──────────────────────────────────────────────────────
-        q_released = m_fuel * LHV_NATURAL_GAS * eta
+        q_released = m_fuel * FUEL_HEATING_VALUE * eta
 
         # ── Air preheat contribution ──────────────────────────────────────────
         # Hot combustion air brings additional sensible heat into furnace

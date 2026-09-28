@@ -19,6 +19,9 @@ from physics_engine.scenarios import ScenarioDefinition
 from physics_engine.sensors import SensorId, SensorReading, worst_quality
 from physics_engine.turbine import TurbineState
 
+# Below this output the heat rates and intensities are meaningless and reported as zero.
+MIN_GENERATING_POWER_W: float = 1.0e6
+
 BOILER_SENSORS: tuple[SensorId, ...] = (
     SensorId.DRUM_PRESSURE,
     SensorId.DRUM_LEVEL,
@@ -131,7 +134,11 @@ def actuators_to_proto(controls: ControlInputs) -> pb.ActuatorStateMsg:
 def emissions_to_proto(snapshot: PlantSnapshot) -> pb.EmissionsMsg:
     emissions = snapshot.emissions
     power_mw = snapshot.turbine.electrical_power_mw
-    intensity = emissions.co2_rate * 3600.0 / power_mw if power_mw > 1.0 else 0.0
+    intensity = (
+        emissions.co2_rate * 3600.0 / power_mw
+        if snapshot.turbine.electrical_power >= MIN_GENERATING_POWER_W
+        else 0.0
+    )
     return pb.EmissionsMsg(
         co2_kg_s=emissions.co2_rate,
         nox_kg_s=emissions.nox_rate,
@@ -139,10 +146,6 @@ def emissions_to_proto(snapshot: PlantSnapshot) -> pb.EmissionsMsg:
         nox_ppmv=emissions.nox_ppmv,
         co2_intensity_kg_per_mwh=intensity,
     )
-
-
-# Below this output the heat rates and intensities are meaningless and reported as zero.
-MIN_GENERATING_POWER_W: float = 1.0e6
 
 
 def performance_to_proto(snapshot: PlantSnapshot) -> pb.PerformanceMsg:
