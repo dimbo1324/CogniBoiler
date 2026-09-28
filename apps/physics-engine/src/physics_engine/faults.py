@@ -43,13 +43,16 @@ class ValveId(StrEnum):
 #   steam_leak              — leak flow as a fraction of rated steam flow at nominal pressure
 #   feedwater_pump_failure  — fraction of pump capacity lost (1.0 = pump tripped)
 #   sensor_drift            — drift rate as a fraction of the sensor span per minute
-#   valve_stuck, sensor_failure — severity is not used
+#   valve_stuck, sensor_failure — severity is not used, but it is published with the
+#   fault, so it is held to UNUSED_SEVERITY_RANGE, the bounds the gateway accepts
 _SEVERITY_RANGES: dict[FaultKind, tuple[float, float]] = {
     FaultKind.BURNER_FOULING: (0.0, 0.5),
     FaultKind.STEAM_LEAK: (0.0, 0.3),
     FaultKind.FEEDWATER_PUMP_FAILURE: (0.0, 1.0),
     FaultKind.SENSOR_DRIFT: (-0.2, 0.2),
 }
+
+UNUSED_SEVERITY_RANGE: tuple[float, float] = (-1.0, 1.0)
 
 MAX_RAMP_S: float = 3600.0
 
@@ -93,6 +96,13 @@ class FaultSpec:
                 raise FaultError(
                     f"{self.kind.value} severity {self.severity:g} outside "
                     f"[{low:g}, {high:g}] or zero"
+                )
+        else:
+            low, high = UNUSED_SEVERITY_RANGE
+            if not low <= self.severity <= high:
+                raise FaultError(
+                    f"{self.kind.value} severity {self.severity:g} outside "
+                    f"[{low:g}, {high:g}]"
                 )
 
         return FaultSpec(

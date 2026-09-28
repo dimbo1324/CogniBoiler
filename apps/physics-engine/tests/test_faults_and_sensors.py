@@ -57,6 +57,12 @@ class TestSpecifications:
             (FaultSpec(K.STEAM_LEAK, severity=0.0), "or zero"),
             (FaultSpec(K.SENSOR_DRIFT, "drum_level", severity=0.3), "outside"),
             (FaultSpec(K.FEEDWATER_PUMP_FAILURE, severity=-0.1), "outside"),
+            (FaultSpec(K.STEAM_LEAK, severity=float("nan")), "outside"),
+            (FaultSpec(K.STEAM_LEAK, severity=0.1, ramp_s=float("nan")), "ramp_s"),
+            (FaultSpec(K.VALVE_STUCK, "spray", severity=float("nan")), "severity"),
+            (FaultSpec(K.VALVE_STUCK, "spray", severity=float("inf")), "severity"),
+            (FaultSpec(K.VALVE_STUCK, "spray", severity=7.0), "severity"),
+            (FaultSpec(K.SENSOR_FAILURE, "steam_flow", severity=-1.5), "severity"),
         ],
     )
     def test_invalid_specifications_are_refused(
@@ -65,10 +71,12 @@ class TestSpecifications:
         with pytest.raises(FaultError, match=message):
             spec.validated()
 
-    def test_severity_is_ignored_where_it_means_nothing(self) -> None:
-        assert (
-            FaultSpec(K.VALVE_STUCK, "spray", severity=7.0).validated().severity == 7.0
-        )
+    @pytest.mark.parametrize("severity", [-1.0, 0.0, 0.7, 1.0])
+    def test_an_unused_severity_is_kept_within_its_bounds(
+        self, severity: float
+    ) -> None:
+        spec = FaultSpec(K.VALVE_STUCK, "spray", severity=severity)
+        assert spec.validated().severity == severity
 
 
 class TestDevelopment:
