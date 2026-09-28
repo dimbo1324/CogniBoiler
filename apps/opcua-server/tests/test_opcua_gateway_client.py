@@ -185,6 +185,16 @@ class TestGatewayClient:
         ]
         assert script.calls[2].body == {"refresh_token": "refresh-2"}
 
+    async def test_a_refused_refresh_is_logged_without_the_token(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with gateway_server() as (url, script):
+            script.refresh_works = False
+            with caplog.at_level(logging.WARNING, logger="opcua_server.gateway"):
+                assert await GatewayClient(url).refresh("refresh-secret-1") is None
+        assert "HTTP 401 auth.refresh_invalid" in caplog.text
+        assert "refresh-secret-1" not in caplog.text
+
     async def test_a_refused_sign_in_is_none_and_logged(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:

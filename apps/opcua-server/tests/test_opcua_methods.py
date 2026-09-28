@@ -226,6 +226,7 @@ class TestMethods:
             (422, StatusCodes.BadInvalidArgument),
             (409, StatusCodes.BadInvalidArgument),
             (503, StatusCodes.BadCommunicationError),
+            (429, StatusCodes.BadTooManyOperations),
         ],
     )
     async def test_gateway_refusals_become_status_codes(
@@ -314,6 +315,92 @@ class TestMethods:
         finally:
             CURRENT_USER.reset(token)
         assert code(result) == StatusCodes.BadCommunicationError
+
+
+def calls_counted(method: str, outcome: str) -> float:
+    value = REGISTRY.get_sample_value(
+        "opcua_method_calls_total", {"method": method, "outcome": outcome}
+    )
+    return value or 0.0
+
+
+class TestMethodLogsAndCounts:
+    @pytest.mark.parametrize(
+        ("status", "body", "outcome"),
+        [
+            (200, {"accepted": True, "reason": ""}, "accepted"),
+            (200, {"accepted": False, "reason": "E-Stop active"}, "refused"),
+            (503, {"detail": "down"}, "failed"),
+        ],
+    )
+    async def test_each_outcome_is_counted(
+        self,
+        as_operator: GatewayClient,
+        gateway: tuple[str, GatewayScript],
+        status: int,
+        body: dict[str, Any],
+        outcome: str,
+    ) -> None:
+        _, script = gateway
+        script.command_status, script.command_body = status, body
+        before = calls_counted("ResetEmergencyStop", outcome)
+        await MethodHandlers(as_operator).reset_emergency_stop(None)
+        assert calls_counted("ResetEmergencyStop", outcome) == before + 1
+
+    async def test_an_invalid_argument_is_counted(
+        self, as_operator: GatewayClient
+    ) -> None:
+        before = calls_counted("SetLoadDemand", "invalid")
+        await MethodHandlers(as_operator).set_load_demand(None, "a lot")
+        assert calls_counted("SetLoadDemand", "invalid") == before + 1
+
+    async def test_a_gateway_refusal_of_the_arguments_is_logged_with_its_code(
+        self,
+        as_operator: GatewayClient,
+        gateway: tuple[str, GatewayScript],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        _, script = gateway
+        script.command_status = 422
+        script.command_body = {"code": "request.invalid", "detail": "no"}
+        with caplog.at_level(logging.INFO, logger="opcua_server.methods"):
+            result = await MethodHandlers(as_operator).set_load_demand(None, 1.0)
+        assert code(result) == StatusCodes.BadInvalidArgument
+        assert "HTTP 422 request.invalid" in caplog.text
+
+    async def test_logs_name_the_user_the_gateway_verified(
+        self, gateway: tuple[str, GatewayScript], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        url, script = gateway
+        script.canonical_username = "operator1"
+        client = GatewayClient(url)
+        user = GatewayUserManager(client).get_user(None, "OPERATOR1 ", PASSWORD)
+        token = CURRENT_USER.set(user)
+        try:
+            with caplog.at_level(logging.INFO, logger="opcua_server"):
+                await MethodHandlers(client).reset_emergency_stop(None)
+        finally:
+            CURRENT_USER.reset(token)
+            assert isinstance(user, GatewayUser) and user.session is not None
+            await user.session.close()
+        assert "ResetEmergencyStop by operator1: accepted" in caplog.text
+        assert "OPC UA sign-in of operator1 accepted (role operator)" in caplog.text
+
+    async def test_a_refused_user_is_logged_as_unverified(
+        self, gateway: tuple[str, GatewayScript], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        url, _ = gateway
+        client = GatewayClient(url)
+        user = GatewayUserManager(client).get_user(None, "x" * 500, "wrong")
+        token = CURRENT_USER.set(user)
+        try:
+            with caplog.at_level(logging.INFO, logger="opcua_server"):
+                await MethodHandlers(client).reset_emergency_stop(None)
+        finally:
+            CURRENT_USER.reset(token)
+        assert "(unverified)" in caplog.text
+        assert "x" * 100 not in caplog.text
+        assert "wrong" not in caplog.text
 
 
 class FakePLC:

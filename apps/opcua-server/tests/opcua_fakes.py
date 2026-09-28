@@ -39,6 +39,7 @@ class GatewayScript:
     raw_command_body: bytes | None = None
     redirect_commands_to: str | None = None
     truncate_command_body: bool = False
+    canonical_username: str | None = None
     issued: int = 0
 
     def tokens(self, username: str) -> dict[str, Any]:
@@ -88,7 +89,12 @@ def _handler(script: GatewayScript) -> type[BaseHTTPRequestHandler]:
             self._record("POST", body)
             if self.path == "/auth/login":
                 if body.get("password") == PASSWORD:
-                    self._reply(200, script.tokens(str(body["username"])))
+                    self._reply(
+                        200,
+                        script.tokens(
+                            script.canonical_username or str(body["username"])
+                        ),
+                    )
                 else:
                     self._reply(401, {"code": "auth.invalid_credentials"})
             elif self.path == "/auth/refresh":
@@ -98,6 +104,8 @@ def _handler(script: GatewayScript) -> type[BaseHTTPRequestHandler]:
                     self._reply(401, {"code": "auth.refresh_invalid"})
             elif self.path == "/auth/logout":
                 self._reply(200, {"message": "Signed out."})
+            elif script.command_status == 429:
+                self._reply(429, {"code": "throttled"})
             elif script.reject_access_once:
                 script.reject_access_once = False
                 self._reply(401, {"code": "auth.token_expired"})

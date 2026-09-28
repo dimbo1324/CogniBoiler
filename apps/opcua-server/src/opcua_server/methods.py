@@ -8,6 +8,7 @@ gave them. Refusals by the gateway become status codes:
 
     no signed-in user, 401, 403      BadUserAccessDenied
     400, 404, 409, 422               BadInvalidArgument
+    429                              BadTooManyOperations
     gateway or upstream unavailable  BadCommunicationError
 
 Arguments of the wrong type, NaN or infinite are BadInvalidArgument before anything is
@@ -26,7 +27,12 @@ from asyncua import ua
 from cogniboiler_observability import correlation_scope
 from cogniboiler_runtime import finite_number
 
-from opcua_server.gateway import GatewayClient, GatewayReply, GatewayUnavailableError
+from opcua_server.gateway import (
+    GatewayClient,
+    GatewayReply,
+    GatewayUnavailableError,
+    unverified_name,
+)
 from opcua_server.identity import CURRENT_USER, GatewayUser
 from opcua_server.metrics import METHOD_CALLS
 from opcua_server.ua_types import StatusCodes, node_id, status
@@ -118,6 +124,17 @@ def _guarded[**P](
     return wrap
 
 
+def _invalid(action: str) -> MethodResult:
+    METHOD_CALLS.labels(action, "invalid").inc()
+    return _status(StatusCodes.BadInvalidArgument)
+
+
+def _who(user: GatewayUser) -> str:
+    """The name the gateway verified, or the typed one marked as unverified."""
+    verified = user.session.username if user.session is not None else None
+    return verified or unverified_name(user.name or "")
+
+
 class MethodHandlers:
     def __init__(self, gateway: GatewayClient) -> None:
         self._gateway = gateway
@@ -147,26 +164,40 @@ class MethodHandlers:
         try:
             reply = await self._call(user, path, payload)
         except GatewayUnavailableError as exc:
-            logger.warning("OPC UA %s by %s failed: %s", action, user.name, exc)
+            logger.warning("OPC UA %s by %s failed: %s", action, _who(user), exc)
             return _status(StatusCodes.BadCommunicationError)
+        who = _who(user)
         if reply is None or reply.status in (401, 403):
-            logger.warning("OPC UA %s by %s refused by the gateway", action, user.name)
+            status = "no session" if reply is None else f"HTTP {reply.status}"
+            logger.warning(
+                "OPC UA %s by %s refused by the gateway: %s", action, who, status
+            )
             return _status(StatusCodes.BadUserAccessDenied)
+        if reply.status == 429:
+            logger.warning("OPC UA %s by %s throttled by the gateway", action, who)
+            return _status(StatusCodes.BadTooManyOperations)
         if reply.status in (400, 404, 409, 422):
+            logger.info(
+                "OPC UA %s by %s: gateway answered HTTP %d %s",
+                action,
+                who,
+                reply.status,
+                reply.body.get("code", ""),
+            )
             return _status(StatusCodes.BadInvalidArgument)
         if reply.status != 200:
             logger.warning(
                 "OPC UA %s by %s: gateway answered HTTP %d %s",
                 action,
-                user.name,
+                who,
                 reply.status,
-                reply.detail,
+                reply.body.get("code", ""),
             )
             return _status(StatusCodes.BadCommunicationError)
         accepted = bool(reply.body.get("accepted"))
         reason = str(reply.body.get("reason", ""))
         logger.info(
-            "OPC UA %s by %s: %s", action, user.name, "accepted" if accepted else reason
+            "OPC UA %s by %s: %s", action, who, "accepted" if accepted else reason
         )
         return [
             ua.Variant(accepted, ua.VariantType.Boolean),
@@ -198,7 +229,7 @@ class MethodHandlers:
     async def set_load_demand(self, parent: Any, load_w: Any) -> MethodResult:
         value = _number(load_w)
         if value is None:
-            return _status(StatusCodes.BadInvalidArgument)
+            return _invalid(SET_LOAD_DEMAND)
         return await self._forward(
             SET_LOAD_DEMAND, "/api/v1/commands/load", {"load_w": value}
         )
@@ -207,7 +238,7 @@ class MethodHandlers:
     async def set_control_mode(self, parent: Any, mode: Any) -> MethodResult:
         value = _text(mode)
         if value is None:
-            return _status(StatusCodes.BadInvalidArgument)
+            return _invalid(SET_CONTROL_MODE)
         return await self._forward(
             SET_CONTROL_MODE, "/api/v1/commands/mode", {"mode": value.strip().lower()}
         )
@@ -222,7 +253,7 @@ class MethodHandlers:
     ) -> MethodResult:
         values = [_number(fuel), _number(feedwater), _number(steam)]
         if any(value is None for value in values):
-            return _status(StatusCodes.BadInvalidArgument)
+            return _invalid(APPLY_VALVE_COMMAND)
         return await self._forward(
             APPLY_VALVE_COMMAND,
             "/api/v1/commands/valve",
@@ -240,7 +271,7 @@ class MethodHandlers:
         number = _integer(alarm_id)
         text = _text(comment)
         if number is None or text is None or number < 1:
-            return _status(StatusCodes.BadInvalidArgument)
+            return _invalid(ACKNOWLEDGE_ALARM)
         return await self._forward(
             ACKNOWLEDGE_ALARM, f"/api/v1/alarms/{number}/ack", {"comment": text}
         )
@@ -249,7 +280,7 @@ class MethodHandlers:
     async def acknowledge_all_alarms(self, parent: Any, comment: Any) -> MethodResult:
         text = _text(comment)
         if text is None:
-            return _status(StatusCodes.BadInvalidArgument)
+            return _invalid(ACKNOWLEDGE_ALL_ALARMS)
         return await self._forward(
             ACKNOWLEDGE_ALL_ALARMS, "/api/v1/alarms/ack-all", {"comment": text}
         )

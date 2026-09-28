@@ -45,6 +45,7 @@ ALLOWED_SCHEMES = frozenset({"http", "https"})
 HTTP_WORKERS = 8
 MAX_CONCURRENT_LOGINS = 4
 FORWARDED_FOR_HEADER = "X-Forwarded-For"
+MAX_LOGGED_NAME = 64
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +65,11 @@ class GatewayTokens:
     access_expires_at_ms: int
     username: str
     role: str
+
+
+def unverified_name(typed: str) -> str:
+    """A name a client typed, for a log line: shortened, quoted, and marked as such."""
+    return f"{typed[:MAX_LOGGED_NAME]!r} (unverified)"
 
 
 class GatewayUnavailableError(ConnectionError):
@@ -180,13 +186,20 @@ class GatewayClient:
             )
         if reply.status != 200:
             logger.warning(
-                "OPC UA sign-in of %r refused by the gateway: HTTP %d %s",
-                username,
+                "OPC UA sign-in of %s refused by the gateway: HTTP %d %s",
+                unverified_name(username),
                 reply.status,
                 reply.body.get("code", ""),
             )
             return None
-        return _tokens(reply.body)
+        tokens = _tokens(reply.body)
+        if tokens is None:
+            logger.warning("OPC UA sign-in: the gateway's answer lacks the tokens")
+            return None
+        logger.info(
+            "OPC UA sign-in of %s accepted (role %s)", tokens.username, tokens.role
+        )
+        return tokens
 
     async def refresh(
         self, refresh_token: str, client_address: str | None = None
@@ -197,7 +210,14 @@ class GatewayClient:
             {"refresh_token": refresh_token},
             client_address=client_address,
         )
-        return _tokens(reply.body) if reply.status == 200 else None
+        tokens = _tokens(reply.body) if reply.status == 200 else None
+        if tokens is None:
+            logger.warning(
+                "Gateway refused to refresh an OPC UA session: HTTP %d %s",
+                reply.status,
+                reply.body.get("code", ""),
+            )
+        return tokens
 
     async def logout(
         self, refresh_token: str, client_address: str | None = None
@@ -261,6 +281,11 @@ class GatewaySession:
         self._tokens: GatewayTokens | None = None
         self._lock = asyncio.Lock()
         self._closed = False
+
+    @property
+    def username(self) -> str | None:
+        """The name the gateway verified at sign-in; None before or without it."""
+        return self._tokens.username if self._tokens is not None else None
 
     @property
     def client_address(self) -> str | None:
