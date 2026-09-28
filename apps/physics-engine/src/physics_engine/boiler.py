@@ -25,28 +25,23 @@ admission valve is choked, so steam flow is proportional to valve opening and pr
 Spray water for the attemperator is taken from the feedwater pump and bypasses the drum.
 
 `step` advances the state with a fixed-step RK4 and is what the live runtime uses: it is
-deterministic and fast. `simulate` integrates with an adaptive implicit solver and alarm
-events for offline analysis.
+deterministic and fast. `physics_engine.offline` integrates the same balances with an
+adaptive implicit solver and alarm events for offline analysis.
 """
 
 import math
 from dataclasses import dataclass, fields
 
 import numpy as np
-from scipy.integrate import solve_ivp
-from scipy.integrate._ivp.ivp import OdeResult
 
 from physics_engine import properties
 from physics_engine.combustion import CombustionModel
 from physics_engine.constants import (
     FLUE_GAS_CP,
     FUEL_HEATING_VALUE,
-    PRESSURE_MAX,
-    PRESSURE_MIN,
     PRESSURE_NOMINAL,
     RATED_STEAM_FLOW,
     SPRAY_MAX_FRACTION,
-    TEMP_STEAM_MAX,
 )
 from physics_engine.faults import NO_DISTURBANCES, PlantDisturbances
 from physics_engine.heat_exchanger import (
@@ -55,13 +50,6 @@ from physics_engine.heat_exchanger import (
     SuperheaterModel,
 )
 from physics_engine.models import BoilerParameters, BoilerState, ControlInputs
-
-# ─── ODE solver configuration ─────────────────────────────────────────────────
-
-ODE_METHOD: str = "Radau"
-ODE_RTOL: float = 1e-4
-ODE_ATOL: float = 1e-6
-ODE_MAX_STEP: float = 5.0  # seconds
 
 # Flue gas inventory of the furnace [kg] — about 10 000 m³ at ~0.21 kg/m³ — at the mean
 # flue gas Cp (constants.FLUE_GAS_CP). After a fuel trip this gas gives its heat to the water walls, so an
@@ -160,7 +148,7 @@ class BoilerBalance:
 
 class BoilerModel:
     """
-    Full thermodynamic ODE model of a steam boiler.
+    Lumped thermodynamic model of a drum boiler, stepped with RK4.
 
     Usage:
         params = BoilerParameters()
@@ -171,7 +159,6 @@ class BoilerModel:
             feedwater_valve_command=0.5,
             steam_valve_command=0.6,
         )
-        result = model.simulate(state0, ctrl, t_span=(0, 600), dt=1.0)
         state1 = model.step(state0, ctrl, dt=1.0)
     """
 
@@ -349,59 +336,6 @@ class BoilerModel:
             derivatives=(du_dt, dp_dt, dh_dt, dt_gas_dt, dt_water_dt),
         )
 
-    # ─── Event functions for solve_ivp ───────────────────────────────────────
-
-    @staticmethod
-    def _event_pressure_high(t: float, y: list[float], *args: object) -> float:
-        """Trigger when pressure rises above PRESSURE_MAX."""
-        return y[1] - PRESSURE_MAX
-
-    @staticmethod
-    def _event_pressure_low(t: float, y: list[float], *args: object) -> float:
-        """Trigger when pressure falls below PRESSURE_MIN."""
-        return y[1] - PRESSURE_MIN
-
-    @staticmethod
-    def _event_water_empty(t: float, y: list[float], *args: object) -> float:
-        """Trigger when water level falls below 5 cm safety margin."""
-        return y[2] - 0.05
-
-    @staticmethod
-    def _event_water_overflow(t: float, y: list[float], *args: object) -> float:
-        """Trigger when water level rises above drum limit."""
-        from physics_engine.constants import DRUM_HEIGHT
-
-        return y[2] - (DRUM_HEIGHT - 0.1)
-
-    @staticmethod
-    def _event_temp_high(t: float, y: list[float], *args: object) -> float:
-        """
-        Last-resort safety event: triggers if drum temperature somehow exceeds
-        TEMP_STEAM_MAX (838 K / 565°C).
-
-        The water temperature used by the derivatives is clamped below the critical
-        point, so this never fires in normal operation; it is a numerical safety net.
-        """
-        return y[4] - TEMP_STEAM_MAX
-
-    # ─── ODE right-hand side ─────────────────────────────────────────────────
-
-    def _derivatives(
-        self,
-        t: float,  # noqa: ARG002
-        y: list[float],
-        controls: ControlInputs,
-        disturbances: PlantDisturbances = NO_DISTURBANCES,
-    ) -> list[float]:
-        """
-        Compute dy/dt for the ODE solver.
-
-        State vector y = [U, P, h, T_gas, T_water]
-        Returns [dU/dt, dP/dt, dh/dt, dT_gas/dt, dT_water/dt]
-        """
-        balance = self.balance(BoilerState.from_vector(y), controls, disturbances)
-        return list(balance.derivatives)
-
     # ─── Public simulation interface ─────────────────────────────────────────
 
     def step(
@@ -451,96 +385,6 @@ class BoilerModel:
             flue_gas_temp=max(state.flue_gas_temp, self.params.ambient_temp),
             water_temp=min(max(state.water_temp, WATER_TEMP_MIN), WATER_TEMP_MAX),
         )
-
-    def simulate(
-        self,
-        initial_state: BoilerState,
-        controls: ControlInputs,
-        t_span: tuple[float, float],
-        dt: float = 1.0,
-    ) -> OdeResult:
-        """
-        Integrate the ODE system over a time span with event detection.
-
-        Args:
-            initial_state: Starting state of the boiler.
-            controls: Control inputs (valve commands + actuator states).
-            t_span: (t_start, t_end) in seconds.
-            dt: Output time step in seconds.
-
-        Returns:
-            scipy OdeResult. status:
-                0 = reached t_end normally
-               -1 = integration step failed
-                1 = termination event triggered (alarm condition)
-        """
-        # Valve dynamics are stepped once per discrete control interval.
-        # Callers that want realistic actuator lag must reuse the same
-        # ControlInputs instance across successive simulate() calls.
-        controls.update_valves(dt)
-
-        t_eval = np.arange(t_span[0], t_span[1], dt)
-        y0 = initial_state.to_vector()
-
-        self._event_pressure_high.terminal = True  # type: ignore[attr-defined]
-        self._event_pressure_high.direction = 1.0  # type: ignore[attr-defined]
-
-        self._event_pressure_low.terminal = True  # type: ignore[attr-defined]
-        self._event_pressure_low.direction = -1.0  # type: ignore[attr-defined]
-
-        self._event_water_empty.terminal = True  # type: ignore[attr-defined]
-        self._event_water_empty.direction = -1.0  # type: ignore[attr-defined]
-
-        self._event_water_overflow.terminal = True  # type: ignore[attr-defined]
-        self._event_water_overflow.direction = 1.0  # type: ignore[attr-defined]
-
-        self._event_temp_high.terminal = True  # type: ignore[attr-defined]
-        self._event_temp_high.direction = 1.0  # type: ignore[attr-defined]
-
-        events = [
-            self._event_pressure_high,
-            self._event_pressure_low,
-            self._event_water_empty,
-            self._event_water_overflow,
-            self._event_temp_high,
-        ]
-
-        result: OdeResult = solve_ivp(
-            fun=lambda t, y: self._derivatives(t, y, controls),
-            t_span=t_span,
-            y0=y0,
-            method=ODE_METHOD,
-            t_eval=t_eval,
-            events=events,
-            rtol=ODE_RTOL,
-            atol=ODE_ATOL,
-            max_step=ODE_MAX_STEP,
-        )
-
-        return result
-
-    def get_state_at(self, result: OdeResult, index: int) -> BoilerState:
-        """Extract BoilerState from ODE result at a given time index."""
-        y = [float(result.y[i, index]) for i in range(5)]
-        return BoilerState.from_vector(y)
-
-    def check_result(self, result: OdeResult) -> str:
-        """Return human-readable simulation termination reason."""
-        if result.status == 0:
-            return "Simulation completed normally."
-        if result.status == -1:
-            return f"Solver failed: {result.message}"
-        event_names = [
-            "PRESSURE HIGH",
-            "PRESSURE LOW",
-            "DRUM DRY",
-            "DRUM OVERFLOW",
-            "STEAM TEMP HIGH",
-        ]
-        for i, t_event in enumerate(result.t_events):
-            if len(t_event) > 0:
-                return f"ALARM [{event_names[i]}] at t={t_event[0]:.1f}s"
-        return "Terminated by unknown event."
 
 
 def _check_finite(state: BoilerState) -> None:

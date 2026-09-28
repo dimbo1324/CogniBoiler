@@ -10,8 +10,18 @@ Test categories:
 from dataclasses import replace
 
 import pytest
-from physics_engine.boiler import BoilerModel, PlantDivergedError
+from physics_engine import offline
+from physics_engine.boiler import (
+    MIN_MODEL_PRESSURE,
+    WATER_TEMP_MAX,
+    WATER_TEMP_MIN,
+    BoilerModel,
+    PlantDivergedError,
+)
+from physics_engine.condenser import COOLING_WATER_TEMP_DESIGN
 from physics_engine.models import BoilerParameters, BoilerState, ControlInputs
+from physics_engine.scenarios import InitialConditions, get_scenario
+from physics_engine.turbine import TurbineParameters
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -70,7 +80,9 @@ class TestPhysics:
             feedwater_valve_command=1.0,
             steam_valve_command=0.0,  # closed — no steam leaving
         )
-        result = model.simulate(initial_state, controls, t_span=(0, 120), dt=1.0)
+        result = offline.simulate(
+            model, initial_state, controls, t_span=(0, 120), dt=1.0
+        )
 
         assert result.y.shape[1] > 10, "Solver produced too few points"
 
@@ -96,7 +108,9 @@ class TestPhysics:
             feedwater_valve_command=0.0,  # no feedwater
             steam_valve_command=0.8,  # steam leaving
         )
-        result = model.simulate(initial_state, controls, t_span=(0, 120), dt=1.0)
+        result = offline.simulate(
+            model, initial_state, controls, t_span=(0, 120), dt=1.0
+        )
 
         assert result.y.shape[1] > 10, "Solver produced too few points"
 
@@ -121,7 +135,9 @@ class TestPhysics:
             feedwater_valve_command=1.0,  # maximum feedwater
             steam_valve_command=0.0,  # closed
         )
-        result = model.simulate(initial_state, controls, t_span=(0, 120), dt=1.0)
+        result = offline.simulate(
+            model, initial_state, controls, t_span=(0, 120), dt=1.0
+        )
 
         assert result.y.shape[1] > 10, "Solver produced too few points"
 
@@ -146,7 +162,9 @@ class TestPhysics:
             feedwater_valve_command=0.3,
             steam_valve_command=0.3,
         )
-        result = model.simulate(initial_state, controls, t_span=(0, 300), dt=1.0)
+        result = offline.simulate(
+            model, initial_state, controls, t_span=(0, 300), dt=1.0
+        )
 
         assert result.y.shape[1] > 10, "Solver produced too few points"
 
@@ -171,7 +189,9 @@ class TestPhysics:
             feedwater_valve_command=0.5,
             steam_valve_command=0.0,
         )
-        result = model.simulate(initial_state, controls, t_span=(0, 60), dt=1.0)
+        result = offline.simulate(
+            model, initial_state, controls, t_span=(0, 60), dt=1.0
+        )
 
         energy = result.y[0]  # U [J]
         assert energy[-1] > energy[0], (
@@ -204,13 +224,15 @@ class TestEvents:
             feedwater_valve_command=0.3,
             steam_valve_command=0.0,  # no steam release — pressure builds
         )
-        result = model.simulate(initial_state, controls, t_span=(0, 3600), dt=1.0)
+        result = offline.simulate(
+            model, initial_state, controls, t_span=(0, 3600), dt=1.0
+        )
 
         # status=1 means a terminal event was triggered
         assert result.status == 1, (
             f"Expected terminal event, got status={result.status}: {result.message}"
         )
-        termination = model.check_result(result)
+        termination = offline.check_result(result)
         assert "PRESSURE HIGH" in termination, (
             f"Expected PRESSURE HIGH alarm, got: {termination}"
         )
@@ -228,12 +250,14 @@ class TestEvents:
             feedwater_valve_command=0.0,  # no water input
             steam_valve_command=1.0,  # maximum steam output
         )
-        result = model.simulate(initial_state, controls, t_span=(0, 3600), dt=1.0)
+        result = offline.simulate(
+            model, initial_state, controls, t_span=(0, 3600), dt=1.0
+        )
 
         assert result.status == 1, (
             f"Expected terminal event, got status={result.status}: {result.message}"
         )
-        termination = model.check_result(result)
+        termination = offline.check_result(result)
         assert "DRUM DRY" in termination, f"Expected DRUM DRY alarm, got: {termination}"
 
     def test_drum_overflow_event_fires(
@@ -249,12 +273,14 @@ class TestEvents:
             feedwater_valve_command=1.0,  # maximum feedwater
             steam_valve_command=0.0,  # no steam release
         )
-        result = model.simulate(initial_state, controls, t_span=(0, 3600), dt=1.0)
+        result = offline.simulate(
+            model, initial_state, controls, t_span=(0, 3600), dt=1.0
+        )
 
         assert result.status == 1, (
             f"Expected terminal event, got status={result.status}: {result.message}"
         )
-        termination = model.check_result(result)
+        termination = offline.check_result(result)
         assert "DRUM OVERFLOW" in termination, (
             f"Expected DRUM OVERFLOW alarm, got: {termination}"
         )
@@ -277,8 +303,8 @@ class TestNumerics:
         """
         Balanced operating point must complete full 300 s without solver failure.
         """
-        result = model.simulate(
-            initial_state, nominal_controls, t_span=(0, 300), dt=1.0
+        result = offline.simulate(
+            model, initial_state, nominal_controls, t_span=(0, 300), dt=1.0
         )
 
         assert result.status != -1, f"Solver failed: {result.message}"
@@ -294,7 +320,9 @@ class TestNumerics:
         """
         ODE result must have shape (5, N) matching the 5D state vector.
         """
-        result = model.simulate(initial_state, nominal_controls, t_span=(0, 60), dt=1.0)
+        result = offline.simulate(
+            model, initial_state, nominal_controls, t_span=(0, 60), dt=1.0
+        )
 
         assert result.y.ndim == 2, "result.y must be 2D array"
         assert result.y.shape[0] == 5, (
@@ -318,8 +346,8 @@ class TestNumerics:
             T_gas > 273 K       — flue gas above freezing
             T_w   > 273 K       — water above freezing
         """
-        result = model.simulate(
-            initial_state, nominal_controls, t_span=(0, 300), dt=1.0
+        result = offline.simulate(
+            model, initial_state, nominal_controls, t_span=(0, 300), dt=1.0
         )
 
         u = result.y[0]  # J
@@ -345,9 +373,11 @@ class TestNumerics:
         """
         get_state_at() must return a valid BoilerState at any time index.
         """
-        result = model.simulate(initial_state, nominal_controls, t_span=(0, 60), dt=1.0)
+        result = offline.simulate(
+            model, initial_state, nominal_controls, t_span=(0, 60), dt=1.0
+        )
 
-        state_mid = model.get_state_at(result, index=result.y.shape[1] // 2)
+        state_mid = offline.state_at(result, index=result.y.shape[1] // 2)
 
         assert isinstance(state_mid, BoilerState)
         assert state_mid.pressure > 0
@@ -363,15 +393,74 @@ class TestNumerics:
         """
         check_result() must always return a non-empty string.
         """
-        result = model.simulate(initial_state, nominal_controls, t_span=(0, 60), dt=1.0)
+        result = offline.simulate(
+            model, initial_state, nominal_controls, t_span=(0, 60), dt=1.0
+        )
 
-        message = model.check_result(result)
+        message = offline.check_result(result)
         assert isinstance(message, str)
         assert len(message) > 0
 
 
 class TestRk4Step:
     """The fixed-step integration the live plant runs."""
+
+    @pytest.fixture
+    def operating_point(self, params: BoilerParameters) -> InitialConditions:
+        return get_scenario("steady_state").initial_conditions(
+            params, TurbineParameters(), COOLING_WATER_TEMP_DESIGN
+        )
+
+    def test_the_nominal_operating_point_holds_with_its_valves_left_alone(
+        self, model: BoilerModel, operating_point: InitialConditions
+    ) -> None:
+        start = operating_point.boiler_state
+        controls = operating_point.controls.copy()
+        state = start
+        for _ in range(1800):
+            state = model.step(state, controls, dt=1.0)
+        assert state.pressure == pytest.approx(start.pressure, rel=1e-6)
+        assert state.water_level == pytest.approx(start.water_level, rel=1e-6)
+        assert state.flue_gas_temp == pytest.approx(start.flue_gas_temp, rel=1e-6)
+        assert state.water_temp == pytest.approx(start.water_temp, rel=1e-6)
+
+    def test_closing_the_steam_valve_raises_drum_pressure(
+        self, model: BoilerModel, operating_point: InitialConditions
+    ) -> None:
+        controls = operating_point.controls.copy()
+        controls.steam_valve_command = 0.0
+        pressures = [operating_point.boiler_state.pressure]
+        state = operating_point.boiler_state
+        for _ in range(60):
+            state = model.step(state, controls, dt=1.0)
+            pressures.append(state.pressure)
+        assert pressures == sorted(pressures)
+        assert pressures[-1] > pressures[0] + 20.0e5
+
+    def test_an_integrated_state_is_kept_inside_the_model_domain(
+        self, model: BoilerModel, params: BoilerParameters
+    ) -> None:
+        bounded = model._bounded(
+            BoilerState(
+                internal_energy=-1.0,
+                pressure=-5.0,
+                water_level=params.drum_height + 3.0,
+                flue_gas_temp=params.ambient_temp - 50.0,
+                water_temp=WATER_TEMP_MAX + 100.0,
+            )
+        )
+        assert bounded == BoilerState(
+            internal_energy=0.0,
+            pressure=MIN_MODEL_PRESSURE,
+            water_level=params.drum_height,
+            flue_gas_temp=params.ambient_temp,
+            water_temp=WATER_TEMP_MAX,
+        )
+        assert model._bounded(replace(bounded, water_level=-1.0)).water_level == 0.0
+        assert (
+            model._bounded(replace(bounded, water_temp=0.0)).water_temp
+            == WATER_TEMP_MIN
+        )
 
     def test_a_non_finite_state_raises_instead_of_being_clamped(
         self,

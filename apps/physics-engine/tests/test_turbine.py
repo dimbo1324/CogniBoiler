@@ -8,13 +8,15 @@ Test categories:
 """
 
 import pytest
+from physics_engine import offline
 from physics_engine.constants import (
     MAX_STEAM_FLOW,
     PRESSURE_NOMINAL,
     TEMP_STEAM_NOMINAL,
 )
 from physics_engine.models import BoilerParameters, ControlInputs
-from physics_engine.system import BoilerTurbineSystem, SystemState
+from physics_engine.offline import SystemState
+from physics_engine.system import BoilerTurbineSystem
 from physics_engine.turbine import TurbineModel, TurbineState
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -219,7 +221,8 @@ class TestSystem:
         """
         steady_state() must return a valid SystemState instance.
         """
-        state = system.steady_state(
+        state = offline.steady_state(
+            system,
             fuel_valve=0.6,
             feedwater_valve=0.5,
             steam_valve=0.5,
@@ -231,7 +234,8 @@ class TestSystem:
         """
         At normal operating conditions, system must generate positive power.
         """
-        state = system.steady_state(
+        state = offline.steady_state(
+            system,
             fuel_valve=0.7,
             feedwater_valve=0.5,
             steam_valve=0.6,
@@ -265,8 +269,8 @@ class TestSystem:
             steam_valve_command=0.7,
         )
 
-        state_low = system.evaluate_at(boiler_state, controls_low, time=0.0)
-        state_high = system.evaluate_at(boiler_state, controls_high, time=0.0)
+        state_low = offline.evaluate_at(system, boiler_state, controls_low, time=0.0)
+        state_high = offline.evaluate_at(system, boiler_state, controls_high, time=0.0)
 
         assert state_high.electrical_power_mw > state_low.electrical_power_mw, (
             f"More steam valve did not increase power at equal boiler conditions: "
