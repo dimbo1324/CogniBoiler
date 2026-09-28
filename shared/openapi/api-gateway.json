@@ -4010,6 +4010,7 @@
           "target": {
             "type": "string",
             "maxLength": 64,
+            "pattern": "^[A-Za-z0-9_.:-]*$",
             "title": "Target",
             "description": "Valve (fuel, feedwater, steam, spray) or sensor id, if the kind needs one.",
             "default": ""
@@ -4846,6 +4847,7 @@
           "operator_id": {
             "type": "string",
             "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._@-]*$",
             "title": "Operator Id",
             "description": "Operator identifier recorded in the reset audit trail.",
             "default": ""
@@ -5233,7 +5235,7 @@
           "speed_factor": {
             "type": "number",
             "maximum": 50.0,
-            "exclusiveMinimum": 0.0,
+            "minimum": 0.1,
             "title": "Speed Factor",
             "description": "Simulated seconds per wall-clock second."
           }

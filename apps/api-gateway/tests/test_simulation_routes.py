@@ -153,6 +153,7 @@ class TestControl:
         ("path", "body"),
         [
             ("/api/v1/simulation/speed", {"speed_factor": 0}),
+            ("/api/v1/simulation/speed", {"speed_factor": 0.05}),
             ("/api/v1/simulation/speed", {"speed_factor": 50.5}),
             ("/api/v1/simulation/step", {"steps": 0}),
             ("/api/v1/simulation/step", {"steps": 3601}),
@@ -160,6 +161,14 @@ class TestControl:
             ("/api/v1/simulation/faults", {"kind": "meteor"}),
             ("/api/v1/simulation/faults", {"kind": "steam_leak", "severity": 1.5}),
             ("/api/v1/simulation/faults", {"kind": "steam_leak", "ramp_s": -1}),
+            (
+                "/api/v1/simulation/faults",
+                {"kind": "sensor_drift", "target": "drum_level\nforged audit line"},
+            ),
+            (
+                "/api/v1/simulation/faults",
+                {"kind": "valve_stuck", "target": "fuel valve"},
+            ),
         ],
     )
     async def test_requests_outside_the_limits_never_reach_the_engine(

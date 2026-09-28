@@ -159,6 +159,32 @@ class TestCommands:
         assert row["detail"] == "stated operator_id=someone.else"
         assert row["outcome"] == "accepted"
 
+    @pytest.mark.parametrize("stated", ["x\ny", "a b", "<script>"])
+    async def test_a_stated_operator_id_is_a_plain_name(
+        self,
+        app: FastAPI,
+        client: AsyncClient,
+        engineer_tokens: dict[str, str],
+        stated: str,
+    ) -> None:
+        response = await client.post(
+            "/api/v1/commands/reset",
+            json={"operator_id": stated},
+            headers=bearer(engineer_tokens),
+        )
+        assert response.status_code == 422
+        assert plc(app).calls == []
+
+    async def test_the_slowest_speed_physics_runs_is_accepted(
+        self, client: AsyncClient, engineer_tokens: dict[str, str]
+    ) -> None:
+        response = await client.post(
+            "/api/v1/simulation/speed",
+            json={"speed_factor": 0.1},
+            headers=bearer(engineer_tokens),
+        )
+        assert response.status_code == 200
+
     async def test_a_reset_without_a_body_is_accepted(
         self, app: FastAPI, client: AsyncClient, engineer_tokens: dict[str, str]
     ) -> None:

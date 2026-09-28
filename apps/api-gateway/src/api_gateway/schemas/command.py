@@ -129,5 +129,6 @@ class ResetRequest(BaseModel):
     operator_id: str = Field(
         default="",
         max_length=128,
+        pattern="^[A-Za-z0-9._@-]*$",
         description="Operator identifier recorded in the reset audit trail.",
     )

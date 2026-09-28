@@ -168,9 +168,18 @@ FaultKindName = Literal[
 ]
 
 
+# The physics engine's own limits (runtime.SPEED_FACTOR_MIN/MAX, MAX_STEPS_PER_REQUEST,
+# faults.MAX_RAMP_S): a value it would refuse is a 422 here, not a refusal from there.
+MIN_SPEED_FACTOR = 0.1
+MAX_SPEED_FACTOR = 50.0
+
+
 class SpeedRequest(BaseModel):
     speed_factor: float = Field(
-        ..., gt=0.0, le=50.0, description="Simulated seconds per wall-clock second."
+        ...,
+        ge=MIN_SPEED_FACTOR,
+        le=MAX_SPEED_FACTOR,
+        description="Simulated seconds per wall-clock second.",
     )
 
 
@@ -187,6 +196,7 @@ class FaultRequest(BaseModel):
     target: str = Field(
         default="",
         max_length=64,
+        pattern="^[A-Za-z0-9_.:-]*$",
         description="Valve (fuel, feedwater, steam, spray) or sensor id, if the kind needs one.",
     )
     severity: float = Field(default=1.0, ge=-1.0, le=1.0)
