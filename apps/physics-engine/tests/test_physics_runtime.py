@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import socket
 import threading
@@ -44,6 +45,13 @@ def failure_count() -> float:
     return REGISTRY.get_sample_value("physics_runtime_failures_total") or 0.0
 
 
+async def no_update_within(runtime: PhysicsRuntime, window_s: float) -> None:
+    """Fail if the runtime publishes a snapshot within `window_s` (ten wall steps)."""
+    sequence, _ = await runtime.wait_for_update(-1)
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(runtime.wait_for_update(sequence), window_s)
+
+
 async def until(predicate: object, timeout_s: float = 10.0) -> None:
     async with asyncio.timeout(timeout_s):
         while not predicate():  # type: ignore[operator]
@@ -56,7 +64,7 @@ class TestStepping:
     ) -> None:
         before = paused.simulation_status()
         assert before.run_state is RunState.PAUSED
-        await asyncio.sleep(0.05)
+        await no_update_within(paused, 10 * paused.wall_step_s)
         assert paused.simulation_status().step_count == before.step_count
         status = await paused.step(3)
         assert status.step_count == before.step_count + 3
@@ -95,10 +103,10 @@ class TestStepping:
         await until(lambda: paused.simulation_status().step_count >= start + 2)
         status = await paused.pause()
         assert status.run_state is RunState.PAUSED
-        await asyncio.sleep(0.1)
-        settled = paused.simulation_status().step_count
-        await asyncio.sleep(0.1)
-        assert paused.simulation_status().step_count == settled
+        # pause() takes the lock the loop steps under, so no step starts after it.
+        assert paused.simulation_status().step_count == status.step_count
+        await no_update_within(paused, 10 * paused.wall_step_s)
+        assert paused.simulation_status().step_count == status.step_count
 
 
 class BlockingPlantStep:
@@ -476,28 +484,44 @@ class TestPhysicsService:
         assert ended.value.code() == grpc.StatusCode.UNAVAILABLE
 
 
-async def test_serve_runs_until_cancelled_and_stops_the_runtime() -> None:
+def free_port() -> int:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
-    runtime = PhysicsRuntime(PhysicsRuntimeConfig(start_paused=True))
-    task = asyncio.create_task(serve(runtime, port=port))
-    try:
-        async with asyncio.timeout(10.0):
-            while True:
-                try:
-                    async with grpc.aio.insecure_channel(
-                        f"127.0.0.1:{port}"
-                    ) as channel:
-                        health = await pb2_grpc.PhysicsServiceStub(channel).Health(
-                            pb2.Empty(), timeout=1.0
-                        )
-                    break
-                except grpc.aio.AioRpcError:
-                    await asyncio.sleep(0.05)
-    finally:
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        port: int = probe.getsockname()[1]
+    return port
+
+
+async def health_of(task: asyncio.Task[None], port: int) -> pb2.HealthStatus | None:
+    """The served health, or None when serve() ended first (it lost its port)."""
+    async with asyncio.timeout(10.0):
+        while not task.done():
+            try:
+                async with grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel:
+                    health: pb2.HealthStatus = await pb2_grpc.PhysicsServiceStub(
+                        channel
+                    ).Health(pb2.Empty(), timeout=1.0)
+                return health
+            except grpc.aio.AioRpcError:
+                await asyncio.sleep(0.05)
+    return None
+
+
+async def test_serve_runs_until_cancelled_and_stops_the_runtime() -> None:
+    # serve() binds the port it is given, which another process can take between the
+    # probe and the bind: then serve() fails and the test tries a fresh port.
+    for _ in range(3):
+        port = free_port()
+        runtime = PhysicsRuntime(PhysicsRuntimeConfig(start_paused=True))
+        task = asyncio.create_task(serve(runtime, host="127.0.0.1", port=port))
+        try:
+            health = await health_of(task, port)
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, RuntimeError):
+                await task
+        if health is not None:
+            break
+    else:
+        pytest.fail("serve() could not bind a free port three times")
     assert health.status == "running"
     assert runtime.status == "stopped"

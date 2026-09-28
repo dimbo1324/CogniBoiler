@@ -157,6 +157,17 @@ class TestValvesAndInstruments:
         moved = plant.step(30).controls.fuel_valve.position
         assert moved < held
 
+    def test_a_valid_spray_command_is_stored_and_kept_when_not_sent(self) -> None:
+        plant = PlantSimulator()
+        plant.apply_command(
+            fuel_valve=0.5, feedwater_valve=0.5, steam_valve=0.5, spray_valve=0.3
+        )
+        assert plant.step(1).controls.spray_valve_command == 0.3
+        plant.apply_command(fuel_valve=0.5, feedwater_valve=0.5, steam_valve=0.5)
+        controls = plant.step(1).controls
+        assert controls.spray_valve_command == 0.3
+        assert controls.fuel_valve_command == 0.5
+
     def test_every_instrument_can_be_read(self) -> None:
         snapshot = PlantSimulator().snapshot
         for sensor in SensorId:
