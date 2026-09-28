@@ -15,12 +15,13 @@ import asyncio
 from fastapi import APIRouter, Query
 
 from api_gateway.auth.rbac import ViewerUser
-from api_gateway.problems import upstream_unavailable
-from api_gateway.routers.history import HISTORY_ERRORS, resolve_range
+from api_gateway.limits import MAX_EPOCH_MS
+from api_gateway.problems import UPSTREAM_RESPONSES, historian_call
+from api_gateway.routers.history import resolve_range
 from api_gateway.schemas.ops import KpiResponse
-from api_gateway.upstreams import HISTORIAN, HistorianClient
+from api_gateway.upstreams import HistorianClient
 
-router = APIRouter(prefix="/api/v1", tags=["kpi"])
+router = APIRouter(prefix="/api/v1", tags=["kpi"], responses=UPSTREAM_RESPONSES)
 
 MIN_GENERATING_POWER_W = 1.0e6
 
@@ -35,17 +36,19 @@ def _ratio(numerator: float | None, denominator: float | None) -> float | None:
 async def get_kpis(
     _: ViewerUser,
     historian: HistorianClient,
-    start_ms: int | None = Query(default=None, ge=0, description="[UTC epoch ms]"),
-    end_ms: int | None = Query(default=None, ge=0, description="[UTC epoch ms]"),
+    start_ms: int | None = Query(
+        default=None, ge=0, le=MAX_EPOCH_MS, description="[UTC epoch ms]"
+    ),
+    end_ms: int | None = Query(
+        default=None, ge=0, le=MAX_EPOCH_MS, description="[UTC epoch ms]"
+    ),
 ) -> KpiResponse:
     """KPIs of the unit over a range: the last 15 minutes by default, at most 90 days."""
     start, end = resolve_range(start_ms, end_ms)
-    try:
+    async with historian_call():
         source, values = await asyncio.to_thread(
             historian.fetch_kpi_inputs, start_ms=start, end_ms=end
         )
-    except HISTORY_ERRORS as exc:
-        raise upstream_unavailable(HISTORIAN, exc) from exc
 
     def mean(field: str) -> float | None:
         return values.get((field, "mean"))

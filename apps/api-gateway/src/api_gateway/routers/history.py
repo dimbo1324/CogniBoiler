@@ -8,21 +8,19 @@ import time
 
 from cogniboiler_runtime import MILLISECONDS_PER_DAY
 from fastapi import APIRouter, Query
-from influxdb_client.rest import ApiException
-from urllib3.exceptions import HTTPError as Urllib3HTTPError
 
 from api_gateway.auth.rbac import ViewerUser
 from api_gateway.historian_query import history_window_s
-from api_gateway.problems import ProblemError, upstream_unavailable
+from api_gateway.limits import MAX_EPOCH_MS
+from api_gateway.problems import UPSTREAM_RESPONSES, ProblemError, historian_call
 from api_gateway.schemas.ops import HistoryPointResponse, HistoryResponse
-from api_gateway.upstreams import HISTORIAN, HistorianClient
+from api_gateway.upstreams import HistorianClient
 
-router = APIRouter(prefix="/api/v1", tags=["history"])
+router = APIRouter(prefix="/api/v1", tags=["history"], responses=UPSTREAM_RESPONSES)
 
 MAX_HISTORY_SPAN_MS = 90 * MILLISECONDS_PER_DAY
 DEFAULT_HISTORY_SPAN_MS = 15 * 60_000
 FIELD_NAME = re.compile("^[a-z][a-z0-9_]{0,63}$")
-HISTORY_ERRORS = (ApiException, OSError, Urllib3HTTPError)
 
 _FLUX_METADATA = frozenset(
     {"result", "table", "_start", "_stop", "_time", "_measurement", "timestamp_ms"}
@@ -66,8 +64,12 @@ async def get_history(
         default="boiler_sensors",
         pattern="^(boiler_sensors|turbine_sensors|plant_status)$",
     ),
-    start_ms: int | None = Query(default=None, ge=0, description="[UTC epoch ms]"),
-    end_ms: int | None = Query(default=None, ge=0, description="[UTC epoch ms]"),
+    start_ms: int | None = Query(
+        default=None, ge=0, le=MAX_EPOCH_MS, description="[UTC epoch ms]"
+    ),
+    end_ms: int | None = Query(
+        default=None, ge=0, le=MAX_EPOCH_MS, description="[UTC epoch ms]"
+    ),
     limit: int = Query(
         default=200, ge=1, le=2000, description="Maximum number of points."
     ),
@@ -84,7 +86,7 @@ async def get_history(
     start, end = resolve_range(start_ms, end_ms)
     names = parse_fields(fields)
     window_s = history_window_s(start, end, limit)
-    try:
+    async with historian_call():
         result = await asyncio.to_thread(
             historian.fetch_history,
             measurement=measurement,
@@ -94,8 +96,6 @@ async def get_history(
             window_s=window_s,
             fields=names,
         )
-    except HISTORY_ERRORS as exc:
-        raise upstream_unavailable(HISTORIAN, exc) from exc
 
     points = [
         HistoryPointResponse(

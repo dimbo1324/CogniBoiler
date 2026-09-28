@@ -467,6 +467,8 @@ class FakeHistorianClient:
         self.up = True
         self.source = HistorySource("sensors", aggregated=False)
         self.rows: list[dict[str, Any]] = []
+        # Raised by every query while set, as the InfluxDB client would.
+        self.error: Exception | None = None
 
     def close(self) -> None:
         return None
@@ -484,6 +486,8 @@ class FakeHistorianClient:
         window_s: int = 0,
         fields: tuple[str, ...] = (),
     ) -> HistoryResult:
+        if self.error is not None:
+            raise self.error
         self.calls.append(("fetch_history", (measurement, start_ms, end_ms)))
         self.calls.append(("fields", fields))
         effective = max(window_s, 60) if self.source.aggregated else window_s
@@ -494,5 +498,7 @@ class FakeHistorianClient:
     ) -> tuple[HistorySource, dict[tuple[str, str], float]]:
         if not self.up:
             raise ConnectionRefusedError("influxdb refused the connection")
+        if self.error is not None:
+            raise self.error
         self.calls.append(("fetch_kpi_inputs", (start_ms, end_ms)))
         return HistorySource("sensors", aggregated=False), self.kpi_values

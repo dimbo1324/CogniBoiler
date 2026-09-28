@@ -1115,6 +1115,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 2147483647,
               "minimum": 0,
               "default": 0,
               "title": "Offset"
@@ -1657,6 +1658,7 @@
               "anyOf": [
                 {
                   "type": "integer",
+                  "maximum": 4102444800000,
                   "minimum": 0
                 },
                 {
@@ -1676,6 +1678,7 @@
               "anyOf": [
                 {
                   "type": "integer",
+                  "maximum": 4102444800000,
                   "minimum": 0
                 },
                 {
@@ -1731,6 +1734,36 @@
               }
             }
           },
+          "503": {
+            "description": "upstream.unavailable: the upstream service (named in `service`) failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "upstream.timeout: the upstream service did not answer in time; a command may still have been carried out.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -1766,6 +1799,7 @@
               "anyOf": [
                 {
                   "type": "integer",
+                  "maximum": 4102444800000,
                   "minimum": 0
                 },
                 {
@@ -1785,6 +1819,7 @@
               "anyOf": [
                 {
                   "type": "integer",
+                  "maximum": 4102444800000,
                   "minimum": 0
                 },
                 {
@@ -1804,6 +1839,36 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/KpiResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "upstream.unavailable: the upstream service (named in `service`) failed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "upstream.timeout: the upstream service did not answer in time; a command may still have been carried out.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
             }
@@ -1975,6 +2040,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 4102444800000,
               "minimum": 0,
               "description": "Raised at or after [UTC ms].",
               "default": 0,
@@ -1988,6 +2054,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 4102444800000,
               "minimum": 0,
               "description": "Raised at or before [UTC ms].",
               "default": 0,
@@ -2013,6 +2080,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 2147483647,
               "minimum": 0,
               "default": 0,
               "title": "Offset"
@@ -2170,6 +2238,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "maximum": 2147483647,
               "minimum": 1,
               "title": "Alarm Id"
             }
@@ -2249,6 +2318,7 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "maximum": 2147483647,
               "minimum": 1,
               "title": "Alarm Id"
             }

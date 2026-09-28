@@ -26,11 +26,16 @@ import grpc
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from influxdb_client.rest import ApiException
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from urllib3.exceptions import HTTPError as Urllib3HTTPError
+from urllib3.exceptions import TimeoutError as Urllib3TimeoutError
 
 from api_gateway.audit import set_audit_outcome
 from api_gateway.observability import UPSTREAM_FAILURES
+
+HISTORIAN = "Historian"
 
 logger = logging.getLogger(__name__)
 
@@ -93,14 +98,21 @@ class ProblemError(Exception):
         self.extra = dict(extra or {})
 
 
-def upstream_unavailable(service: str, exc: BaseException) -> ProblemError:
-    """503 for a failed upstream call; the cause is logged, not returned."""
-    logger.warning("%s call failed: %s", service, exc)
+def _upstream_failure(service: str, code: str, status: int) -> ProblemError:
+    """Count and log a failed upstream call and build its answer (503, 504 or 422)."""
+    UPSTREAM_FAILURES.labels(service, code).inc()
+    logger.warning("%s call failed: %s", service, code)
+    extra = {"service": service}
+    if status == 504:
+        return ProblemError(
+            504, "upstream.timeout", f"{service} did not answer in time.", extra=extra
+        )
+    if status == 422:
+        return ProblemError(
+            422, "request.invalid", f"{service} refused the request.", extra=extra
+        )
     return ProblemError(
-        503,
-        "upstream.unavailable",
-        f"{service} is unavailable.",
-        extra={"service": service},
+        503, "upstream.unavailable", f"{service} is unavailable.", extra=extra
     )
 
 
@@ -125,20 +137,30 @@ def upstream_problem(
         set_audit_outcome(request, f"failed: {code.name}")
     if code is grpc.StatusCode.NOT_FOUND and not_found is not None:
         return not_found
-    UPSTREAM_FAILURES.labels(service, code.name).inc()
-    logger.warning("%s call failed: %s", service, code.name)
-    extra = {"service": service}
-    if code is grpc.StatusCode.DEADLINE_EXCEEDED:
-        return ProblemError(
-            504, "upstream.timeout", f"{service} did not answer in time.", extra=extra
-        )
-    if code is grpc.StatusCode.INVALID_ARGUMENT:
-        return ProblemError(
-            422, "request.invalid", f"{service} refused the request.", extra=extra
-        )
-    return ProblemError(
-        503, "upstream.unavailable", f"{service} is unavailable.", extra=extra
-    )
+    return _upstream_failure(service, code.name, _GRPC_STATUS.get(code, 503))
+
+
+_GRPC_STATUS: dict[grpc.StatusCode, int] = {
+    grpc.StatusCode.DEADLINE_EXCEEDED: 504,
+    grpc.StatusCode.INVALID_ARGUMENT: 422,
+}
+
+
+@asynccontextmanager
+async def historian_call() -> AsyncIterator[None]:
+    """Run an InfluxDB query; a failure leaves as a Problem, as upstream_call's do.
+
+    InfluxDB answers 400 to a query it cannot run, which retrying cannot fix: 422.
+    """
+    try:
+        yield
+    except ApiException as exc:
+        status = 422 if exc.status == 400 else 503
+        raise _upstream_failure(HISTORIAN, f"HTTP_{exc.status}", status) from exc
+    except (Urllib3TimeoutError, TimeoutError) as exc:
+        raise _upstream_failure(HISTORIAN, "TIMEOUT", 504) from exc
+    except (OSError, Urllib3HTTPError) as exc:
+        raise _upstream_failure(HISTORIAN, "UNAVAILABLE", 503) from exc
 
 
 @asynccontextmanager

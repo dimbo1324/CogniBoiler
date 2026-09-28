@@ -16,6 +16,7 @@ from fastapi import APIRouter, Path, Query, Request
 
 from api_gateway.audit import set_audit_outcome
 from api_gateway.auth.rbac import OperatorUser, ViewerUser
+from api_gateway.limits import MAX_EPOCH_MS, MAX_INT32
 from api_gateway.problems import UPSTREAM_RESPONSES, ProblemError, upstream_call
 from api_gateway.schemas.ops import (
     AcknowledgeAllRequest,
@@ -144,10 +145,14 @@ async def alarm_history(
     alarms: AlarmClient,
     severity: Literal["warning", "critical"] | None = Query(default=None),
     parameter: str | None = Query(default=None, max_length=128),
-    from_ms: int = Query(default=0, ge=0, description="Raised at or after [UTC ms]."),
-    to_ms: int = Query(default=0, ge=0, description="Raised at or before [UTC ms]."),
+    from_ms: int = Query(
+        default=0, ge=0, le=MAX_EPOCH_MS, description="Raised at or after [UTC ms]."
+    ),
+    to_ms: int = Query(
+        default=0, ge=0, le=MAX_EPOCH_MS, description="Raised at or before [UTC ms]."
+    ),
     limit: int = Query(default=100, ge=1, le=1000),
-    offset: int = Query(default=0, ge=0),
+    offset: int = Query(default=0, ge=0, le=MAX_INT32),
 ) -> AlarmPageResponse:
     """Alarm history with filters, newest first, paged."""
     async with _alarm_call(request):
@@ -189,7 +194,7 @@ async def get_alarm(
     request: Request,
     _: ViewerUser,
     alarms: AlarmClient,
-    alarm_id: int = Path(..., ge=1),
+    alarm_id: int = Path(..., ge=1, le=MAX_INT32),
 ) -> AlarmDetailResponse:
     """One alarm with every state change it went through."""
     async with _alarm_call(request):
@@ -206,7 +211,7 @@ async def acknowledge_alarm(
     body: AcknowledgeRequest,
     user: OperatorUser,
     alarms: AlarmClient,
-    alarm_id: int = Path(..., ge=1),
+    alarm_id: int = Path(..., ge=1, le=MAX_INT32),
 ) -> AcknowledgeResponse:
     """Acknowledge one alarm; refused if it is already acknowledged."""
     async with _alarm_call(request):

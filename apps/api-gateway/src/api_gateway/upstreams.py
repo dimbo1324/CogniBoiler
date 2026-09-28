@@ -22,7 +22,6 @@ from api_gateway.historian_query import HistorianQueryClient
 PHYSICS_SERVICE = "PhysicsService"
 PLC_SERVICE = "PLCService"
 ALARM_SERVICE = "AlarmService"
-HISTORIAN = "Historian"
 
 
 def get_physics_client(request: Request) -> PhysicsGatewayClient:

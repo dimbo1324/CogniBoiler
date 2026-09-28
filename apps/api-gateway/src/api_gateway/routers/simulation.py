@@ -24,6 +24,7 @@ from api_gateway.auth.identity import CurrentUser
 from api_gateway.auth.rbac import EngineerUser, ViewerUser
 from api_gateway.clients import PhysicsGatewayClient
 from api_gateway.dependencies import DbSession
+from api_gateway.limits import MAX_INT32
 from api_gateway.models.user import ScenarioRun
 from api_gateway.problems import UPSTREAM_RESPONSES, rpc_status_code, upstream_call
 from api_gateway.schemas.plant import (
@@ -282,7 +283,7 @@ async def list_scenario_runs(
     db: DbSession,
     _: ViewerUser,
     limit: int = Query(default=50, ge=1, le=500),
-    offset: int = Query(default=0, ge=0),
+    offset: int = Query(default=0, ge=0, le=MAX_INT32),
 ) -> ScenarioRunPageResponse:
     """Scenario loads and fault changes, newest first, with who made them."""
     total = await db.scalar(select(func.count(ScenarioRun.id)))
