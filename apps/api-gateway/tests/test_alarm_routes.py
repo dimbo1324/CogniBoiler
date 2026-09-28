@@ -9,12 +9,8 @@ import cogniboiler_pb2 as pb2
 import pytest
 from api_gateway.alarm_state import alarm_from_proto, transition_from_proto
 from fastapi import FastAPI
-from gateway_fakes import FakeAlarmClient, alarm, not_found
+from gateway_fakes import FakeAlarmClient, alarm, bearer, not_found
 from httpx import AsyncClient
-
-
-def bearer(tokens: dict[str, str]) -> dict[str, str]:
-    return {"Authorization": f"Bearer {tokens['access']}"}
 
 
 def alarms(app: FastAPI) -> FakeAlarmClient:

@@ -7,11 +7,8 @@ Responses that carry tokens or personal data must not be stored by any cache (RF
 from __future__ import annotations
 
 import pytest
+from gateway_fakes import bearer
 from httpx import AsyncClient
-
-
-def bearer(tokens: dict[str, str]) -> dict[str, str]:
-    return {"Authorization": f"Bearer {tokens['access']}"}
 
 
 def not_stored(headers: object) -> bool:

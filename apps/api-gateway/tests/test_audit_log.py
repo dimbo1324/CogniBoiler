@@ -20,13 +20,10 @@ from api_gateway.config import settings
 from api_gateway.dependencies import get_db
 from api_gateway.models.user import AuditLog
 from fastapi import FastAPI
+from gateway_fakes import bearer
 from httpx import ASGITransport, AsyncClient
 
 NEW_PASSWORD = "Copper-Kettle-Bridge-7"
-
-
-def bearer(tokens: dict[str, str]) -> dict[str, str]:
-    return {"Authorization": f"Bearer {tokens['access']}"}
 
 
 async def entries(

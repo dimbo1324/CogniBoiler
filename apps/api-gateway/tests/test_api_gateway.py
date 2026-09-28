@@ -31,6 +31,7 @@ from api_gateway.auth.jwt_handler import (
     issue_refresh_token,
 )
 from api_gateway.auth.password import hash_password, verify_password
+from api_gateway.config import settings
 from api_gateway.historian_query import HistoryResult, HistorySource
 from fastapi import FastAPI
 from gateway_fakes import FakeHistorianClient
@@ -40,10 +41,6 @@ from httpx import AsyncClient
 
 
 class TestPassword:
-    def test_hash_returns_string(self) -> None:
-        result = hash_password("mysecret")
-        assert isinstance(result, str)
-
     def test_hash_starts_with_argon2id(self) -> None:
         result = hash_password("mysecret")
         assert result.startswith("$argon2id$")
@@ -82,10 +79,6 @@ class TestPassword:
 
 
 class TestJWTHandler:
-    def test_access_token_is_string(self) -> None:
-        token = issue_access_token(1, "operator", "session").token
-        assert isinstance(token, str)
-
     def test_access_token_has_three_parts(self) -> None:
         # JWT format: header.payload.signature
         token = issue_access_token(1, "operator", "session").token
@@ -148,29 +141,16 @@ class TestJWTHandler:
 
 
 class TestRBAC:
-    def test_viewer_level_is_zero(self) -> None:
-        assert role_level("viewer") == 0
+    @pytest.mark.parametrize(
+        ("role", "level"),
+        [("viewer", 0), ("operator", 1), ("engineer", 2), ("admin", 3), ("root", -1)],
+    )
+    def test_role_levels(self, role: str, level: int) -> None:
+        assert role_level(role) == level
 
-    def test_operator_level_is_one(self) -> None:
-        assert role_level("operator") == 1
-
-    def test_engineer_level_is_two(self) -> None:
-        assert role_level("engineer") == 2
-
-    def test_admin_level_is_three(self) -> None:
-        assert role_level("admin") == 3
-
-    def test_unknown_role_level_is_minus_one(self) -> None:
-        assert role_level("superuser") == -1
-
-    def test_admin_outranks_engineer(self) -> None:
-        assert role_level("admin") > role_level("engineer")
-
-    def test_engineer_outranks_operator(self) -> None:
-        assert role_level("engineer") > role_level("operator")
-
-    def test_operator_outranks_viewer(self) -> None:
-        assert role_level("operator") > role_level("viewer")
+    def test_each_role_outranks_the_one_before(self) -> None:
+        levels = [role_level(r) for r in ("viewer", "operator", "engineer", "admin")]
+        assert levels == sorted(levels) and len(set(levels)) == 4
 
 
 # ─── 4. Health endpoint ───────────────────────────────────────────────────────
@@ -178,31 +158,14 @@ class TestRBAC:
 
 class TestHealthEndpoint:
     @pytest.mark.asyncio
-    async def test_health_returns_200(self, client: AsyncClient) -> None:
+    async def test_health_answers_without_a_token(self, client: AsyncClient) -> None:
         response = await client.get("/health")
         assert response.status_code == 200
-
-    @pytest.mark.asyncio
-    async def test_health_returns_running_status(self, client: AsyncClient) -> None:
-        response = await client.get("/health")
-        assert response.json()["status"] == "running"
-
-    @pytest.mark.asyncio
-    async def test_health_returns_service_name(self, client: AsyncClient) -> None:
-        response = await client.get("/health")
-        assert "service" in response.json()
-
-    @pytest.mark.asyncio
-    async def test_health_returns_version(self, client: AsyncClient) -> None:
-        response = await client.get("/health")
-        assert "version" in response.json()
-
-    @pytest.mark.asyncio
-    async def test_health_no_auth_required(self, client: AsyncClient) -> None:
-        # Health endpoint must be accessible without any token
-        response = await client.get("/health")
-        assert response.status_code != 401
-        assert response.status_code != 403
+        assert response.json() == {
+            "service": settings.app_name,
+            "version": settings.app_version,
+            "status": "running",
+        }
 
 
 # ─── 5. Auth endpoints ────────────────────────────────────────────────────────

@@ -14,13 +14,15 @@ from api_gateway.dependencies import get_db
 from api_gateway.problems import ProblemError, problem_response
 from api_gateway.realtime.hub import Channel, RealtimeHub
 from fastapi import FastAPI
-from gateway_fakes import FakeHistorianClient, FakePLCClient, plc_status, rpc_error
+from gateway_fakes import (
+    FakeHistorianClient,
+    FakePLCClient,
+    bearer,
+    plc_status,
+    rpc_error,
+)
 from httpx import ASGITransport, AsyncClient
 from starlette.requests import Request
-
-
-def bearer(tokens: dict[str, str]) -> dict[str, str]:
-    return {"Authorization": f"Bearer {tokens['access']}"}
 
 
 def plc(app: FastAPI) -> FakePLCClient:

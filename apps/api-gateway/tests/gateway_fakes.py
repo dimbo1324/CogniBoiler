@@ -68,6 +68,11 @@ class UpstreamDownError(grpc.RpcError):
         return "connection refused"
 
 
+def bearer(tokens: dict[str, str]) -> dict[str, str]:
+    """The Authorization header of a signed-in test session."""
+    return {"Authorization": f"Bearer {tokens['access']}"}
+
+
 def rpc_error(code: grpc.StatusCode, details: str = "") -> grpc.aio.AioRpcError:
     return grpc.aio.AioRpcError(
         code, grpc.aio.Metadata(), grpc.aio.Metadata(), details=details

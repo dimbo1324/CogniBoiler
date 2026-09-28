@@ -14,15 +14,12 @@ from fastapi import FastAPI
 from gateway_fakes import (
     FakePhysicsClient,
     UpstreamDownError,
+    bearer,
     rpc_error,
     simulation_status,
 )
 from httpx import AsyncClient
 from sqlalchemy import text
-
-
-def bearer(tokens: dict[str, str]) -> dict[str, str]:
-    return {"Authorization": f"Bearer {tokens['access']}"}
 
 
 def physics(app: FastAPI) -> FakePhysicsClient:

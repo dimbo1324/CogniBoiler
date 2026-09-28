@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 from fastapi import FastAPI
-from gateway_fakes import FakeHistorianClient
+from gateway_fakes import FakeHistorianClient, bearer
 from httpx import AsyncClient
 from influxdb_client.rest import ApiException
 from prometheus_client import REGISTRY
@@ -19,10 +19,6 @@ from urllib3.exceptions import ReadTimeoutError
 
 INT32_MAX = 2**31 - 1
 AFTER_2100_MS = 4_102_444_800_001
-
-
-def bearer(tokens: dict[str, str]) -> dict[str, str]:
-    return {"Authorization": f"Bearer {tokens['access']}"}
 
 
 def historian(app: FastAPI) -> FakeHistorianClient:

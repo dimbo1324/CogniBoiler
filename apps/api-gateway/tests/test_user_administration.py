@@ -13,6 +13,7 @@ from api_gateway.models.user import RefreshToken, Role, User
 from api_gateway.problems import ProblemError
 from api_gateway.schemas.users import UserUpdateRequest
 from fastapi import FastAPI
+from gateway_fakes import bearer
 from httpx import AsyncClient
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects import postgresql
@@ -20,10 +21,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 NEW_PASSWORD = "Harbour-Lantern-42"
-
-
-def bearer(tokens: dict[str, str]) -> dict[str, str]:
-    return {"Authorization": f"Bearer {tokens['access']}"}
 
 
 @asynccontextmanager

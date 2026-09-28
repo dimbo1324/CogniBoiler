@@ -24,7 +24,7 @@ from api_gateway.models.user import (
     User,
     UserRole,
 )
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -250,7 +250,17 @@ class TestUserRoleCRUD:
         ur = UserRole(user_id=user.id, role_id=role.id, granted_at_ms=ts)
         db_session.add(ur)
         await db_session.commit()
-        assert ur.id is not None
+        stored = (
+            await db_session.execute(
+                text(
+                    "SELECT ur.user_id, ur.role_id, ur.granted_at_ms, r.name "
+                    "FROM user_roles ur JOIN roles r ON r.id = ur.role_id "
+                    "WHERE ur.id = :id"
+                ),
+                {"id": ur.id},
+            )
+        ).one()
+        assert tuple(stored) == (user.id, role.id, ts, "engineer")
 
     @pytest.mark.asyncio
     async def test_user_role_unique_constraint(self, db_session: AsyncSession) -> None:
@@ -294,7 +304,21 @@ class TestRefreshToken:
         )
         db_session.add(token)
         await db_session.commit()
-        assert token.id is not None
+        stored = (
+            await db_session.execute(
+                text(
+                    "SELECT jti, family_id, user_id, revoked_at_ms "
+                    "FROM refresh_tokens WHERE id = :id"
+                ),
+                {"id": token.id},
+            )
+        ).one()
+        assert tuple(stored) == (
+            "0b3c5a52-2f4e-4bb4-9d7f-1f8d1c0e2a11",
+            "5f0c9d8e-7a6b-4c3d-9e2f-1a0b9c8d7e6f",
+            user.id,
+            None,
+        )
 
     @pytest.mark.asyncio
     async def test_refresh_token_jti_unique(self, db_session: AsyncSession) -> None:
@@ -351,7 +375,16 @@ class TestAuditLog:
         )
         db_session.add(entry)
         await db_session.commit()
-        assert entry.id is not None
+        stored = (
+            await db_session.execute(
+                text(
+                    "SELECT user_id, method, endpoint, response_status, timestamp_ms "
+                    "FROM audit_log WHERE id = :id"
+                ),
+                {"id": entry.id},
+            )
+        ).one()
+        assert tuple(stored) == (None, "GET", "/health", 200, ts)
 
     @pytest.mark.asyncio
     async def test_audit_log_user_id_nullable(self, db_session: AsyncSession) -> None:
