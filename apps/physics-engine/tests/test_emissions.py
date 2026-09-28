@@ -27,14 +27,14 @@ class TestCarbonDioxide:
     ) -> None:
         state = calc.calculate(fuel_flow=5.0, flame_temp=1650.0, excess_air_ratio=1.1)
         expected = CO2_EMISSION_FACTOR / (42.0 / 3600.0)
-        assert state.co2_intensity_kg_per_mwh == pytest.approx(expected, rel=1e-9)
-        assert 200.0 < state.co2_intensity_kg_per_mwh < 260.0
+        assert state.co2_intensity_kg_per_mwh_fuel == pytest.approx(expected, rel=1e-9)
+        assert 200.0 < state.co2_intensity_kg_per_mwh_fuel < 260.0
 
     def test_co2_intensity_is_zero_without_fuel(
         self, calc: EmissionsCalculator
     ) -> None:
         state = calc.calculate(fuel_flow=0.0, flame_temp=1650.0, excess_air_ratio=1.1)
-        assert state.co2_intensity_kg_per_mwh == 0.0
+        assert state.co2_intensity_kg_per_mwh_fuel == 0.0
 
 
 class TestNitrogenOxides:

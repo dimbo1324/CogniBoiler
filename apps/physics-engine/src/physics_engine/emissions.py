@@ -95,7 +95,7 @@ class EmissionsState:
         return self.nox_rate * 1.0e6
 
     @property
-    def co2_intensity_kg_per_mwh(self) -> float:
+    def co2_intensity_kg_per_mwh_fuel(self) -> float:
         """
         Specific CO2 intensity [kg CO2 / MWh of fuel input].
 
