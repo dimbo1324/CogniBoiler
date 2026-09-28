@@ -143,9 +143,8 @@ class HealthTracker:
         if health.maintenance_alarm:
             print(f"Maintenance due — turbine: {health.turbine_health_pct:.0f}%")
 
-    Note: tube_temp_k is best approximated as the drum water_temp (which
-    represents steam temperature entering the superheater). For a more
-    accurate model, use superheater outlet temperature if available.
+    The plant passes the superheater outlet temperature as tube_temp_k while steam
+    flows, and the drum water temperature when it does not.
     """
 
     def __init__(
@@ -176,9 +175,6 @@ class HealthTracker:
         self._turbine_starts = initial_turbine_starts
         self._turbine_damage = initial_turbine_damage
 
-        # BUG FIX: tube and pump hours have their own parameters and counters.
-        # Original code incorrectly set all three to `initial_turbine_hours`,
-        # making mid-life restarts produce wrong boiler and pump age estimates.
         self._tube_hours = initial_tube_hours
         self._tube_damage = initial_tube_damage
         self._pump_hours = initial_pump_hours
@@ -200,7 +196,6 @@ class HealthTracker:
             dt:            Timestep [s].
             power_mw:      Current electrical output [MW].
             tube_temp_k:   Boiler tube / superheater temperature [K].
-                           Proxy: use water_temp from BoilerState.
             is_running:    True if turbine is on-line and generating.
             startup_type:  "cold" | "warm" | "hot" | "none".
                            "cold" = turbine metal below 200°C.

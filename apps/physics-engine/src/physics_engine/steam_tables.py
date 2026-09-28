@@ -26,44 +26,37 @@ IAPWS-IF97 covers:
 #
 # Fix: wrap _Region3 to ensure rho and T are always plain Python floats before
 # delegating to the original implementation.  This is safe because _Region3 is
-# a pure function that only takes scalar arguments.
+# a pure function that only takes scalar arguments. It is still a global patch of a
+# private iapws function applied at import: re-check it on every iapws upgrade.
 # ─────────────────────────────────────────────────────────────────────────────
 import logging
 import math
 from typing import Any, cast
 
-import iapws.iapws97 as _iapws97  # noqa: E402
+import iapws.iapws97 as _iapws97
 import numpy as np
 from iapws import IAPWS97
 
 from physics_engine.metrics import PROPERTY_FALLBACKS
 
-# iapws has no stubs — attribute resolves to Any, no annotation needed
 _orig_region3 = _iapws97._Region3  # noqa: SLF001
 
 
-# N802 fix: function name lowercase
-# N803 fix: argument name lowercase (t instead of T)
 def _patched_region3(rho: object, t: object) -> dict[str, Any]:
     """Scalar-safe wrapper around iapws._Region3."""
-    # N806 fix: local variable lowercase (t_f instead of T)
     rho_f: float
     t_f: float
-    # isinstance narrows rho to np.ndarray -> .flat[0] is safe
     if isinstance(rho, np.ndarray):
         rho_f = float(rho.flat[0])
     else:
-        # cast(Any, ...) lets float() accept an arbitrary object
         rho_f = float(cast(Any, rho))
     if isinstance(t, np.ndarray):
         t_f = float(t.flat[0])
     else:
         t_f = float(cast(Any, t))
-    # cast fixes "Returning Any from function declared to return dict[str, Any]"
     return cast(dict[str, Any], _orig_region3(rho_f, t_f))
 
 
-# no type: ignore needed — iapws module resolves to Any, assignment is accepted
 _iapws97._Region3 = _patched_region3  # noqa: SLF001
 
 # ─────────────────────────────────────────────────────────────────────────────

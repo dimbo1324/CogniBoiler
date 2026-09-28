@@ -27,9 +27,9 @@ class BoilerState:
     """
     Represents the instantaneous physical state of the boiler.
 
-    State vector y = [U, P, h, T_gas, T_water] — 5 dimensions.
-    T_water is now explicit to avoid repeated recomputation from U
-    and to eliminate numerical drift in the energy-to-temperature inversion.
+    State vector y = [U, P, h, T_gas, T_water] — 5 dimensions. T_water is a state of
+    its own rather than derived from U, which avoids drift in inverting energy to
+    temperature.
 
     All values use SI units.
     """

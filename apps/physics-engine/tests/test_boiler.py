@@ -16,25 +16,25 @@ from physics_engine.models import BoilerParameters, BoilerState, ControlInputs
 # ─── Fixtures ────────────────────────────────────────────────────────────────
 
 
-@pytest.fixture  # type: ignore[misc]
+@pytest.fixture
 def params() -> BoilerParameters:
     """Default boiler design parameters."""
     return BoilerParameters()
 
 
-@pytest.fixture  # type: ignore[misc]
+@pytest.fixture
 def model(params: BoilerParameters) -> BoilerModel:
     """BoilerModel with default parameters."""
     return BoilerModel(params)
 
 
-@pytest.fixture  # type: ignore[misc]
+@pytest.fixture
 def initial_state(params: BoilerParameters) -> BoilerState:
     """Physically consistent initial state at nominal operating point."""
     return params.nominal_initial_state()
 
 
-@pytest.fixture  # type: ignore[misc]
+@pytest.fixture
 def nominal_controls() -> ControlInputs:
     """Balanced operating point: moderate fuel, feedwater matches steam output."""
     return ControlInputs(

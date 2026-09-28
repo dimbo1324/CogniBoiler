@@ -20,13 +20,13 @@ from physics_engine.turbine import TurbineModel, TurbineState
 # ─── Fixtures ────────────────────────────────────────────────────────────────
 
 
-@pytest.fixture  # type: ignore[misc]
+@pytest.fixture
 def turbine() -> TurbineModel:
     """TurbineModel with default design parameters."""
     return TurbineModel()
 
 
-@pytest.fixture  # type: ignore[misc]
+@pytest.fixture
 def nominal_state(turbine: TurbineModel) -> TurbineState:
     """Turbine state at nominal boiler output: 552.5°C, 140 bar, 277.8 kg/s."""
     return turbine.calculate(
@@ -36,7 +36,7 @@ def nominal_state(turbine: TurbineModel) -> TurbineState:
     )
 
 
-@pytest.fixture  # type: ignore[misc]
+@pytest.fixture
 def system() -> BoilerTurbineSystem:
     """Coupled boiler-turbine system with default parameters."""
     return BoilerTurbineSystem()

@@ -6,18 +6,18 @@ Models the closed steam-water cycle from turbine exhaust back to drum feedwater:
     Turbine exhaust → Surface condenser → Condensate pump
         → Low-pressure feedwater heaters → Deaerator → Feed pump → Drum
 
-Key physical effects added by this model vs fixed TEMP_FEEDWATER constant:
+What the plant takes from it:
 
-    1. Dynamic feedwater temperature: varies with steam load and cooling water.
-       At low load → better condenser performance → colder feedwater → lower drum temp.
-       At high load → higher backpressure → hotter condensate.
-
-    2. Dynamic turbine backpressure: increases at high steam flow (more heat to reject).
+    1. Dynamic turbine backpressure: increases at high steam flow (more heat to reject).
        Higher backpressure → less turbine enthalpy drop → lower electrical output.
        Effect: ~0.3–0.5% power loss per 1 kPa backpressure increase.
 
-    3. Seasonal variation: cooling water temperature (river/sea) affects cycle efficiency.
+    2. Seasonal variation: cooling water temperature (river/sea) affects cycle efficiency.
        A 5°C rise in cooling water temp → ~0.5% drop in net cycle efficiency.
+
+The feedwater temperature it reports is the deaerator's fixed saturation temperature
+(DEAERATOR_TEMP). The boiler does not use it: its economizer inlet is the design
+feedwater temperature, BoilerParameters.feedwater_temp.
 
 Physical basis: 300 MW steam unit, surface condenser, two-pass shell-and-tube.
 Design point: backpressure 7 kPa, CW inlet 15°C, CW outlet 27°C.
@@ -81,8 +81,8 @@ class CondenserState:
     Attributes:
         backpressure_pa:        Condenser pressure = turbine exhaust pressure [Pa].
         condensate_temp:        Hotwell condensate temperature [K].
-        feedwater_temp:         Feedwater temperature after deaerator [K].
-                                This replaces the fixed TEMP_FEEDWATER constant.
+        feedwater_temp:         Feedwater temperature after deaerator [K]; always
+                                DEAERATOR_TEMP, and not fed back to the boiler.
         cooling_water_temp_out: Cooling water outlet temperature [K].
         heat_rejected_w:        Total heat transferred to cooling water [W].
         condenser_loading:      Fraction of design heat duty [-].
@@ -116,7 +116,6 @@ class CondenserState:
         Approximate efficiency loss vs design backpressure [%].
 
         Rule of thumb: +1 kPa above design → ~0.3% efficiency drop.
-        Used as a KPI on the Grafana efficiency dashboard.
         """
         delta_kpa = max(0.0, (self.backpressure_pa - DESIGN_BACKPRESSURE) / 1_000.0)
         return delta_kpa * 0.3
@@ -170,13 +169,9 @@ class CondenserModel:
         self.cooling_water_flow = cooling_water_flow
         self.cooling_water_temp_in = cooling_water_temp
 
-        # Apply fouling: UA_eff = 1 / (1/UA_clean + R_fouling)
-        # Fouling resistance is not per-unit-area here — it acts as a global
-        # additional resistance scaled to UA magnitude.
+        # The fouling resistance is applied as one global R_f / 1000 [K/W] in series
+        # with the clean conductance, not per unit of tube area.
         if fouling_resistance > 0.0 and ua > 0.0:
-            # Convert: if R_fouling is 0.0001 m²·K/W and surface is ~4000 m²
-            # → effective extra resistance = R / A_approx = 0.0001 / (ua / 3000) W/K
-            # Simplified direct form: UA_eff = 1 / (1/ua + fouling_resistance / 1000)
             self.ua = 1.0 / (1.0 / ua + fouling_resistance / 1_000.0)
         else:
             self.ua = ua

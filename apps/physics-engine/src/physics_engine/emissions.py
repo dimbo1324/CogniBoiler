@@ -116,7 +116,7 @@ class EmissionsCalculator:
     """
     Calculates real-time stack emissions from combustion conditions.
 
-    Designed to be called at every simulation timestep from the ScenarioRunner.
+    The plant calls it at every simulation step.
     Stateless — all computation is in calculate().
 
     Usage:
@@ -142,7 +142,8 @@ class EmissionsCalculator:
 
         Args:
             fuel_flow:        Fuel mass flow [kg/s].
-            flame_temp:       Adiabatic flame temperature [K].
+            flame_temp:       Flame-zone temperature [K] (furnace exit gas plus
+                              NOX_FLAME_ZONE_OFFSET_K in the plant).
                               Typical: 1 400–2 000 K.
             excess_air_ratio: Lambda (λ). 1.0 = stoichiometric.
                               Design point: 1.05–1.15 for gas burners.

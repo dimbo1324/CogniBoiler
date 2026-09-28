@@ -9,7 +9,10 @@ Models the heat release from fuel combustion accounting for:
 
 Physics:
     Q_released = m_fuel * LHV * eta_combustion(lambda)
-    Q_available = Q_released + Q_air_preheat - Q_flue_gas_loss
+    Q_available = Q_released + Q_air_preheat
+
+The heat leaving with the flue gas is not subtracted here: the boiler's furnace and
+convective-pass balances account for it.
 """
 
 from dataclasses import dataclass
