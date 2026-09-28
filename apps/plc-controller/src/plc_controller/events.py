@@ -15,19 +15,30 @@ messages, never unbounded memory.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-import time
-from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
 from aiomqtt import Client, Will
-from cogniboiler_observability import MQTT_PUBLISHED
-from cogniboiler_runtime import MqttSession, now_ms
+from cogniboiler_observability import MQTT_PUBLISH_ERRORS, MQTT_PUBLISHED
+from cogniboiler_runtime import (
+    DEFAULT_QUEUE_LIMIT,
+    DEFAULT_RECONNECT_DELAY_S,
+    MqttSession,
+    QueuedMessage,
+    QueuedMqttPublisher,
+    now_ms,
+)
+from cogniboiler_runtime.topics import (
+    TOPIC_ALERT_CRITICAL,
+    TOPIC_ALERT_SNAPSHOT,
+    TOPIC_ALERT_WARNING,
+    TOPIC_PLC_EVENTS,
+    TOPIC_STATUS_PLC_CONTROLLER,
+)
 
 from plc_controller.alarms import (
     SOURCE_SERVICE,
@@ -38,17 +49,11 @@ from plc_controller.alarms import (
 
 logger = logging.getLogger(__name__)
 
-TOPIC_ALERT_WARNING: str = "alerts/warning"
-TOPIC_ALERT_CRITICAL: str = "alerts/critical"
-TOPIC_ALERT_SNAPSHOT: str = "alerts/snapshot"
-TOPIC_PLC_EVENTS: str = "plc/events"
-TOPIC_AVAILABILITY: str = "status/plc-controller"
-
 DEFAULT_MQTT_HOST: str = "localhost"
 DEFAULT_MQTT_PORT: int = 1883
 
-QUEUE_LIMIT: int = 1000
-RECONNECT_DELAY_S: float = 5.0
+QUEUE_LIMIT: int = DEFAULT_QUEUE_LIMIT
+RECONNECT_DELAY_S: float = DEFAULT_RECONNECT_DELAY_S
 SNAPSHOT_INTERVAL_S: float = 10.0
 CLOSE_DRAIN_TIMEOUT_S: float = 1.0
 
@@ -72,14 +77,6 @@ class PlcEvent:
     operator_id: str
     detail: Mapping[str, Any] = field(default_factory=dict)
     timestamp_ms: int = field(default_factory=now_ms)
-
-
-@dataclass(frozen=True)
-class _Message:
-    topic: str
-    payload: bytes
-    qos: int = 1
-    retain: bool = False
 
 
 def alarm_topic(transition: AlarmTransition) -> str:
@@ -155,21 +152,28 @@ class PlcPublisher:
         self._enabled = enabled
         self._client_id = client_id
         self._active_conditions = active_conditions
-        self._queue: deque[_Message] = deque()
-        self._wakeup = asyncio.Event()
-        self._task: asyncio.Task[None] | None = None
-        self._dropped = 0
         self._session: MqttSession[Client] = MqttSession(
             self._open_client,
             name="PLC publisher",
             reconnect_delay_s=RECONNECT_DELAY_S,
             logger=logger,
         )
+        self._queue: QueuedMqttPublisher[Client] = QueuedMqttPublisher(
+            self._session,
+            name="PLC publisher",
+            limit=QUEUE_LIMIT,
+            availability_topic=TOPIC_STATUS_PLC_CONTROLLER,
+            periodic=self._publish_snapshot,
+            periodic_interval_s=SNAPSHOT_INTERVAL_S,
+            on_published=_count_published,
+            on_publish_error=_count_publish_error,
+            logger=logger,
+        )
 
     @property
     def dropped(self) -> int:
         """Messages lost to a full queue."""
-        return self._dropped
+        return self._queue.dropped
 
     @property
     def connected(self) -> bool:
@@ -184,46 +188,24 @@ class PlcPublisher:
     # ─── Publishing API (non-blocking) ───────────────────────────────────────
 
     def publish_alarm(self, transition: AlarmTransition) -> None:
-        self._enqueue(_Message(alarm_topic(transition), alarm_payload(transition)))
+        self._enqueue(QueuedMessage(alarm_topic(transition), alarm_payload(transition)))
 
     def publish_event(self, event: PlcEvent) -> None:
-        self._enqueue(_Message(TOPIC_PLC_EVENTS, event_payload(event)))
+        self._enqueue(QueuedMessage(TOPIC_PLC_EVENTS, event_payload(event)))
 
-    def _enqueue(self, message: _Message) -> None:
-        if not self._enabled:
-            return
-        if len(self._queue) >= QUEUE_LIMIT:
-            self._queue.popleft()
-            self._dropped += 1
-            if self._dropped == 1 or self._dropped % 100 == 0:
-                logger.error(
-                    "PLC publish queue full: %d messages dropped so far", self._dropped
-                )
-        self._queue.append(message)
-        self._wakeup.set()
+    def _enqueue(self, message: QueuedMessage) -> None:
+        if self._enabled:
+            self._queue.enqueue(message)
 
     # ─── Lifecycle ───────────────────────────────────────────────────────────
 
     def start(self) -> None:
-        if not self._enabled or (self._task is not None and not self._task.done()):
-            return
-        self._task = asyncio.create_task(self._run(), name="plc-mqtt-publisher")
+        if self._enabled:
+            self._queue.start()
 
     async def aclose(self) -> None:
         """Announce "offline", give the queue a moment to drain, then stop."""
-        task = self._task
-        if task is None:
-            return
-        self._enqueue(_Message(TOPIC_AVAILABILITY, b"offline", retain=True))
-        deadline = time.monotonic() + CLOSE_DRAIN_TIMEOUT_S
-        while self._queue and self._session.connected and time.monotonic() < deadline:
-            await asyncio.sleep(0.05)
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-        self._task = None
+        await self._queue.aclose(CLOSE_DRAIN_TIMEOUT_S)
 
     def _open_client(self) -> Client:
         return Client(
@@ -232,44 +214,25 @@ class PlcPublisher:
             identifier=self._client_id,
             username=self._username,
             password=self._password,
-            will=Will(TOPIC_AVAILABILITY, payload="offline", qos=1, retain=True),
+            will=Will(
+                TOPIC_STATUS_PLC_CONTROLLER, payload="offline", qos=1, retain=True
+            ),
         )
 
-    async def _run(self) -> None:
-        await self._session.run(self._announce_and_drain)
+    async def _publish_snapshot(self, client: Client) -> None:
+        """The active condition keys, on connect and every SNAPSHOT_INTERVAL_S."""
+        payload = snapshot_payload(self._active_conditions(), now_ms())
+        try:
+            await client.publish(TOPIC_ALERT_SNAPSHOT, payload, qos=1)
+        except Exception:
+            _count_publish_error(TOPIC_ALERT_SNAPSHOT)
+            raise
+        _count_published(TOPIC_ALERT_SNAPSHOT)
 
-    async def _announce_and_drain(self, client: Client) -> None:
-        await client.publish(TOPIC_AVAILABILITY, "online", qos=1, retain=True)
-        await self._drain(client)
 
-    async def _drain(self, client: Client) -> None:
-        next_snapshot = 0.0
-        while True:
-            while self._queue:
-                message = self._queue[0]
-                await client.publish(
-                    message.topic,
-                    message.payload,
-                    qos=message.qos,
-                    retain=message.retain,
-                )
-                MQTT_PUBLISHED.labels(message.topic).inc()
-                self._queue.popleft()
-            if time.monotonic() >= next_snapshot:
-                await client.publish(
-                    TOPIC_ALERT_SNAPSHOT,
-                    snapshot_payload(self._active_conditions(), now_ms()),
-                    qos=1,
-                )
-                MQTT_PUBLISHED.labels(TOPIC_ALERT_SNAPSHOT).inc()
-                next_snapshot = time.monotonic() + SNAPSHOT_INTERVAL_S
-            self._wakeup.clear()
-            if self._queue:
-                continue
-            try:
-                await asyncio.wait_for(
-                    self._wakeup.wait(),
-                    timeout=max(next_snapshot - time.monotonic(), 0.05),
-                )
-            except TimeoutError:
-                pass
+def _count_published(topic: str) -> None:
+    MQTT_PUBLISHED.labels(topic).inc()
+
+
+def _count_publish_error(topic: str) -> None:
+    MQTT_PUBLISH_ERRORS.labels(topic).inc()

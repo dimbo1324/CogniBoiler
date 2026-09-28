@@ -9,6 +9,15 @@ from typing import Any
 
 import pytest
 from aiomqtt import MqttError
+from cogniboiler_runtime.topics import (
+    TOPIC_ALERT_CRITICAL,
+    TOPIC_ALERT_SNAPSHOT,
+    TOPIC_ALERT_WARNING,
+    TOPIC_PLC_EVENTS,
+)
+from cogniboiler_runtime.topics import (
+    TOPIC_STATUS_PLC_CONTROLLER as TOPIC_AVAILABILITY,
+)
 from plc_controller import events
 from plc_controller.alarms import (
     AlarmCondition,
@@ -20,11 +29,6 @@ from plc_controller.alarms import (
     Severity,
 )
 from plc_controller.events import (
-    TOPIC_ALERT_CRITICAL,
-    TOPIC_ALERT_SNAPSHOT,
-    TOPIC_ALERT_WARNING,
-    TOPIC_AVAILABILITY,
-    TOPIC_PLC_EVENTS,
     PlcEvent,
     PlcEventKind,
     PlcPublisher,
@@ -116,7 +120,7 @@ class TestPublisher:
             TOPIC_PLC_EVENTS,
             TOPIC_ALERT_SNAPSHOT,
         ]
-        assert Broker.published[0][1:] == ("online", 1, True)
+        assert Broker.published[0][1:] == (b"online", 1, True)
         critical = json.loads(Broker.published[1][1])
         assert critical["state"] == "active"
         assert critical["key"] == "plc-controller:water_level_m:low:critical"
@@ -166,7 +170,7 @@ class TestPublisher:
                     PlcEvent(PlcEventKind.RUN_CHANGED, "physics-engine", {"n": number})
                 )
         assert publisher.dropped == 2
-        assert caplog.text.count("PLC publish queue full") == 1
+        assert caplog.text.count("PLC publisher: queue full") == 1
         publisher.start()
         await until(lambda: topics().count(TOPIC_PLC_EVENTS) == 2)
         await publisher.aclose()
