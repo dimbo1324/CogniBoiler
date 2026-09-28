@@ -15,17 +15,13 @@ import type {
   HistoryResponse,
   Kpi,
   MessageResponse,
-  PlantState,
   Platform,
   PlcMode,
-  PlcStatus,
-  Profile,
   ScenarioList,
   ScenarioRunPage,
   SessionsRevoked,
   SetpointRequest,
   SimulationAck,
-  SimulationStatus,
   TokenResponse,
   User,
   UserCreateRequest,
@@ -53,28 +49,7 @@ export function signOut(accessToken: string | null): Promise<MessageResponse> {
   return request("POST", "/auth/logout", { auth: false, accessToken });
 }
 
-export function fetchProfile(): Promise<Profile> {
-  return request("GET", "/auth/me");
-}
-
-export function changePassword(
-  currentPassword: string,
-  newPassword: string,
-): Promise<TokenResponse> {
-  return request("POST", "/auth/password", {
-    body: { current_password: currentPassword, new_password: newPassword },
-  });
-}
-
 // Plant and PLC
-
-export function fetchPlant(signal?: AbortSignal): Promise<PlantState> {
-  return request("GET", "/api/v1/plant", { signal });
-}
-
-export function fetchPlcStatus(signal?: AbortSignal): Promise<PlcStatus> {
-  return request("GET", "/api/v1/plc/status", { signal });
-}
 
 export function setLoadDemand(loadW: number): Promise<CommandAck> {
   return request("POST", "/api/v1/commands/load", { body: { load_w: loadW } });
@@ -167,10 +142,6 @@ export function fetchKpi(startMs: number, endMs: number, signal?: AbortSignal): 
 }
 
 // Simulation (engineer)
-
-export function fetchSimulation(signal?: AbortSignal): Promise<SimulationStatus> {
-  return request("GET", "/api/v1/simulation", { signal });
-}
 
 export function fetchScenarios(signal?: AbortSignal): Promise<ScenarioList> {
   return request("GET", "/api/v1/simulation/scenarios", { signal });

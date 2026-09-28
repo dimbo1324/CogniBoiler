@@ -38,21 +38,6 @@ const cases: Case[] = [
     path: "/auth/logout",
     options: { auth: false, accessToken: "access-1" },
   },
-  { name: "fetchProfile", call: () => endpoints.fetchProfile(), method: "GET", path: "/auth/me" },
-  {
-    name: "fetchPlant",
-    call: () => endpoints.fetchPlant(signal),
-    method: "GET",
-    path: "/api/v1/plant",
-    options: { signal },
-  },
-  {
-    name: "fetchPlcStatus",
-    call: () => endpoints.fetchPlcStatus(signal),
-    method: "GET",
-    path: "/api/v1/plc/status",
-    options: { signal },
-  },
   {
     name: "setLoadDemand",
     call: () => endpoints.setLoadDemand(180e6),
@@ -154,13 +139,6 @@ const cases: Case[] = [
     method: "GET",
     path: "/api/v1/kpi",
     options: { query: { start_ms: 1, end_ms: 2 }, signal },
-  },
-  {
-    name: "fetchSimulation",
-    call: () => endpoints.fetchSimulation(signal),
-    method: "GET",
-    path: "/api/v1/simulation",
-    options: { signal },
   },
   {
     name: "fetchScenarios",
@@ -323,17 +301,7 @@ describe("gateway routes", () => {
   it("covers every exported request function", () => {
     const functions = Object.entries(endpoints)
       .filter(([, value]) => typeof value === "function")
-      .map(([name]) => name)
-      .filter((name) => name !== "changePassword");
+      .map(([name]) => name);
     expect(functions.sort()).toEqual(cases.map((c) => c.name).sort());
-  });
-
-  it("changes the password with the current one", async () => {
-    await endpoints.changePassword("old-password", "new-password-1");
-    const [method, path, options] = mockedRequest.mock.calls[0] ?? [];
-    expect([method, path]).toEqual(["POST", "/auth/password"]);
-    expect(options).toMatchObject({
-      body: { current_password: "old-password", new_password: "new-password-1" },
-    });
   });
 });

@@ -122,8 +122,7 @@ a {
 
 button,
 input,
-select,
-textarea {
+select {
   font: inherit;
   color: inherit;
 }
@@ -195,8 +194,7 @@ button.quiet:hover:not(:disabled) {
 }
 
 input,
-select,
-textarea {
+select {
   border: 1px solid var(--border-strong);
   background: var(--surface);
   border-radius: var(--radius-1);
@@ -205,8 +203,7 @@ textarea {
 }
 
 input:focus,
-select:focus,
-textarea:focus {
+select:focus {
   border-color: var(--accent);
 }
 
@@ -805,18 +802,6 @@ tr.unacknowledged.severity-warning {
 
 /* ─── Dialogs, forms, tables ─────────────────────────────────────────────── */
 
-dialog {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-2);
-  background: var(--surface);
-  color: var(--text);
-  max-width: 460px;
-}
-
-dialog::backdrop {
-  background: rgb(0 0 0 / 45%);
-}
-
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -861,13 +846,4 @@ dialog::backdrop {
 .modal-actions {
   justify-content: flex-end;
   margin-top: var(--space-3);
-}
-
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }

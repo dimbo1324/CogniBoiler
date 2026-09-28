@@ -8,7 +8,6 @@ type Schemas = components["schemas"];
 export type Role = Schemas["UserCreateRequest"]["role"];
 
 export type TokenResponse = Schemas["TokenResponse"];
-export type Profile = Schemas["ProfileResponse"];
 export type MessageResponse = Schemas["MessageResponse"];
 
 export type PlantState = Schemas["PlantStateResponse"];
@@ -51,7 +50,6 @@ export type UserUpdateRequest = Schemas["UserUpdateRequest"];
 export type SessionsRevoked = Schemas["SessionsRevokedResponse"];
 
 export type Platform = Schemas["PlatformResponse"];
-export type Readiness = Schemas["ReadinessResponse"];
 
 // WebSocket /ws frames. The REST schema does not describe them; the gateway's
 // routers/websocket.py does, and alarm changes and PLC events are the MQTT payloads of
