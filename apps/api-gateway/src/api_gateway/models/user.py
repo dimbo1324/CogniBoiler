@@ -245,7 +245,9 @@ class AuditLog(Base):
 
     user_id: Mapped[int | None] = mapped_column(
         Integer,
-        ForeignKey("users.id", ondelete="SET NULL"),
+        # RESTRICT (migration 0007): the audit log is append-only, so deleting a user
+        # must not rewrite the rows that name them.
+        ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=True,
         index=True,
         comment="NULL for unauthenticated requests",

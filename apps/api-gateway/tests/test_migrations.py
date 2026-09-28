@@ -17,6 +17,7 @@ from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from api_gateway.config import settings
+from api_gateway.models.user import AuditLog
 
 MIGRATIONS = Path(__file__).resolve().parents[1] / "migrations"
 
@@ -163,3 +164,23 @@ class TestApplicationGrants:
             text = path.read_text(encoding="utf-8").upper()
             for forbidden in ("GRANT TRUNCATE", "GRANT TRIGGER", "GRANT ALL"):
                 assert forbidden not in text, (path.name, forbidden)
+
+
+class TestAuditAuthors:
+    """Deleting a user must not rewrite the audit rows that name them (ARCH-15)."""
+
+    def test_the_audit_log_keeps_its_authors(self) -> None:
+        keep = revision_module("0007_audit_log_keeps_its_authors")
+        assert keep.upgrade_statements() == [
+            "ALTER TABLE audit_log DROP CONSTRAINT audit_log_user_id_fkey",
+            "ALTER TABLE audit_log ADD CONSTRAINT audit_log_user_id_fkey "
+            "FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT",
+        ]
+
+    def test_the_downgrade_restores_set_null(self) -> None:
+        keep = revision_module("0007_audit_log_keeps_its_authors")
+        assert keep.downgrade_statements()[-1].endswith("ON DELETE SET NULL")
+
+    def test_the_model_declares_the_same_rule(self) -> None:
+        (key,) = AuditLog.__table__.c.user_id.foreign_keys
+        assert key.ondelete == "RESTRICT"
