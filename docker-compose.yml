@@ -150,7 +150,7 @@ services:
     <<: *python-service
     build: { context: ., target: physics-engine }
     image: ${COGNIBOILER_REGISTRY:-cogniboiler}/physics-engine:${COGNIBOILER_TAG:-dev}
-    command: ["python", "-m", "physics_engine", "--mqtt-host", "mosquitto", "--grpc-port", "50052", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
+    command: ["python", "-m", "physics_engine", "--mqtt-host", "mosquitto", "--grpc-host", "0.0.0.0", "--grpc-port", "50052", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     environment:
       LOG_DIR: /app/logs
       MQTT_USERNAME: physics-engine
@@ -159,7 +159,7 @@ services:
       mosquitto:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import grpc, cogniboiler_pb2 as p, cogniboiler_pb2_grpc as g; g.PhysicsServiceStub(grpc.insecure_channel('localhost:50052')).Health(p.Empty(), timeout=3)"]
+      test: ["CMD", "python", "-c", "import grpc, cogniboiler_pb2 as p, cogniboiler_pb2_grpc as g; assert g.PhysicsServiceStub(grpc.insecure_channel('127.0.0.1:50052')).Health(p.Empty(), timeout=3).status == 'running'"]
       interval: 10s
       timeout: 5s
       retries: 5

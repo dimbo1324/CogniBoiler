@@ -55,13 +55,13 @@ FROM runtime AS physics-engine
 COPY --from=env-physics-engine /app/.venv /app/.venv
 USER app
 EXPOSE 50052 9100
-CMD ["python", "-m", "physics_engine", "--grpc-port", "50052", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
+CMD ["python", "-m", "physics_engine", "--grpc-host", "0.0.0.0", "--grpc-port", "50052", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
 
 FROM runtime AS plc-controller
 COPY --from=env-plc-controller /app/.venv /app/.venv
 USER app
 EXPOSE 50051 9100
-CMD ["python", "-m", "plc_controller", "--port", "50051", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
+CMD ["python", "-m", "plc_controller", "--host", "0.0.0.0", "--port", "50051", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
 
 FROM runtime AS api-gateway
 COPY --from=env-api-gateway /app/.venv /app/.venv
