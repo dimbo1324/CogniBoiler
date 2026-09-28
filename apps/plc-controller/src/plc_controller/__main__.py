@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import os
 import sys
 from collections.abc import Sequence
@@ -12,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[4] / "shared" / "generated"))
 
 from cogniboiler_observability import configure_logging
+from cogniboiler_runtime import run_service
 
 from plc_controller.client import DEFAULT_PHYSICS_TARGET
 from plc_controller.events import DEFAULT_MQTT_HOST, DEFAULT_MQTT_PORT
@@ -53,11 +53,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: Sequence[str] | None = None) -> None:
+def main(argv: Sequence[str] | None = None) -> int:
     configure_logging("plc-controller")
     args = parse_args(argv)
-    asyncio.run(
-        serve(
+    return run_service(
+        lambda: serve(
             host=args.host,
             port=args.port,
             physics_target=args.physics_target,
@@ -67,11 +67,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             mqtt_password=os.environ.get("MQTT_PASSWORD") or None,
             metrics_port=args.metrics_port,
             metrics_host=args.metrics_host,
-        ),
-        # aiomqtt needs add_reader(), which the Windows proactor loop does not have.
-        loop_factory=asyncio.SelectorEventLoop if sys.platform == "win32" else None,
+        )
     )
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

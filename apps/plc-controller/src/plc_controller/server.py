@@ -15,7 +15,11 @@ import cogniboiler_pb2 as pb2
 import cogniboiler_pb2_grpc as pb2_grpc
 import grpc
 import grpc.aio
-from cogniboiler_observability import ServerObservability, start_metrics_server
+from cogniboiler_observability import (
+    ServerObservability,
+    serve_until_cancelled,
+    start_metrics_server,
+)
 from cogniboiler_runtime import now_ms
 
 from plc_controller.client import (
@@ -225,9 +229,6 @@ async def serve(
     await server.start()
     logger.info("PLC gRPC server listening on %s", listen_addr)
     try:
-        # Cancelling wait_for_termination() cancels the server's own completion
-        # future, after which stop() fails; shielded, the shutdown below is graceful.
-        await asyncio.shield(server.wait_for_termination())
+        await serve_until_cancelled(server)
     finally:
-        await server.stop(grace=5)
         await service.close()

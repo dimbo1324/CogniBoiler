@@ -309,11 +309,19 @@ class TestPlantLink:
         )
         PhysicsClient(PhysicsClientConfig(target="plant:1"))._connected_stub()
         options = dict(captured["options"])  # type: ignore[call-overload]
-        # A gRPC server with default options answers pings more often than every
-        # 5 minutes on an idle stream (a paused plant) with GOAWAY "too_many_pings".
-        assert options["grpc.keepalive_time_ms"] > 300_000
-        assert options["grpc.keepalive_timeout_ms"] > 0
-        assert options["grpc.keepalive_permit_without_calls"] == 0
+        # PhysicsService accepts pings every 5 s, with or without data; a ping more
+        # often than that on a paused plant's idle stream earns GOAWAY
+        # "too_many_pings". Ten seconds finds a vanished plant within 15 s.
+        plant_min_ping_interval_ms = 5_000
+        assert options == {
+            "grpc.keepalive_time_ms": 10_000,
+            "grpc.keepalive_timeout_ms": 5_000,
+            "grpc.keepalive_permit_without_calls": 1,
+            # Without it grpc-core stops pinging after two pings without data.
+            "grpc.http2.max_pings_without_data": 0,
+        }
+        assert options["grpc.keepalive_time_ms"] >= plant_min_ping_interval_ms
+        assert len(captured["interceptors"]) == 2  # type: ignore[arg-type]
 
 
 class TestBeforeThePlantIsSeen:

@@ -31,7 +31,10 @@ class TestCommandLine:
         monkeypatch.setattr(entry, "configure_logging", logging_for.append)
         monkeypatch.setenv("MQTT_USERNAME", "plc")
         monkeypatch.delenv("MQTT_PASSWORD", raising=False)
-        entry.main(["--host", "0.0.0.0", "--port", "6000", "--metrics-port", "0"])
+        code = entry.main(
+            ["--host", "0.0.0.0", "--port", "6000", "--metrics-port", "0"]
+        )
+        assert code == 0
         assert logging_for == ["plc-controller"]
         assert (served["host"], served["port"]) == ("0.0.0.0", 6000)
         assert served["metrics_port"] == 0

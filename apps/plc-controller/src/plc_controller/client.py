@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import cogniboiler_pb2 as pb2
 import cogniboiler_pb2_grpc as pb2_grpc
 import grpc.aio
-from cogniboiler_observability import client_interceptors
+from cogniboiler_observability import observed_channel
 
 DEFAULT_PHYSICS_TARGET: str = "localhost:50052"
 
@@ -19,13 +19,15 @@ DEFAULT_PHYSICS_TARGET: str = "localhost:50052"
 DEFAULT_PHYSICS_TIMEOUT_S: float = 0.75
 
 # HTTP/2 keepalive finds a plant that vanished without closing the connection, which
-# would otherwise leave the state stream waiting forever. A paused plant sends no data,
-# and a gRPC server with default options answers pings on such an idle stream more often
-# than every 5 minutes with GOAWAY "too_many_pings", so the interval stays above that.
+# would otherwise leave the state stream waiting forever. A paused plant sends no data;
+# PhysicsService accepts pings every 5 s with or without data, so the PLC pings every
+# 10 s and gives up on a plant that has not answered within 5 s. Without
+# max_pings_without_data=0, grpc-core stops pinging after two pings on an idle stream.
 KEEPALIVE_OPTIONS: tuple[tuple[str, int], ...] = (
-    ("grpc.keepalive_time_ms", 360_000),
-    ("grpc.keepalive_timeout_ms", 20_000),
-    ("grpc.keepalive_permit_without_calls", 0),
+    ("grpc.keepalive_time_ms", 10_000),
+    ("grpc.keepalive_timeout_ms", 5_000),
+    ("grpc.keepalive_permit_without_calls", 1),
+    ("grpc.http2.max_pings_without_data", 0),
 )
 
 
@@ -48,10 +50,8 @@ class PhysicsClient:
     def _connected_stub(self) -> pb2_grpc.PhysicsServiceStub:
         """The stub, creating the gRPC channel lazily."""
         if self._channel is None or self._stub is None:
-            self._channel = grpc.aio.insecure_channel(
-                self.config.target,
-                options=list(KEEPALIVE_OPTIONS),
-                interceptors=client_interceptors(),
+            self._channel = observed_channel(
+                self.config.target, options=KEEPALIVE_OPTIONS
             )
             self._stub = pb2_grpc.PhysicsServiceStub(self._channel)
         return self._stub
