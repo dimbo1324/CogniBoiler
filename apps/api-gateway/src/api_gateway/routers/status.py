@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import cogniboiler_pb2 as pb2
 from fastapi import APIRouter, Request
 
 from api_gateway.auth.rbac import ViewerUser
+from api_gateway.plant_state import quality_name
 from api_gateway.problems import UPSTREAM_RESPONSES, upstream_call
 from api_gateway.schemas.sensor import (
     BoilerStatusResponse,
@@ -34,7 +34,7 @@ async def get_system_status(
         flue_gas_temp_k=current.boiler.flue_gas_temp_k,
         internal_energy_j=current.boiler.internal_energy_j,
         timestamp_ms=current.boiler.timestamp_ms,
-        quality=pb2.SensorQuality.Name(current.boiler.quality).lower(),
+        quality=quality_name(current.boiler.quality),
     )
     turbine = TurbineStatusResponse(
         electrical_power_w=current.turbine.electrical_power_w,

@@ -6,7 +6,7 @@ from typing import Any
 
 import cogniboiler_pb2 as pb2
 import pytest
-from api_gateway.routers.alarms import alarm_from_proto
+from api_gateway.alarm_state import alarm_from_proto
 from fastapi import FastAPI
 from gateway_fakes import FakeAlarmClient, alarm, not_found
 from httpx import AsyncClient
