@@ -18,7 +18,7 @@ import asyncio
 import logging
 import random
 import time
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import AbstractAsyncContextManager
 from typing import Protocol
 
@@ -61,6 +61,42 @@ async def subscribe_all(
     """Subscribe to every (topic, qos) of a service's contract, in order."""
     for topic, qos in subscriptions:
         await client.subscribe(topic, qos=qos)
+
+
+class SupportsMessage(Protocol):
+    """The part of a delivered MQTT message `consume` reads."""
+
+    @property
+    def topic(self) -> object: ...
+
+    @property
+    def payload(self) -> object: ...
+
+
+class SupportsConsume(SupportsSubscribe, Protocol):
+    """The part of an MQTT client `consume` needs."""
+
+    @property
+    def messages(self) -> AsyncIterator[SupportsMessage]: ...
+
+
+async def consume(
+    client: SupportsConsume,
+    subscriptions: Sequence[tuple[str, int]],
+    handle: Callable[[str, bytes], Awaitable[None]],
+) -> None:
+    """Subscribe, then hand every delivered message to `handle` as (topic, payload).
+
+    The payload arrives as bytes; one that is not bytes at all arrives as b"", which a
+    handler already has to refuse as empty. Returns when the client's stream ends.
+    """
+    await subscribe_all(client, subscriptions)
+    async for message in client.messages:
+        payload = message.payload
+        await handle(
+            str(message.topic),
+            bytes(payload) if isinstance(payload, bytes | bytearray) else b"",
+        )
 
 
 class MqttSession[ClientT]:

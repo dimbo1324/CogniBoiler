@@ -16,6 +16,7 @@ import pytest
 from cogniboiler_runtime.mqtt import (
     DEFAULT_RECONNECT_DELAY_S,
     MqttSession,
+    consume,
     reconnect_jitter,
     subscribe_all,
 )
@@ -264,6 +265,62 @@ class TestSubscribeAll:
 
         with pytest.raises(PermissionError):
             await subscribe_all(Refusing(), (("alerts/#", 1),))
+
+
+class Delivery:
+    def __init__(self, topic: str, payload: object) -> None:
+        self.topic = topic
+        self.payload = payload
+
+
+class Delivering(FakeClient):
+    def __init__(self, *deliveries: Delivery) -> None:
+        super().__init__()
+        self._deliveries = deliveries
+
+    @property
+    def messages(self) -> AsyncIterator[Delivery]:
+        async def deliver() -> AsyncIterator[Delivery]:
+            for delivery in self._deliveries:
+                yield delivery
+
+        return deliver()
+
+
+class TestConsume:
+    async def test_it_subscribes_then_hands_over_every_message_as_bytes(self) -> None:
+        client = Delivering(
+            Delivery("sensors/plant", b"\x08\x01"),
+            Delivery("alarms/changes", bytearray(b"{}")),
+            Delivery("sensors/boiler", None),
+            Delivery("sensors/turbine", 42),
+        )
+        seen: list[tuple[str, bytes]] = []
+
+        async def handle(topic: str, payload: bytes) -> None:
+            assert client.subscriptions == [("sensors/#", 0), ("alarms/changes", 1)]
+            seen.append((topic, payload))
+
+        await consume(client, (("sensors/#", 0), ("alarms/changes", 1)), handle)
+        assert seen == [
+            ("sensors/plant", b"\x08\x01"),
+            ("alarms/changes", b"{}"),
+            ("sensors/boiler", b""),
+            ("sensors/turbine", b""),
+        ]
+        assert all(type(payload) is bytes for _, payload in seen)
+
+    async def test_a_failing_handler_ends_the_consumption(self) -> None:
+        client = Delivering(Delivery("a", b"1"), Delivery("b", b"2"))
+        seen: list[str] = []
+
+        async def handle(topic: str, payload: bytes) -> None:
+            seen.append(topic)
+            raise RuntimeError("defect")
+
+        with pytest.raises(RuntimeError):
+            await consume(client, (), handle)
+        assert seen == ["a"]
 
 
 class TestWithARealAsyncContextManager:

@@ -12,6 +12,7 @@ from cogniboiler_runtime.clock import (
     SECONDS_PER_DAY,
     now_ms,
 )
+from cogniboiler_runtime.flux import flux_string
 from cogniboiler_runtime.liveness import (
     DEFAULT_INTERVAL_S,
     DEFAULT_MAX_AGE_S,
@@ -22,6 +23,7 @@ from cogniboiler_runtime.mqtt import (
     DEFAULT_BROKER_ERRORS,
     DEFAULT_RECONNECT_DELAY_S,
     MqttSession,
+    consume,
     reconnect_jitter,
     subscribe_all,
 )
@@ -60,7 +62,9 @@ __all__ = [
     "OutageLog",
     "QueuedMessage",
     "QueuedMqttPublisher",
+    "consume",
     "decode_json_object",
+    "flux_string",
     "finite_number",
     "is_fresh",
     "now_ms",
