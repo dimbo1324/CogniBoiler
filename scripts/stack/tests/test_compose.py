@@ -9,6 +9,7 @@ import argparse
 import contextlib
 import io
 import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -75,6 +76,16 @@ class PrepareLogDirTest(unittest.TestCase):
             self.assertTrue(directory.is_dir())
             if os.name == "posix":
                 self.assertEqual(directory.stat().st_mode & 0o777, 0o777)
+
+    @unittest.skipUnless(os.name == "posix", "file modes are POSIX permissions")
+    def test_only_the_owner_of_a_log_file_may_remove_or_replace_it(self) -> None:
+        # Writable by everyone (the services run as uid 10001), but sticky: without the
+        # bit any local user could swap a service's log for a symlink or a forgery, and
+        # `demo` reads those files as evidence.
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp) / "logs"
+            self.assertTrue(prepare_log_dir(directory))
+            self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o1777)
 
     def test_a_path_taken_by_a_file_is_reported_instead_of_raised(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

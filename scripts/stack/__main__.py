@@ -35,8 +35,9 @@ def prepare_log_dir(directory: Path) -> bool:
         directory.mkdir(exist_ok=True)
         if os.name == "posix":
             # The services run as uid 10001, and a Linux bind mount keeps the host's owner
-            # and mode; Docker Desktop on Windows and macOS maps the rights itself.
-            directory.chmod(0o777)
+            # and mode; Docker Desktop on Windows and macOS maps the rights itself. The
+            # sticky bit (as on /tmp) lets only a file's owner remove or rename it.
+            directory.chmod(0o1777)
     except OSError as error:
         warn(
             f"{directory} is not writable for the services ({error}); "
