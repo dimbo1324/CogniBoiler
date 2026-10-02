@@ -45,3 +45,9 @@ duplicated across services. Invariants I1–I3 in `invariants.md` rest on this t
   dependency is a development group, not a runtime dependency.
 - `opcua-server` reads `PLCService` and `AlarmService` directly (observation) but writes only
   through the gateway (decision 2026-09-16 in the internal decision log).
+- The internal gRPC services trust their network: `PhysicsService`, `PLCService` and
+  `AlarmService` authenticate no caller, and the `operator_id` in a request is what the
+  caller asserts. What keeps other containers away is the Compose networks — only
+  plc-controller, the gateway, the broker and Prometheus share the `plant` network with
+  physics-engine — and the rule that only the gateway, after its role check and audit,
+  calls a write RPC. Caller authentication is an open owner decision.
