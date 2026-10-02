@@ -5,19 +5,26 @@ name: CI
 # stack    — builds every image, starts the whole Compose stack with throwaway secrets,
 #            runs the smoke check and the console's Playwright checks through nginx, checks
 #            that every service wrote its log file, and scans the images with Trivy (the
-#            reports and the log files are artifacts).
+#            reports and the log files are artifacts); the third-party images get a
+#            report-only scan.
 # publish  — on `main` and on tags `v*`, after gate, audit and stack: pushes every image to
-#            GitHub Container Registry as ghcr.io/<owner>/cogniboiler/<service>.
+#            GitHub Container Registry as ghcr.io/<owner>/cogniboiler/<service> by digest,
+#            with an SBOM and provenance, scans exactly that digest with Trivy, and only
+#            then gives it its tags.
+# Actions and images are pinned by commit or digest, with the version in a comment.
+# Only pushes trigger it: the project takes no pull requests (owner decision 2026-09-15).
 # release  — on tags `v*`, after publish: a GitHub release with generated notes and the
 #            files needed to run the published images.
 on:
   push:
     branches: ["**"]
     tags: ["v*"]
-  pull_request:
 
 permissions:
   contents: read
+
+env:
+  TRIVY_IMAGE: aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -25,110 +32,59 @@ concurrency:
 
 jobs:
   gate:
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     env:
       CI: "true"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v10.1.0
-        with:
-          enable-cache: true
-
-      - name: Install the Python pinned in .python-version
-        run: uv python install
-
-      - uses: pnpm/action-setup@v6
-        with:
-          package_json_file: apps/web/package.json
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: apps/web/pnpm-lock.yaml
-
-      - name: Install frontend dependencies
-        run: pnpm --dir apps/web install --frozen-lockfile
-
-      - name: Sync the Python workspace
-        run: uv sync --all-packages --frozen
+      - uses: ./.github/actions/setup
 
       - name: Quality gate
         run: uv run --no-sync python dev_tools_scripts_runner.py quality-gate
 
   audit:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: ./.github/actions/setup
         with:
-          enable-cache: true
-
-      - name: Install the Python pinned in .python-version
-        run: uv python install
-
-      - uses: pnpm/action-setup@v6
-        with:
-          package_json_file: apps/web/package.json
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: apps/web/pnpm-lock.yaml
-
-      - name: Install frontend dependencies
-        run: pnpm --dir apps/web install --frozen-lockfile
+          sync-python: "false"
 
       - name: Dependency audit (pip-audit, pnpm audit)
         run: uv run --no-project python dev_tools_scripts_runner.py audit-deps
 
       - name: Keep the audit reports
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dependency-audit
           path: audit-reports/
           if-no-files-found: warn
 
   stack:
+    timeout-minutes: 45
     runs-on: ubuntu-latest
     needs: gate
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v10.1.0
-        with:
-          enable-cache: true
+      - uses: ./.github/actions/setup
 
-      - name: Install the Python pinned in .python-version
-        run: uv python install
+      - name: Install Chromium for the console checks
+        run: pnpm --dir apps/web exec playwright install --with-deps chromium
 
-      - name: Sync the Python workspace
-        run: uv sync --all-packages --frozen
-
-      - uses: pnpm/action-setup@v6
-        with:
-          package_json_file: apps/web/package.json
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: apps/web/pnpm-lock.yaml
-
-      - name: Install frontend dependencies and Chromium
-        run: |
-          pnpm --dir apps/web install --frozen-lockfile
-          pnpm --dir apps/web exec playwright install --with-deps chromium
+      - name: Compose exposure rules (loopback ports, no gRPC port, healthchecks, networks)
+        run: uv run --no-sync python infrastructure/checks/compose_exposure.py
 
       - name: Generate throwaway secrets
         run: uv run --no-sync python dev_tools_scripts_runner.py dev-secrets
@@ -152,7 +108,7 @@ jobs:
 
       - name: Keep the service log files
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: service-logs
           path: logs/
@@ -160,7 +116,7 @@ jobs:
 
       - name: Keep the Playwright report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: playwright
           path: |
@@ -169,23 +125,39 @@ jobs:
           if-no-files-found: ignore
 
       # Fails on a HIGH or CRITICAL finding that has a fix, after scanning every image;
-      # publish needs this job, so such an image is never pushed.
+      # publish needs this job, so such an image is never pushed. Trivy reads each image
+      # from a saved tarball: it never gets the Docker socket.
       - name: Scan the images (Trivy)
         if: always()
         run: |
-          mkdir -p image-scan
+          mkdir -p image-scan "$RUNNER_TEMP/images" "$RUNNER_TEMP/trivy-cache"
           status=0
           for image in physics-engine plc-controller api-gateway historian alert-manager opcua-server web; do
-            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/image-scan:/out" \
-              aquasec/trivy:0.74.0 image --quiet --severity CRITICAL,HIGH --ignore-unfixed \
-              --exit-code 1 --format table --output "/out/$image.txt" "cogniboiler/$image:dev" \
-              || status=1
+            docker save "cogniboiler/$image:dev" -o "$RUNNER_TEMP/images/$image.tar" || { status=1; continue; }
+            docker run --rm -v "$RUNNER_TEMP/images:/in:ro" -v "$RUNNER_TEMP/trivy-cache:/root/.cache/trivy" \
+              -v "$PWD/image-scan:/out" "$TRIVY_IMAGE" image --quiet --severity CRITICAL,HIGH \
+              --ignore-unfixed --exit-code 1 --format table --output "/out/$image.txt" \
+              --input "/in/$image.tar" || status=1
           done
           exit "$status"
 
+      # The broker, databases, Grafana and Prometheus as Compose pins them: a report only,
+      # so an outdated third-party image is visible without blocking the build.
+      - name: Scan the third-party images (Trivy, report only)
+        if: always()
+        run: |
+          mkdir -p image-scan/third-party "$RUNNER_TEMP/trivy-cache"
+          docker compose --profile full config --images | grep -v '^cogniboiler/' | sort -u | while read -r image; do
+            name=$(echo "${image%%@*}" | tr '/:' '__')
+            docker run --rm -v "$RUNNER_TEMP/trivy-cache:/root/.cache/trivy" -v "$PWD/image-scan:/out" \
+              "$TRIVY_IMAGE" image --quiet --image-src remote --severity CRITICAL,HIGH \
+              --ignore-unfixed --exit-code 0 --format table --output "/out/third-party/$name.txt" \
+              "$image" || echo "could not scan $image"
+          done
+
       - name: Keep the image scan reports
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: image-scan
           path: image-scan/
@@ -202,6 +174,7 @@ jobs:
   publish:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     needs: [gate, audit, stack]
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -211,13 +184,13 @@ jobs:
       matrix:
         service: [physics-engine, plc-controller, api-gateway, historian, alert-manager, opcua-server, web]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -228,7 +201,7 @@ jobs:
         run: echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/cogniboiler/${{ matrix.service }}" >> "$GITHUB_OUTPUT"
 
       - id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ steps.image.outputs.name }}
           tags: |
@@ -238,42 +211,82 @@ jobs:
             type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=sha-
 
-      - name: Build and push a service image
+      # Pushed by digest only: no tag points at the image until the scan below passes.
+      - name: Build and push a service image by digest
+        id: build-service
         if: matrix.service != 'web'
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           target: ${{ matrix.service }}
           pull: true
           no-cache-filters: runtime
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
           labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
-      - name: Build and push the console image
+      - name: Build and push the console image by digest
+        id: build-web
         if: matrix.service == 'web'
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: apps/web
           build-contexts: nginx=infrastructure/nginx
           pull: true
           no-cache-filters: runtime
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
           labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
+
+      # The same rule as in `stack`, applied to the digest that was pushed, so the published
+      # image is the scanned one. Trivy reads a saved tarball and gets no token or socket.
+      - name: Scan the pushed image (Trivy)
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}@${{ steps.build-service.outputs.digest || steps.build-web.outputs.digest }}
+          SERVICE: ${{ matrix.service }}
+        run: |
+          mkdir -p image-scan
+          docker pull "$IMAGE"
+          docker tag "$IMAGE" "cogniboiler-scan/$SERVICE:pushed"
+          docker save "cogniboiler-scan/$SERVICE:pushed" -o "$RUNNER_TEMP/image.tar"
+          docker run --rm -v "$RUNNER_TEMP:/in:ro" -v "$PWD/image-scan:/out" "$TRIVY_IMAGE" \
+            image --quiet --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1 \
+            --format table --output "/out/$SERVICE.txt" --input /in/image.tar
+
+      - name: Tag the scanned image
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}@${{ steps.build-service.outputs.digest || steps.build-web.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          args=()
+          while IFS= read -r tag; do
+            if [ -n "$tag" ]; then args+=(--tag "$tag"); fi
+          done <<< "$TAGS"
+          docker buildx imagetools create "${args[@]}" "$IMAGE"
+
+      - name: Keep the scan report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-scan-published-${{ matrix.service }}
+          path: image-scan/
+          if-no-files-found: ignore
 
   release:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: publish
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
