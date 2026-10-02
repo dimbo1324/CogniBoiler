@@ -11,7 +11,7 @@ from pathlib import Path
 from .models import Lang, ScriptInfo
 
 
-def split_arguments(raw: str) -> list[str]:
+def split_arguments(raw: str, *, windows: bool | None = None) -> list[str]:
     """Split a typed argument string into argv, correctly on both platforms.
 
     ``shlex`` defaults to POSIX rules, where a backslash is an escape character. On
@@ -22,10 +22,15 @@ def split_arguments(raw: str) -> list[str]:
 
     Non-POSIX mode keeps backslashes but also keeps the quotes around a quoted token, so
     the surrounding pair is stripped afterwards to get what the shell would have passed.
+
+    ``windows`` defaults to the running platform; tests pass it to check both rule sets
+    on any machine.
     """
     if not raw.strip():
         return []
-    if os.name != "nt":
+    if windows is None:
+        windows = os.name == "nt"
+    if not windows:
         return shlex.split(raw)
     return [_unquote(token) for token in shlex.split(raw, posix=False)]
 

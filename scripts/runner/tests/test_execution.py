@@ -30,22 +30,30 @@ class SplitArgumentsTest(unittest.TestCase):
             split_arguments('--label "two words"'), ["--label", "two words"]
         )
 
-    @unittest.skipUnless(
-        os.name == "nt", "backslash is only a path separator on Windows"
-    )
+    # The Windows rules are selected explicitly, so these run on the Linux CI too
+    # instead of being skipped everywhere but a developer's Windows machine.
     def test_a_windows_path_keeps_its_backslashes(self) -> None:
         self.assertEqual(
-            split_arguments(r"--out C:\Users\dev\build"),
+            split_arguments(r"--out C:\Users\dev\build", windows=True),
             ["--out", r"C:\Users\dev\build"],
         )
 
-    @unittest.skipUnless(
-        os.name == "nt", "backslash is only a path separator on Windows"
-    )
     def test_a_quoted_windows_path_with_spaces_survives_whole(self) -> None:
         self.assertEqual(
-            split_arguments(r'--out "C:\Program Files\CogniBoiler"'),
+            split_arguments(r'--out "C:\Program Files\CogniBoiler"', windows=True),
             ["--out", r"C:\Program Files\CogniBoiler"],
+        )
+
+    def test_posix_rules_treat_a_backslash_as_an_escape(self) -> None:
+        self.assertEqual(
+            split_arguments(r"--label two\ words", windows=False),
+            ["--label", "two words"],
+        )
+
+    def test_the_platform_picks_the_rules_by_default(self) -> None:
+        raw = r"--out C:\Users\dev"
+        self.assertEqual(
+            split_arguments(raw), split_arguments(raw, windows=os.name == "nt")
         )
 
 
