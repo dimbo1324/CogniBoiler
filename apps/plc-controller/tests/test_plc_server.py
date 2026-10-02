@@ -143,14 +143,14 @@ class TestPLCGrpc:
             PhysicsServicer(self.physics_runtime),
             self.physics_server,
         )
-        physics_port = self.physics_server.add_insecure_port("[::]:0")
+        physics_port = self.physics_server.add_insecure_port("127.0.0.1:0")
         await self.physics_server.start()
-        self.physics_channel = grpc.aio.insecure_channel(f"localhost:{physics_port}")
+        self.physics_channel = grpc.aio.insecure_channel(f"127.0.0.1:{physics_port}")
         self.physics_stub = pb2_grpc.PhysicsServiceStub(self.physics_channel)
 
         self.plc_service = PLCService(
             physics_client=PhysicsClient(
-                PhysicsClientConfig(target=f"localhost:{physics_port}")
+                PhysicsClientConfig(target=f"127.0.0.1:{physics_port}")
             ),
             retry_delay_s=0.05,
             enable_alert_publishing=False,
@@ -161,9 +161,9 @@ class TestPLCGrpc:
             PLCServicer(self.plc_service),
             self.server,
         )
-        port = self.server.add_insecure_port("[::]:0")  # OS picks free port
+        port = self.server.add_insecure_port("127.0.0.1:0")
         await self.server.start()
-        self.channel = grpc.aio.insecure_channel(f"localhost:{port}")
+        self.channel = grpc.aio.insecure_channel(f"127.0.0.1:{port}")
         self.stub = pb2_grpc.PLCServiceStub(self.channel)
         # The PLC takes commands only once it has seen the plant (its first scan).
         deadline = time.monotonic() + 5.0
@@ -333,12 +333,12 @@ class TestPLCGrpc:
             PhysicsServicer(physics_runtime),
             physics_server,
         )
-        physics_port = physics_server.add_insecure_port("[::]:0")
+        physics_port = physics_server.add_insecure_port("127.0.0.1:0")
         await physics_server.start()
 
         plc_service = PLCService(
             physics_client=PhysicsClient(
-                PhysicsClientConfig(target=f"localhost:{physics_port}")
+                PhysicsClientConfig(target=f"127.0.0.1:{physics_port}")
             ),
             retry_delay_s=0.05,
             enable_alert_publishing=False,
@@ -350,9 +350,9 @@ class TestPLCGrpc:
             PLCServicer(plc_service),
             plc_server,
         )
-        plc_port = plc_server.add_insecure_port("[::]:0")
+        plc_port = plc_server.add_insecure_port("127.0.0.1:0")
         await plc_server.start()
-        channel = grpc.aio.insecure_channel(f"localhost:{plc_port}")
+        channel = grpc.aio.insecure_channel(f"127.0.0.1:{plc_port}")
         stub = pb2_grpc.PLCServiceStub(channel)
 
         try:

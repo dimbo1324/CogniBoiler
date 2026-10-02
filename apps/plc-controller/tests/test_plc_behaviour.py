@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import math
 import socket
@@ -284,9 +285,14 @@ class TestConnection:
     async def test_the_scan_waits_for_the_plant_and_recovers(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        with socket.socket() as probe:
-            probe.bind(("127.0.0.1", 0))
-            port = probe.getsockname()[1]
+        # Bound but never listening, and held for the whole test: connections are
+        # refused, and no other process can take the port and answer instead.
+        with socket.socket() as dead:
+            dead.bind(("127.0.0.1", 0))
+            await self._scan_against(dead.getsockname()[1], caplog)
+
+    @staticmethod
+    async def _scan_against(port: int, caplog: pytest.LogCaptureFixture) -> None:
         plc = PLCService(
             physics_client=PhysicsClient(
                 PhysicsClientConfig(target=f"127.0.0.1:{port}", timeout_s=0.5)
@@ -406,29 +412,47 @@ class TestServe:
         monkeypatch.setattr(PLCService, "close", close)
         monkeypatch.setattr(plc_server, "observe_service", lambda service: None)
         monkeypatch.setattr(plc_events, "Client", Broker)
-        with socket.socket() as probe:
-            probe.bind(("127.0.0.1", 0))
-            port = probe.getsockname()[1]
+        # serve() binds the port it is given, which another process can take between
+        # the probe and the bind: then serve() fails and the test tries a fresh port.
+        health: pb2.HealthStatus | None = None
         async with rig() as plant:
-            task = asyncio.create_task(
-                plc_server.serve(port, physics_target=plant.physics_target)
-            )
-            try:
-                async with asyncio.timeout(10.0):
-                    while True:
-                        try:
-                            async with grpc.aio.insecure_channel(
-                                f"127.0.0.1:{port}"
-                            ) as channel:
-                                health = await pb2_grpc.PLCServiceStub(channel).Health(
-                                    pb2.Empty(), timeout=1.0
-                                )
-                            break
-                        except grpc.aio.AioRpcError:
-                            await asyncio.sleep(0.05)
-            finally:
-                task.cancel()
-                with pytest.raises(asyncio.CancelledError):
-                    await task
+            for _ in range(3):
+                task = asyncio.create_task(
+                    plc_server.serve(
+                        port := free_port(), physics_target=plant.physics_target
+                    )
+                )
+                try:
+                    health = await health_of(task, port)
+                finally:
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, RuntimeError):
+                        await task
+                if health is not None:
+                    break
+            else:
+                pytest.fail("serve() could not bind a free port three times")
             assert closed == [True]
         assert health.service == "plc-controller"
+
+
+def free_port() -> int:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port: int = probe.getsockname()[1]
+    return port
+
+
+async def health_of(task: asyncio.Task[None], port: int) -> pb2.HealthStatus | None:
+    """The served health, or None when serve() ended first (it lost its port)."""
+    async with asyncio.timeout(10.0):
+        while not task.done():
+            try:
+                async with grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel:
+                    health: pb2.HealthStatus = await pb2_grpc.PLCServiceStub(
+                        channel
+                    ).Health(pb2.Empty(), timeout=1.0)
+                return health
+            except grpc.aio.AioRpcError:
+                await asyncio.sleep(0.05)
+    return None

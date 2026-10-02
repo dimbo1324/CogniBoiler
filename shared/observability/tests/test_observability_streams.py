@@ -253,11 +253,20 @@ def test_a_metrics_port_of_zero_disables_the_endpoint(
 
 
 def test_the_metrics_endpoint_serves_the_registry() -> None:
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
+    # A port of 0 disables the endpoint, so a free port is probed first; another
+    # process can take it before the bind, and then the test tries a fresh one.
+    for _ in range(3):
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+        try:
+            start_metrics_server(port)
+        except OSError:
+            continue
+        break
+    else:
+        pytest.fail("start_metrics_server could not bind a free port three times")
     MQTT_PUBLISHED.labels("test/topic").inc()
-    start_metrics_server(port)
     with urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=5) as reply:
         body = reply.read().decode()
     assert 'mqtt_messages_published_total{topic="test/topic"}' in body
