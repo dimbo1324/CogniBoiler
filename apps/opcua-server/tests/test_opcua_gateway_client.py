@@ -249,7 +249,10 @@ class TestGatewayClient:
             async with asyncio.timeout(5.0):
                 while running[0] < gateway.MAX_CONCURRENT_LOGINS:
                     await asyncio.sleep(0.01)
-            await asyncio.sleep(0.05)
+            # The semaphore holds the other three back; a sleep and a count would pass
+            # on a slow machine even if a fifth login got through late.
+            assert client._logins.locked()
+            assert len(client._logins._waiters or ()) == 3
             assert running[1] == gateway.MAX_CONCURRENT_LOGINS
         finally:
             release.set()

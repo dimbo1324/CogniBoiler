@@ -43,6 +43,16 @@ async def wait_until(condition: GatedHash, active: int) -> None:
     raise AssertionError(f"never reached {active} hashes at once")
 
 
+def held_back() -> int:
+    """Tasks the hashing limit is holding back right now.
+
+    Read from the semaphore itself: a test that slept and then counted hashes would
+    pass on a slow machine even if the limit let a third one through late.
+    """
+    slots = accounts._hashing_slots()
+    return len(slots._waiters or ())
+
+
 class TestConcurrentHashing:
     async def test_no_more_hashes_than_the_limit_run_at_once(
         self, monkeypatch: pytest.MonkeyPatch
@@ -56,7 +66,8 @@ class TestConcurrentHashing:
             for _ in range(6)
         ]
         await wait_until(gate, 2)
-        await asyncio.sleep(0.05)
+        assert accounts._hashing_slots().locked()
+        assert held_back() == 4
         assert gate.active == 2
         gate.release.set()
         assert await asyncio.gather(*checks) == [False] * 6
@@ -74,7 +85,7 @@ class TestConcurrentHashing:
             asyncio.create_task(accounts.hash_password_async("pw")),
         ]
         await wait_until(gate, 1)
-        await asyncio.sleep(0.05)
+        assert held_back() == 1
         gate.release.set()
         await asyncio.gather(*work)
         assert gate.most_at_once == 1
