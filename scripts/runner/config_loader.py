@@ -121,17 +121,23 @@ class ConfigLoader:
             module = entry["module"]
             self._require_scripts_module(module, where)
 
+            destructive = entry.get("destructive", False)
+            if not isinstance(destructive, bool):
+                raise ConfigValidationError(
+                    f"{where}.destructive: expected true or false, got {destructive!r}"
+                )
+
             script = ScriptInfo(
-                title=entry["title"],
+                title=self._string(entry["title"], f"{where}.title"),
                 module=module,
                 category=category,
                 summary=self._text(entry["summary"], f"{where}.summary"),
                 description=self._text(entry["description"], f"{where}.description"),
                 cadence=self._resolve_cadence(entry, cadences, where),
-                aliases=tuple(entry.get("aliases", [])),
-                examples=tuple(entry.get("examples", [])),
-                platforms=tuple(entry.get("platforms", [])),
-                destructive=bool(entry.get("destructive", False)),
+                aliases=self._string_list(entry, "aliases", where),
+                examples=self._string_list(entry, "examples", where),
+                platforms=self._string_list(entry, "platforms", where),
+                destructive=destructive,
             )
 
             for identifier in script.identifiers:
@@ -158,11 +164,34 @@ class ConfigLoader:
             raise ConfigValidationError(f"{where}: missing field(s) {missing}")
 
     def _text(self, raw: Any, where: str) -> Text:
-        if not isinstance(raw, dict) or "en" not in raw or "ru" not in raw:
+        if (
+            not isinstance(raw, dict)
+            or not isinstance(raw.get("en"), str)
+            or not isinstance(raw.get("ru"), str)
+        ):
             raise ConfigValidationError(
                 f"{where}: expected an object with 'en' and 'ru' string keys"
             )
         return Text(en=raw["en"], ru=raw["ru"])
+
+    def _string(self, raw: Any, where: str) -> str:
+        if not isinstance(raw, str) or not raw:
+            raise ConfigValidationError(f"{where}: expected a non-empty string")
+        return raw
+
+    def _string_list(
+        self, entry: dict[str, Any], key: str, where: str
+    ) -> tuple[str, ...]:
+        """An optional list of non-empty strings. A bare string is refused rather
+        than split into characters."""
+        raw = entry.get(key, [])
+        if not isinstance(raw, list) or not all(
+            isinstance(item, str) and item for item in raw
+        ):
+            raise ConfigValidationError(
+                f"{where}.{key}: expected a list of non-empty strings, got {raw!r}"
+            )
+        return tuple(raw)
 
     def _resolve_cadence(
         self, entry: dict[str, Any], cadences: dict[str, Text], where: str
