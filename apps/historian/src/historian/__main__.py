@@ -1,5 +1,5 @@
 """
-Historian entry point: MQTT telemetry and events into InfluxDB.
+Historian entry point: arguments, then historian.service runs until stopped.
 
 Usage:
     uv run --package historian python -m historian
@@ -12,87 +12,23 @@ appears in a process list or a container's command line.
 from __future__ import annotations
 
 import argparse
-import asyncio
-import logging
 import os
 import sys
-from collections.abc import Coroutine
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parents[4] / "shared" / "generated"))
 
-from cogniboiler_observability import configure_logging, start_metrics_server
-from cogniboiler_runtime import LivenessFile
+from cogniboiler_observability import configure_logging
+from cogniboiler_runtime import run_service
 
-from historian.stats import STATS_INTERVAL_S, report_stats
-from historian.storage import StoragePolicy, ensure_storage
-from historian.subscriber import HistorianSubscriber
-from historian.writer import DEFAULT_TIMEOUT_MS, InfluxWriter
+from historian.service import TOKEN_ENV, main
+from historian.writer import DEFAULT_TIMEOUT_MS
 
-logger = logging.getLogger("historian")
 DEFAULT_METRICS_PORT = 9103
 
-TOKEN_ENV = "INFLUXDB_TOKEN"
 
-
-async def main(args: argparse.Namespace, influx_token: str) -> None:
-    writer = InfluxWriter(
-        url=args.influx_url,
-        token=influx_token,
-        org=args.influx_org,
-        bucket=args.influx_bucket,
-        timeout_ms=int(args.influx_timeout_s * 1000),
-    )
-    subscriber = HistorianSubscriber(
-        writer=writer,
-        mqtt_host=args.mqtt_host,
-        mqtt_port=args.mqtt_port,
-        batch_size=args.batch_size,
-        flush_interval_s=args.flush_interval_s,
-        client_id=args.client_id or None,
-        mqtt_username=os.environ.get("MQTT_USERNAME", "historian"),
-        mqtt_password=os.environ.get("MQTT_PASSWORD") or None,
-    )
-    logger.info(
-        "Starting Historian: mqtt=%s:%d influx=%s bucket=%s aggregates=%s batch=%d",
-        args.mqtt_host,
-        args.mqtt_port,
-        args.influx_url,
-        args.influx_bucket,
-        args.aggregate_bucket,
-        args.batch_size,
-    )
-    if not influx_token:
-        logger.warning("%s is empty: InfluxDB will reject every write", TOKEN_ENV)
-    start_metrics_server(args.metrics_port, args.metrics_host)
-
-    tasks: list[Coroutine[Any, Any, None]] = [
-        subscriber.run(),
-        subscriber.flush_periodically(),
-        report_stats(subscriber, writer, STATS_INTERVAL_S),
-    ]
-    if args.aggregate_bucket:
-        policy = StoragePolicy(
-            org=args.influx_org,
-            raw_bucket=args.influx_bucket,
-            aggregate_bucket=args.aggregate_bucket,
-            raw_retention_days=args.raw_retention_days,
-            aggregate_retention_days=args.aggregate_retention_days,
-        )
-        tasks.append(ensure_storage(args.influx_url, influx_token, policy))
-    if args.liveness_file is not None:
-        tasks.append(LivenessFile(args.liveness_file).run(lambda: subscriber.connected))
-    try:
-        await asyncio.gather(*tasks)
-    finally:
-        try:
-            await subscriber.flush()
-        finally:
-            await asyncio.to_thread(writer.close)
-
-
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="CogniBoiler Historian")
     parser.add_argument("--mqtt-host", default="localhost")
     parser.add_argument("--mqtt-port", type=int, default=1883)
@@ -134,13 +70,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--metrics-host", default="127.0.0.1", help="interface for /metrics"
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def run(argv: Sequence[str] | None = None) -> int:
+    configure_logging("historian")
+    args = parse_args(argv)
+    token = os.environ.get(TOKEN_ENV, "")
+    return run_service(lambda: main(args, token))
 
 
 if __name__ == "__main__":
-    configure_logging("historian")
-    asyncio.run(
-        main(parse_args(), os.environ.get(TOKEN_ENV, "")),
-        # aiomqtt needs add_reader(), which the Windows proactor loop does not have.
-        loop_factory=asyncio.SelectorEventLoop if sys.platform == "win32" else None,
-    )
+    sys.exit(run())

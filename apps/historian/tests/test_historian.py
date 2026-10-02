@@ -6,12 +6,8 @@ from unittest.mock import MagicMock
 
 import cogniboiler_pb2 as pb
 import pytest
-from historian.subscriber import (
-    TOPIC_BOILER,
-    TOPIC_HEARTBEAT,
-    TOPIC_TURBINE,
-    HistorianSubscriber,
-)
+from cogniboiler_runtime.topics import TOPIC_BOILER, TOPIC_HEARTBEAT, TOPIC_TURBINE
+from historian.subscriber import HistorianSubscriber
 from historian.writer import (
     MEASUREMENT_BOILER,
     MEASUREMENT_TURBINE,

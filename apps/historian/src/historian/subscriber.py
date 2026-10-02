@@ -26,16 +26,30 @@ delivered once it is back.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 from collections.abc import Callable
-from typing import Any
 
 import cogniboiler_pb2 as pb
 from aiomqtt import Client
 from cogniboiler_observability import MQTT_RECEIVED
-from cogniboiler_runtime import MqttSession, subscribe_all
+from cogniboiler_runtime import (
+    DEFAULT_RECONNECT_DELAY_S,
+    MqttSession,
+    consume,
+    decode_json_object,
+)
+from cogniboiler_runtime.topics import (
+    FILTER_SENSORS,
+    FILTER_STATUS,
+    STATUS_PREFIX,
+    TOPIC_ALARM_CHANGES,
+    TOPIC_BOILER,
+    TOPIC_HEARTBEAT,
+    TOPIC_PLANT,
+    TOPIC_PLC_EVENTS,
+    TOPIC_TURBINE,
+)
 from google.protobuf.message import DecodeError
 
 from historian.metrics import MESSAGES_SKIPPED
@@ -56,21 +70,13 @@ from historian.writer import (
 
 logger = logging.getLogger(__name__)
 
-TOPIC_BOILER: str = "sensors/boiler"
-TOPIC_TURBINE: str = "sensors/turbine"
-TOPIC_PLANT: str = "sensors/plant"
-TOPIC_HEARTBEAT: str = "sensors/system/heartbeat"
-TOPIC_ALARM_CHANGES: str = "alarms/changes"
-TOPIC_PLC_EVENTS: str = "plc/events"
-TOPIC_STATUS_PREFIX: str = "status/"
-
 SUBSCRIPTIONS: tuple[tuple[str, int], ...] = (
-    ("sensors/#", 0),
+    (FILTER_SENSORS, 0),
     (TOPIC_ALARM_CHANGES, 1),
     (TOPIC_PLC_EVENTS, 1),
-    ("status/+", 1),
+    (FILTER_STATUS, 1),
 )
-RECONNECT_DELAY_S: float = 5.0
+RECONNECT_DELAY_S: float = DEFAULT_RECONNECT_DELAY_S
 MAX_JSON_BYTES: int = 64 * 1024
 INCOMING_QUEUE_LIMIT: int = 10_000
 
@@ -159,23 +165,13 @@ class HistorianSubscriber:
         msg.ParseFromString(raw)
         return [build_turbine_point(msg, self._labels.scenario)]
 
-    @staticmethod
-    def _json(raw: bytes) -> dict[str, Any] | None:
-        if len(raw) > MAX_JSON_BYTES:
-            return None
-        try:
-            value = json.loads(raw.decode("utf-8"))
-        except UnicodeDecodeError, ValueError, RecursionError:
-            return None
-        return value if isinstance(value, dict) else None
-
     def _alarm_change(self, raw: bytes) -> list[PointLike] | None:
-        payload = self._json(raw)
+        payload = decode_json_object(raw, max_bytes=MAX_JSON_BYTES)
         point = build_alarm_change_point(payload) if payload is not None else None
         return [point] if point is not None else None
 
     def _plc_event(self, raw: bytes) -> list[PointLike] | None:
-        payload = self._json(raw)
+        payload = decode_json_object(raw, max_bytes=MAX_JSON_BYTES)
         point = build_plc_event_point(payload) if payload is not None else None
         return [point] if point is not None else None
 
@@ -188,9 +184,9 @@ class HistorianSubscriber:
         self._received += 1
         MQTT_RECEIVED.labels(topic).inc()
 
-        if topic.startswith(TOPIC_STATUS_PREFIX):
+        if topic.startswith(STATUS_PREFIX):
             point = build_availability_point(
-                topic.removeprefix(TOPIC_STATUS_PREFIX), raw_payload
+                topic.removeprefix(STATUS_PREFIX), raw_payload
             )
             points = [point] if point is not None else None
         elif (handler := self._handlers.get(topic)) is not None:
@@ -265,13 +261,7 @@ class HistorianSubscriber:
         )
 
     async def _consume(self, client: Client) -> None:
-        await subscribe_all(client, SUBSCRIPTIONS)
-        async for message in client.messages:
-            payload = message.payload
-            await self._handle_message(
-                str(message.topic),
-                payload if isinstance(payload, bytes) else b"",
-            )
+        await consume(client, SUBSCRIPTIONS, self._handle_message)
 
     async def run(self) -> None:
         """Record what the broker delivers, across as many sessions as it takes.

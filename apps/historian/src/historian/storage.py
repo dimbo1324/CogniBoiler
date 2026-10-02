@@ -21,6 +21,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from cogniboiler_runtime import SECONDS_PER_DAY, flux_string
 from influxdb_client.client.influxdb_client import InfluxDBClient
 from influxdb_client.domain.bucket_retention_rules import BucketRetentionRules
 from influxdb_client.domain.task_create_request import TaskCreateRequest
@@ -31,7 +32,6 @@ logger = logging.getLogger(__name__)
 
 DOWNSAMPLE_TASK_NAME = "cogniboiler-downsample-1m"
 RETRY_DELAY_S = 60.0
-SECONDS_PER_DAY = 86_400
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,36 +41,6 @@ class StoragePolicy:
     aggregate_bucket: str
     raw_retention_days: int = 7
     aggregate_retention_days: int = 90
-
-
-_FLUX_ESCAPES: dict[str, str] = {
-    "\\": "\\\\",
-    '"': '\\"',
-    "\n": "\\n",
-    "\r": "\\r",
-    "\t": "\\t",
-}
-
-
-def flux_string(value: str) -> str:
-    """A Flux string literal, quoted and escaped.
-
-    The bucket and organisation names come from the environment, so a name with a
-    quote in it would otherwise end the literal, and `${...}` would be evaluated as
-    an expression, inside the task this service installs into InfluxDB. Flux knows
-    only the escapes below; any other control character is refused.
-    """
-    parts: list[str] = []
-    for index, char in enumerate(value):
-        if char in _FLUX_ESCAPES:
-            parts.append(_FLUX_ESCAPES[char])
-        elif char == "$" and value[index + 1 : index + 2] == "{":
-            parts.append("\\$")
-        elif ord(char) < 0x20 or ord(char) == 0x7F:
-            raise ValueError(f"control character {char!r} in a Flux string")
-        else:
-            parts.append(char)
-    return '"' + "".join(parts) + '"'
 
 
 def downsample_flux(policy: StoragePolicy) -> str:

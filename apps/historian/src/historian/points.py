@@ -20,13 +20,12 @@ kept only in fields the aggregation skips.
 from __future__ import annotations
 
 import json
-import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
 import cogniboiler_pb2 as pb
-from cogniboiler_runtime import now_ms
+from cogniboiler_runtime import finite_number, now_ms
 from influxdb_client.domain.write_precision import WritePrecision
 
 from historian.writer import (
@@ -56,16 +55,6 @@ _TEXT_LIMIT = 1000
 
 def _text(value: object, limit: int = _TEXT_LIMIT) -> str:
     return str(value)[:limit] if value is not None else ""
-
-
-def _finite(value: object) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return None
-    try:
-        number = float(value)
-    except OverflowError:
-        return None
-    return number if math.isfinite(number) else None
 
 
 def _status_time_ms(msg: pb.PlantStatusMsg) -> int:
@@ -206,7 +195,7 @@ def build_alarm_change_point(payload: Mapping[str, Any]) -> PointLike | None:
         .tag("severity", _text(alarm.get("severity"), 16) or "unknown")
         .tag("parameter", _text(alarm.get("parameter"), 128) or "unknown")
         .tag("state", to_state or "unknown")
-        .field("alarm_id", _finite(alarm.get("id")) or 0.0)
+        .field("alarm_id", finite_number(alarm.get("id")) or 0.0)
         .field("actor", _text(transition.get("actor"), 128))
         .field("message", _text(alarm.get("message")))
         .field(
@@ -215,7 +204,7 @@ def build_alarm_change_point(payload: Mapping[str, Any]) -> PointLike | None:
         )
     )
     for name in ("value", "threshold"):
-        number = _finite(alarm.get(name))
+        number = finite_number(alarm.get(name))
         if number is not None:
             point = point.field(name, number)
     return point.time(timestamp_ns(at_ms), WritePrecision.NS)

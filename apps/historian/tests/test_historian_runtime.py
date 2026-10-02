@@ -15,15 +15,15 @@ from typing import Any
 import cogniboiler_pb2 as pb
 import pytest
 from aiomqtt import MqttError
+from cogniboiler_runtime import flux_string
 from historian import __main__ as entry
-from historian import storage, subscriber
+from historian import service, storage, subscriber
 from historian.stats import report_stats
 from historian.storage import (
     StoragePolicy,
     apply_policy,
     downsample_flux,
     ensure_storage,
-    flux_string,
 )
 from historian.subscriber import HistorianSubscriber
 
@@ -139,29 +139,6 @@ class TestStoragePolicy:
         skeleton = flux.replace(flux_string(hostile), '"bucket"')
         assert "yield(name:" not in skeleton
         assert skeleton.count("from(bucket:") == 1
-
-    @pytest.mark.parametrize(
-        ("value", "literal"),
-        [
-            ("sensors", '"sensors"'),
-            ('a"b', '"a\\"b"'),
-            ("a\\b", '"a\\\\b"'),
-            ("a${r}", '"a\\${r}"'),
-            ("cost $5", '"cost $5"'),
-            ("a\nb\rc\td", '"a\\nb\\rc\\td"'),
-            ("Kraftwerk Süd", '"Kraftwerk Süd"'),
-        ],
-    )
-    def test_a_flux_literal_escapes_what_flux_would_read(
-        self, value: str, literal: str
-    ) -> None:
-        assert flux_string(value) == literal
-
-    @pytest.mark.parametrize("value", ["a\x01b", "a\x00", "a\x7f", "a\x1bb"])
-    def test_other_control_characters_are_refused(self, value: str) -> None:
-        # Flux has no \uXXXX escape: json.dumps output broke the task.
-        with pytest.raises(ValueError, match="control character"):
-            flux_string(value)
 
     def test_an_interpolation_in_a_bucket_name_stays_text(self) -> None:
         # ${...} inside a Flux string literal is evaluated as an expression.
@@ -563,6 +540,25 @@ class TestStats:
 
 
 class TestEntryPoint:
+    def test_it_runs_under_the_shared_service_runner(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ran: list[str] = []
+
+        async def main(args: argparse.Namespace, token: str) -> None:
+            ran.append(f"main {args.batch_size} {token}")
+
+        def run_service(entry_point: Any) -> int:
+            asyncio.run(entry_point())
+            return 0
+
+        monkeypatch.setattr(entry, "main", main)
+        monkeypatch.setattr(entry, "run_service", run_service)
+        monkeypatch.setattr(entry, "configure_logging", ran.append)
+        monkeypatch.setenv("INFLUXDB_TOKEN", "secret-token")
+        assert entry.run(["--batch-size", "7"]) == 0
+        assert ran == ["historian", "main 7 secret-token"]
+
     def test_the_command_line_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("sys.argv", ["historian"])
         args = entry.parse_args()
@@ -603,18 +599,18 @@ class TestEntryPoint:
         async def storage_policy(url: str, token: str, policy: StoragePolicy) -> None:
             made["policy"] = policy
 
-        monkeypatch.setattr(entry, "InfluxWriter", new_writer)
-        monkeypatch.setattr(entry, "HistorianSubscriber", Sub)
-        monkeypatch.setattr(entry, "ensure_storage", storage_policy)
-        monkeypatch.setattr(entry, "start_metrics_server", lambda port, host: None)
-        monkeypatch.setattr(entry, "STATS_INTERVAL_S", 0.01)
+        monkeypatch.setattr(service, "InfluxWriter", new_writer)
+        monkeypatch.setattr(service, "HistorianSubscriber", Sub)
+        monkeypatch.setattr(service, "ensure_storage", storage_policy)
+        monkeypatch.setattr(service, "start_metrics_server", lambda port, host: None)
+        monkeypatch.setattr(service, "STATS_INTERVAL_S", 0.01)
         monkeypatch.setenv("MQTT_PASSWORD", "broker-pass")
         monkeypatch.setattr(
             "sys.argv", ["historian", "--liveness-file", str(tmp_path / "alive")]
         )
         args = entry.parse_args()
         with caplog.at_level(logging.WARNING, logger="historian"):
-            task = asyncio.create_task(entry.main(args, ""))
+            task = asyncio.create_task(service.main(args, ""))
             try:
                 async with asyncio.timeout(5.0):
                     while not store.batches or not (tmp_path / "alive").exists():
@@ -650,16 +646,16 @@ class TestEntryPoint:
         async def no_policy(*_: Any) -> None:
             return None
 
-        monkeypatch.setattr(entry, "InfluxWriter", lambda **_: store)
-        monkeypatch.setattr(entry, "HistorianSubscriber", Recorded)
-        monkeypatch.setattr(entry, "ensure_storage", no_policy)
-        monkeypatch.setattr(entry, "start_metrics_server", lambda port, host: None)
-        monkeypatch.setattr(entry, "STATS_INTERVAL_S", 3600.0)
+        monkeypatch.setattr(service, "InfluxWriter", lambda **_: store)
+        monkeypatch.setattr(service, "HistorianSubscriber", Recorded)
+        monkeypatch.setattr(service, "ensure_storage", no_policy)
+        monkeypatch.setattr(service, "start_metrics_server", lambda port, host: None)
+        monkeypatch.setattr(service, "STATS_INTERVAL_S", 3600.0)
         monkeypatch.setattr(
             "sys.argv",
             ["historian", "--flush-interval-s", "3600", "--batch-size", "50"],
         )
-        task = asyncio.create_task(entry.main(entry.parse_args(), "token"))
+        task = asyncio.create_task(service.main(entry.parse_args(), "token"))
         try:
             async with asyncio.timeout(5.0):
                 while not made or made[0].stats["received"] < 1:
@@ -700,10 +696,10 @@ class TestEntryPoint:
         async def storage_policy(*_: Any) -> None:
             called.append("policy")
 
-        monkeypatch.setattr(entry, "InfluxWriter", lambda **_: RecordingWriter())
-        monkeypatch.setattr(entry, "HistorianSubscriber", Sub)
-        monkeypatch.setattr(entry, "ensure_storage", storage_policy)
-        monkeypatch.setattr(entry, "start_metrics_server", lambda port, host: None)
+        monkeypatch.setattr(service, "InfluxWriter", lambda **_: RecordingWriter())
+        monkeypatch.setattr(service, "HistorianSubscriber", Sub)
+        monkeypatch.setattr(service, "ensure_storage", storage_policy)
+        monkeypatch.setattr(service, "start_metrics_server", lambda port, host: None)
         args = argparse.Namespace(
             influx_url="http://influx:8086",
             influx_org="cogniboiler",
@@ -721,7 +717,7 @@ class TestEntryPoint:
             metrics_port=0,
             metrics_host="127.0.0.1",
         )
-        task = asyncio.create_task(entry.main(args, "token"))
+        task = asyncio.create_task(service.main(args, "token"))
         # gather has started every task by the time the subscriber runs.
         async with asyncio.timeout(5.0):
             await running.wait()

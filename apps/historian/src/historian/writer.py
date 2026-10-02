@@ -33,7 +33,7 @@ import time
 from typing import Protocol, cast
 
 import cogniboiler_pb2 as pb
-from cogniboiler_runtime import now_ms
+from cogniboiler_runtime import NANOSECONDS_PER_MILLISECOND, now_ms
 from google.protobuf.message import Message
 from influxdb_client.client.influxdb_client import InfluxDBClient as _InfluxDBClient
 from influxdb_client.client.write.point import Point as _Point
@@ -107,7 +107,7 @@ def _new_client(url: str, token: str, org: str, timeout_ms: int) -> InfluxDBClie
 
 
 def timestamp_ns(timestamp_ms: int) -> int:
-    return timestamp_ms * 1_000_000
+    return timestamp_ms * NANOSECONDS_PER_MILLISECOND
 
 
 def plausible_timestamp_ms(value: object) -> int | None:
