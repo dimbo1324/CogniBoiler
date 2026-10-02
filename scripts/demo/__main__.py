@@ -17,8 +17,6 @@ import argparse
 import json
 import sys
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -27,68 +25,13 @@ from typing import Any
 
 from scripts._toolkit.config import load_config, repo_root
 from scripts._toolkit.console import fail, heading, info, ok, summary
-from scripts._toolkit.envfile import EnvFileError, parse, values
+from scripts._toolkit.envfile import EnvFileError
+from scripts._toolkit.gateway import GatewayUnreachableError, call, dig, load_env
+from scripts._toolkit.gateway import sign_in as _sign_in
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 MW = 1_000_000.0
-
-
-class GatewayUnreachableError(RuntimeError):
-    """The gateway did not answer at all."""
-
-
-@dataclass(frozen=True)
-class Reply:
-    status: int
-    body: Any
-
-    @property
-    def accepted(self) -> bool:
-        return self.status == 200 and bool(dig(self.body, "accepted"))
-
-    @property
-    def refusal(self) -> str:
-        reason = dig(self.body, "reason") or dig(self.body, "detail")
-        return f"HTTP {self.status}" + (f": {reason}" if reason else "")
-
-
-def dig(body: Any, *keys: str) -> Any:
-    for key in keys:
-        if not isinstance(body, dict):
-            return None
-        body = body.get(key)
-    return body
-
-
-def call(
-    base_url: str,
-    method: str,
-    path: str,
-    *,
-    token: str | None = None,
-    payload: dict[str, Any] | None = None,
-    timeout: float = 10.0,
-) -> Reply:
-    data = None if payload is None else json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(f"{base_url}{path}", data=data, method=method)
-    request.add_header("Accept", "application/json")
-    if data is not None:
-        request.add_header("Content-Type", "application/json")
-    if token is not None:
-        request.add_header("Authorization", f"Bearer {token}")
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            raw = response.read()
-            return Reply(response.status, json.loads(raw) if raw else None)
-    except urllib.error.HTTPError as error:
-        raw = error.read()
-        try:
-            return Reply(error.code, json.loads(raw) if raw else None)
-        except json.JSONDecodeError:
-            return Reply(error.code, None)
-    except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
-        raise GatewayUnreachableError(f"{method} {path}: {error}") from error
 
 
 def utc_now() -> str:
@@ -174,14 +117,9 @@ class Demo:
 
 
 def sign_in(base_url: str, username: str, password: str) -> str:
-    reply = call(
-        base_url,
-        "POST",
-        "/auth/login",
-        payload={"username": username, "password": password},
-    )
-    token = dig(reply.body, "access_token")
-    if not isinstance(token, str):
+    """The demo cannot go on without every account, so a refusal ends it."""
+    token, reply = _sign_in(base_url, username, password)
+    if token is None:
         raise RuntimeError(f"{username} could not sign in: {reply.refusal}")
     return token
 
@@ -471,14 +409,10 @@ def main(argv: list[str]) -> int:
     speed = float(args.speed or config["speed_factor"])
     log_dir = root / str(args.log_dir or config["log_dir"])
 
-    env_path = root / str(config["env_file"])
-    if not env_path.exists():
-        fail(f"{config['env_file']} is missing — the stack cannot have been started")
-        return 1
     try:
-        env = values(parse(env_path.read_text(encoding="utf-8")))
+        env = load_env(root, str(config["env_file"]))
     except EnvFileError as error:
-        fail(f"{config['env_file']}: {error}")
+        fail(str(error))
         return 1
 
     heading(f"demo — {base_url}")

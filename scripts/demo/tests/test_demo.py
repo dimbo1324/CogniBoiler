@@ -1,5 +1,7 @@
 """What the demo script decides on its own: its clock, its audit lines and the log scan.
 
+The gateway client's replies are tested with it: _toolkit/tests/test_gateway.py.
+
 Run with:  python -m unittest discover -s scripts -t .
 """
 
@@ -11,12 +13,14 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scripts._toolkit.config import load_config
+from scripts._toolkit.gateway import Reply
+from scripts.demo import __main__ as demo_module
 from scripts.demo.__main__ import (
     SCRIPT_DIR,
     Demo,
-    Reply,
     audit_line,
     clock,
     error_lines,
@@ -56,22 +60,12 @@ class AuditLineTest(unittest.TestCase):
         self.assertIn("403", line)
 
 
-class ReplyTest(unittest.TestCase):
-    def test_only_an_accepted_answer_counts_as_accepted(self) -> None:
-        self.assertTrue(Reply(200, {"accepted": True}).accepted)
-        self.assertFalse(Reply(200, {"accepted": False, "reason": "E-Stop"}).accepted)
-        self.assertFalse(Reply(503, {"detail": "PLCService is unavailable."}).accepted)
-
-    def test_a_refusal_carries_its_reason(self) -> None:
-        self.assertEqual(
-            Reply(200, {"accepted": False, "reason": "E-Stop active"}).refusal,
-            "HTTP 200: E-Stop active",
-        )
-        self.assertEqual(
-            Reply(503, {"detail": "PLCService is unavailable."}).refusal,
-            "HTTP 503: PLCService is unavailable.",
-        )
-        self.assertEqual(Reply(500, None).refusal, "HTTP 500")
+class SignInTest(unittest.TestCase):
+    def test_a_refused_account_ends_the_demo_with_the_reason(self) -> None:
+        refused = Reply(401, {"detail": "Invalid credentials"})
+        with mock.patch.object(demo_module, "_sign_in", return_value=(None, refused)):
+            with self.assertRaisesRegex(RuntimeError, "operator.*Invalid credentials"):
+                demo_module.sign_in("http://localhost:8080", "operator", "wrong")
 
 
 class PlantReadingTest(unittest.TestCase):

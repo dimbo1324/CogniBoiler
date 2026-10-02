@@ -1,4 +1,6 @@
-"""The smoke report's bookkeeping, the tolerant JSON lookup and the fresh-history query.
+"""The smoke report's bookkeeping and the fresh-history query.
+
+The tolerant JSON lookup moved with the gateway client: _toolkit/tests/test_gateway.py.
 
 Run with:  python -m unittest discover -s scripts -t .
 """
@@ -9,19 +11,7 @@ import contextlib
 import io
 import unittest
 
-from scripts.smoke.__main__ import FRESH_TELEMETRY_S, Report, dig, history_path
-
-
-class DigTest(unittest.TestCase):
-    def test_nested_keys_are_followed(self) -> None:
-        self.assertEqual(
-            dig({"boiler": {"pressure_pa": 1.5}}, "boiler", "pressure_pa"), 1.5
-        )
-
-    def test_a_missing_key_or_a_non_object_yields_none(self) -> None:
-        self.assertIsNone(dig({"boiler": {}}, "boiler", "pressure_pa"))
-        self.assertIsNone(dig(None, "status"))
-        self.assertIsNone(dig([1, 2], "status"))
+from scripts.smoke.__main__ import FRESH_TELEMETRY_S, Report, history_path
 
 
 class ReportTest(unittest.TestCase):

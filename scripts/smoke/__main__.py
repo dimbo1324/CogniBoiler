@@ -8,30 +8,24 @@ Credentials are read from .env, the same file the stack was started with.
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import time
-import urllib.error
-import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from scripts._toolkit.config import load_config, repo_root
 from scripts._toolkit.console import fail, heading, ok, summary
-from scripts._toolkit.envfile import EnvFileError, parse, values
+from scripts._toolkit.envfile import EnvFileError
+from scripts._toolkit.gateway import (
+    GatewayUnreachableError,
+    call,
+    dig,
+    load_env,
+    sign_in,
+)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-
-
-class GatewayUnreachableError(RuntimeError):
-    """The gateway did not answer at all."""
-
-
-@dataclass(frozen=True)
-class Reply:
-    status: int
-    body: Any
 
 
 @dataclass
@@ -47,40 +41,6 @@ class Report:
         fail(f"{name} — {detail}")
         self.rows.append((name, f"FAILED ({detail})"))
         self.failed = True
-
-
-def dig(body: Any, *keys: str) -> Any:
-    for key in keys:
-        if not isinstance(body, dict):
-            return None
-        body = body.get(key)
-    return body
-
-
-def call(
-    base_url: str,
-    method: str,
-    path: str,
-    *,
-    token: str | None = None,
-    payload: dict[str, Any] | None = None,
-    timeout: float = 10.0,
-) -> Reply:
-    data = None if payload is None else json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(f"{base_url}{path}", data=data, method=method)
-    request.add_header("Accept", "application/json")
-    if data is not None:
-        request.add_header("Content-Type", "application/json")
-    if token is not None:
-        request.add_header("Authorization", f"Bearer {token}")
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            raw = response.read()
-            return Reply(response.status, json.loads(raw) if raw else None)
-    except urllib.error.HTTPError as error:
-        return Reply(error.code, None)
-    except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
-        raise GatewayUnreachableError(f"{method} {path}: {error}") from error
 
 
 # Only this recent a point proves telemetry is flowing: a stalled pipeline (physics, MQTT,
@@ -118,19 +78,13 @@ def login_all(
         if not password:
             report.record(f"login as {role}", False, f"{user['password_env']} is empty")
             continue
-        reply = call(
-            base_url,
-            "POST",
-            "/auth/login",
-            payload={"username": user["username"], "password": password},
-        )
-        token = dig(reply.body, "access_token")
+        token, reply = sign_in(base_url, user["username"], password)
         report.record(
             f"login as {role}",
-            reply.status == 200 and isinstance(token, str),
+            reply.status == 200 and token is not None,
             f"HTTP {reply.status}",
         )
-        if isinstance(token, str):
+        if token is not None:
             tokens[role] = token
     return tokens
 
@@ -256,14 +210,10 @@ def main(argv: list[str]) -> int:
     base_url = str(args.base_url or config["base_url"]).rstrip("/")
     wait_s = float(args.history_wait_s or config["history_wait_s"])
 
-    env_path = root / str(config["env_file"])
-    if not env_path.exists():
-        fail(f"{config['env_file']} is missing — the stack cannot have been started")
-        return 1
     try:
-        env = values(parse(env_path.read_text(encoding="utf-8")))
+        env = load_env(root, str(config["env_file"]))
     except EnvFileError as error:
-        fail(f"{config['env_file']}: {error}")
+        fail(str(error))
         return 1
 
     heading(f"smoke — {base_url}")
