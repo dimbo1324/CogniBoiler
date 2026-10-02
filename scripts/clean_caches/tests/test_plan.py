@@ -64,6 +64,24 @@ class PlanTest(unittest.TestCase):
             with self.subTest(protected=protected):
                 self.assertFalse(any(path.startswith(protected) for path in selected))
 
+    def test_an_extra_path_leading_out_of_the_repository_is_never_selected(
+        self,
+    ) -> None:
+        outside = self.root.parent / f"{self.root.name}-sibling"
+        outside.mkdir()
+        try:
+            rules = Rules(
+                directory_names=RULES.directory_names,
+                file_names=RULES.file_names,
+                extra_paths=(f"../{outside.name}", "apps/../.."),
+                protected_names=RULES.protected_names,
+            )
+            selected = plan(self.root, rules)
+            self.assertNotIn(outside, selected)
+            self.assertNotIn(self.root.parent, selected)
+        finally:
+            outside.rmdir()
+
     def test_apply_removes_exactly_the_plan(self) -> None:
         failures = remove(plan(self.root, RULES))
         self.assertEqual(failures, [])

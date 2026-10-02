@@ -12,6 +12,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
+from scripts._toolkit.config import is_inside
+
 
 @dataclass(frozen=True)
 class Rules:
@@ -32,10 +34,6 @@ class Rules:
 
 def _is_link(path: Path) -> bool:
     return path.is_symlink() or path.is_junction()
-
-
-def _inside(root: Path, path: Path) -> bool:
-    return path.resolve().is_relative_to(root)
 
 
 def plan(root: Path, rules: Rules) -> list[Path]:
@@ -67,7 +65,7 @@ def plan(root: Path, rules: Rules) -> list[Path]:
             path.exists()
             and not protected
             and not _is_link(path)
-            and _inside(root, path)
+            and is_inside(root, path)
         ):
             targets.add(path)
 

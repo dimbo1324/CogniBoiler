@@ -5,11 +5,18 @@ Run with:  python -m unittest discover -s scripts -t .
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
+import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
+from unittest import mock
 
 from scripts._toolkit.config import load_config
+from scripts._toolkit.processes import CommandResult
+from scripts.readme_media import __main__ as readme_media
 from scripts.readme_media.__main__ import SCRIPT_DIR, capture_commands
 from scripts.readme_media.media import (
     Attempt,
@@ -195,6 +202,49 @@ class TestConfiguration(unittest.TestCase):
         self.assertIn("--config", without[0])
         self.assertIn(self.config["playwright_config"], without[0])
         self.assertNotIn("playwright.config.ts", without[0])
+
+
+class TestCaptureFolder(unittest.TestCase):
+    """The capture folder is emptied before every run, and it comes from config."""
+
+    def setUp(self) -> None:
+        self._temp = tempfile.TemporaryDirectory()
+        self.root = Path(self._temp.name).resolve() / "repo"
+        (self.root / "apps" / "web" / "node_modules").mkdir(parents=True)
+        self.config: dict[str, Any] = {
+            **load_config(SCRIPT_DIR, "readme_media.json"),
+            "web_dir": "apps/web",
+        }
+
+    def tearDown(self) -> None:
+        self._temp.cleanup()
+
+    def _capture(self) -> bool:
+        succeed = mock.Mock(side_effect=lambda argv, *a, **k: CommandResult(argv, 0))
+        with (
+            mock.patch.object(readme_media, "run", succeed),
+            contextlib.redirect_stdout(io.StringIO()),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            return readme_media.capture(
+                self.root, self.config, "http://localhost:8080", False
+            )
+
+    def test_an_old_frame_is_cleared_before_the_capture(self) -> None:
+        raw = self.root / self.config["raw_dir"]
+        raw.mkdir(parents=True)
+        (raw / "frame-old.png").write_bytes(b"old")
+        self.assertTrue(self._capture())
+        self.assertTrue(raw.is_dir())
+        self.assertEqual(list(raw.iterdir()), [])
+
+    def test_a_folder_outside_the_repository_is_never_deleted(self) -> None:
+        outside = self.root.parent / "precious"
+        outside.mkdir()
+        (outside / "keep.txt").write_text("keep", encoding="utf-8")
+        self.config["raw_dir"] = "../precious"
+        self.assertFalse(self._capture())
+        self.assertTrue((outside / "keep.txt").is_file())
 
 
 if __name__ == "__main__":

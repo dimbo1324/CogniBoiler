@@ -18,7 +18,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from scripts._toolkit.config import load_config, repo_root
+from scripts._toolkit.config import (
+    ScriptConfigError,
+    load_config,
+    repo_root,
+    resolve_inside,
+)
 from scripts._toolkit.console import fail, heading, ok
 from scripts._toolkit.processes import NOT_FOUND, run
 from scripts._toolkit.reexec import has_module, reexec_under_uv
@@ -63,11 +68,20 @@ def capture(root: Path, config: dict[str, Any], url: str, install: bool) -> bool
     if not (root / str(config["web_dir"]) / "node_modules").is_dir():
         fail("apps/web/node_modules is missing — run: pnpm --dir apps/web install")
         return False
-    raw = root / str(config["raw_dir"])
+    try:
+        raw = resolve_inside(root, str(config["raw_dir"]))
+    except ScriptConfigError as error:
+        fail(f"raw_dir in readme_media.json: {error}")
+        return False
     # Only this script writes here, and git ignores it: an old frame left behind would
     # end up in the next GIF.
-    shutil.rmtree(raw, ignore_errors=True)
-    raw.mkdir(parents=True)
+    try:
+        if raw.exists():
+            shutil.rmtree(raw)
+        raw.mkdir(parents=True)
+    except OSError as error:
+        fail(f"cannot empty the capture folder {raw}: {error}")
+        return False
     env = {"CONSOLE_URL": url, "README_MEDIA_DIR": str(raw)}
     for command in capture_commands(config, install):
         result = run(command, root, env=env)
@@ -83,8 +97,8 @@ def capture(root: Path, config: dict[str, Any], url: str, install: bool) -> bool
 
 
 def encode(root: Path, config: dict[str, Any]) -> None:
-    raw = root / str(config["raw_dir"])
-    out = root / str(config["out_dir"])
+    raw = resolve_inside(root, str(config["raw_dir"]))
+    out = resolve_inside(root, str(config["out_dir"]))
     out.mkdir(parents=True, exist_ok=True)
     budget = int(config["budget_kib"]) * BYTES_PER_KIB
 
@@ -152,7 +166,7 @@ def main(argv: list[str]) -> int:
         return 1
     try:
         encode(root, config)
-    except MediaError as error:
+    except (MediaError, ScriptConfigError) as error:
         fail(str(error))
         return 1
     return 0

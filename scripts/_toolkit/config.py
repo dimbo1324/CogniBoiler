@@ -51,3 +51,20 @@ def require(config: dict[str, Any], key: str, where: str) -> Any:
     if key not in config:
         raise ScriptConfigError(f"{where}: missing required key {key!r}")
     return config[key]
+
+
+def is_inside(root: Path, path: Path) -> bool:
+    """Whether ``path``, with links and ``..`` resolved, lies in ``root`` (or is it)."""
+    return path.resolve().is_relative_to(root.resolve())
+
+
+def resolve_inside(root: Path, relative: str) -> Path:
+    """``root / relative`` resolved, for a config path a script writes or deletes.
+
+    Raises ``ScriptConfigError`` when it leads outside the repository, or to the
+    repository root itself: a config edit must never hand a deletion anything else.
+    """
+    path = (root / relative).resolve()
+    if path == root.resolve() or not is_inside(root, path):
+        raise ScriptConfigError(f"{relative!r} leads outside the repository at {root}")
+    return path
