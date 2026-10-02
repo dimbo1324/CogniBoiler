@@ -18,6 +18,8 @@ from gateway_fakes import (
     FakePhysicsClient,
     FakePLCClient,
     UpstreamDownError,
+    alarm_change_payload,
+    plc_event_payload,
     plc_status,
     system_state,
 )
@@ -403,8 +405,8 @@ class TestMqttEvents:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         FakeMqttClient.deliveries = [
-            ("plc/events", b'{"kind": "trip"}'),
-            ("alarms/changes", b'{"alarm_id": 7}'),
+            ("plc/events", json.dumps(plc_event_payload()).encode()),
+            ("alarms/changes", json.dumps(alarm_change_payload()).encode()),
             ("alarms/changes", b"garbage"),
             ("other/topic", b'{"x": 1}'),
         ]
@@ -421,16 +423,21 @@ class TestMqttEvents:
         finally:
             task.cancel()
         assert (plc_event["channel"], plc_event["kind"]) == ("plc", "event")
+        assert plc_event["data"] == plc_event_payload()
         assert (alarm_change["channel"], alarm_change["kind"]) == ("alarms", "change")
-        assert alarm_change["data"] == {"alarm_id": 7}
+        assert alarm_change["data"] == alarm_change_payload()
         assert subscriber.queue.empty()
         assert FakeMqttClient.subscribed == ["plc/events", "alarms/changes"]
 
     @pytest.mark.parametrize(
         ("payload", "expected"),
         [
-            (b'{"alarm_id": 7}', [{"alarm_id": 7}]),
-            (bytearray(b'{"a": 1}'), [{"a": 1}]),
+            (json.dumps(alarm_change_payload()).encode(), [alarm_change_payload()]),
+            (
+                bytearray(json.dumps(alarm_change_payload(8)).encode()),
+                [alarm_change_payload(8)],
+            ),
+            (b'{"alarm_id": 7}', []),
             (b"[1, 2]", []),
             (b"not json", []),
             (b"\xff\xfe", []),
@@ -442,7 +449,7 @@ class TestMqttEvents:
             (None, []),
         ],
     )
-    async def test_only_json_objects_are_forwarded(
+    async def test_only_contract_messages_are_forwarded(
         self,
         monkeypatch: pytest.MonkeyPatch,
         payload: object,
@@ -450,7 +457,7 @@ class TestMqttEvents:
     ) -> None:
         FakeMqttClient.deliveries = [
             ("alarms/changes", payload),  # type: ignore[list-item]
-            ("plc/events", b'{"end": true}'),
+            ("plc/events", json.dumps(plc_event_payload()).encode()),
         ]
         FakeMqttClient.connections = 0
         monkeypatch.setattr(sources, "Client", FakeMqttClient)
@@ -466,8 +473,61 @@ class TestMqttEvents:
         finally:
             task.cancel()
         assert forwarded == expected
-        assert frame["data"] == {"end": True}
+        assert frame["data"] == plc_event_payload()
         assert FakeMqttClient.connections == 1
+
+    async def test_a_message_that_breaks_its_contract_is_dropped_and_counted(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        def rejected(topic: str) -> float:
+            value = REGISTRY.get_sample_value(
+                "gateway_realtime_messages_rejected_total", {"topic": topic}
+            )
+            return value or 0.0
+
+        def without(payload: dict[str, Any], section: str, field: str) -> bytes:
+            damaged = json.loads(json.dumps(payload))
+            del (damaged[section] if section else damaged)[field]
+            return json.dumps(damaged).encode()
+
+        before = (rejected("plc/events"), rejected("alarms/changes"))
+        FakeMqttClient.deliveries = [
+            ("plc/events", without(plc_event_payload(), "", "operator_id")),
+            ("plc/events", json.dumps({"kind": "trip"}).encode()),
+            (
+                "alarms/changes",
+                without(alarm_change_payload(), "transition", "to_state"),
+            ),
+            ("alarms/changes", without(alarm_change_payload(), "alarm", "state")),
+            ("alarms/changes", b"[]"),
+            ("plc/events", json.dumps(plc_event_payload()).encode()),
+        ]
+        FakeMqttClient.connections = 0
+        monkeypatch.setattr(sources, "Client", FakeMqttClient)
+        monkeypatch.setattr(sources, "RECONNECT_DELAY_S", 60.0)
+        hub = RealtimeHub(queue_size=8, max_rate_hz=10.0)
+        subscriber = hub.register()
+        hub.subscribe(subscriber, {Channel.PLC, Channel.ALARMS})
+        task = asyncio.create_task(sources.run_mqtt_events(hub, "broker", 1883))
+        with caplog.at_level(logging.WARNING, logger=sources.logger.name):
+            try:
+                frame = await first_frame(subscriber)
+            finally:
+                task.cancel()
+        assert frame["data"] == plc_event_payload()
+        assert subscriber.queue.empty()
+        assert (rejected("plc/events"), rejected("alarms/changes")) == (
+            before[0] + 2,
+            before[1] + 3,
+        )
+        warnings = [
+            record.getMessage()
+            for record in caplog.records
+            if record.levelno == logging.WARNING
+        ]
+        assert len([w for w in warnings if "plc/events" in w]) == 1
+        assert len([w for w in warnings if "alarms/changes" in w]) == 1
+        assert any("operator_id" in w for w in warnings)
 
     async def test_a_lost_broker_is_retried(
         self, monkeypatch: pytest.MonkeyPatch

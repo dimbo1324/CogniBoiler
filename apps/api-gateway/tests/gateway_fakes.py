@@ -12,6 +12,12 @@ import grpc.aio
 from api_gateway.auth.password import hash_password
 from api_gateway.historian_query import HistoryResult, HistorySource
 from api_gateway.models.user import Role, User, UserRole
+from cogniboiler_runtime.contracts import (
+    AlarmChangeMessage,
+    AlarmRecord,
+    AlarmTransitionRecord,
+    PlcEventMessage,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 TIMESTAMP_MS = 1_710_000_000_000
@@ -217,6 +223,57 @@ def alarm(alarm_id: int = 7, **overrides: Any) -> pb2.AlarmMsg:
     }
     values.update(overrides)
     return pb2.AlarmMsg(**values)
+
+
+def plc_event_payload() -> dict[str, Any]:
+    """A plc/events message as plc-controller publishes it."""
+    return PlcEventMessage(
+        event_id=f"manual_trip:{TIMESTAMP_MS}",
+        kind="manual_trip",
+        source_service="plc-controller",
+        operator_id="operator1",
+        detail={"reason": "test"},
+        timestamp_ms=TIMESTAMP_MS,
+    ).to_payload()
+
+
+def alarm_change_payload(alarm_id: int = 7) -> dict[str, Any]:
+    """An alarms/changes message as alert-manager publishes it."""
+    return AlarmChangeMessage(
+        alarm=AlarmRecord(
+            id=alarm_id,
+            key="plc-controller:water_level_m:low:critical",
+            source_service="plc-controller",
+            parameter="water_level_m",
+            severity="critical",
+            direction="low",
+            unit="m",
+            state="ACTIVE_UNACK",
+            message="Drum level low-low",
+            action="trip",
+            topic="alerts/critical",
+            value=3.1,
+            threshold=3.5,
+            raised_at_ms=TIMESTAMP_MS,
+            cleared_at_ms=None,
+            acknowledged_at_ms=None,
+            acknowledged_by=None,
+            ack_comment=None,
+            occurrence_count=1,
+            updated_at_ms=TIMESTAMP_MS,
+        ),
+        transition=AlarmTransitionRecord(
+            id=1,
+            alarm_id=alarm_id,
+            from_state=None,
+            to_state="ACTIVE_UNACK",
+            at_ms=TIMESTAMP_MS,
+            actor="plc-controller",
+            comment=None,
+            value=3.1,
+        ),
+        timestamp_ms=TIMESTAMP_MS,
+    ).to_payload()
 
 
 def _ack(accepted: bool, reason: str) -> pb2.CommandAck:

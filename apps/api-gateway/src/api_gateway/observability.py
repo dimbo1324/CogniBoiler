@@ -66,6 +66,12 @@ WEBSOCKET_CLOSES = Counter(
     "refused or signed out; 1011: a gateway defect).",
     ["code"],
 )
+REALTIME_REJECTED = Counter(
+    "gateway_realtime_messages_rejected",
+    "MQTT messages not forwarded to the console because they break their topic's "
+    "contract, by topic.",
+    ["topic"],
+)
 WEBSOCKET_DROPPED_FRAMES = Counter(
     "gateway_websocket_dropped_frames",
     "Telemetry frames dropped because a client's send queue was full.",

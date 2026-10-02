@@ -16,21 +16,24 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from typing import Any
 from uuid import uuid4
 
 import grpc
 from aiomqtt import Client
-from cogniboiler_runtime import (
-    MqttSession,
-    OutageLog,
-    decode_json_object,
-    subscribe_all,
+from cogniboiler_runtime import MqttSession, OutageLog, subscribe_all
+from cogniboiler_runtime.contracts import (
+    AlarmChangeMessage,
+    ContractError,
+    PlcEventMessage,
+    decode_payload,
 )
 from cogniboiler_runtime.topics import TOPIC_ALARM_CHANGES, TOPIC_PLC_EVENTS
 from pydantic import BaseModel
 
 from api_gateway.clients import PhysicsGatewayClient, PLCGatewayClient
+from api_gateway.observability import REALTIME_REJECTED
 from api_gateway.plant_state import plant_state
 from api_gateway.plc_state import plc_status_from_proto
 from api_gateway.realtime.hub import Channel, RealtimeHub
@@ -106,6 +109,38 @@ def report_source_end(task: asyncio.Task[None]) -> None:
         )
 
 
+class _Route:
+    """One contract topic: its channel and frame kind, and what a valid payload is."""
+
+    def __init__(
+        self,
+        topic: str,
+        channel: Channel,
+        kind: str,
+        parse: Callable[[Mapping[str, Any]], object],
+    ) -> None:
+        self.channel = channel
+        self.kind = kind
+        self._parse = parse
+        self.topic = topic
+        self._rejects = OutageLog(
+            logger, f"Realtime source {self.topic}: valid messages"
+        )
+
+    def forward(self, hub: RealtimeHub, raw: object) -> None:
+        try:
+            if not isinstance(raw, bytes | bytearray):
+                raise ContractError("payload is not bytes")
+            payload = decode_payload(raw)
+            self._parse(payload)
+        except ContractError as exc:
+            REALTIME_REJECTED.labels(self.topic).inc()
+            self._rejects.failed(exc)
+            return
+        self._rejects.recovered()
+        hub.publish(self.channel, self.kind, dict(payload))
+
+
 async def run_telemetry(hub: RealtimeHub, physics: PhysicsGatewayClient) -> None:
     outage = OutageLog(logger, "Realtime source telemetry")
     defects = _Defects("telemetry")
@@ -155,12 +190,19 @@ async def run_mqtt_events(
 ) -> None:
     """Forward the two JSON topics the console listens to, across broker outages.
 
-    The gateway is a reader here: a payload that is not a JSON object with finite
-    numbers is dropped with a debug line, never passed on to the browser as-is.
+    The gateway is a reader here: a payload is passed on to the browser only when it
+    parses as its topic's contract (`cogniboiler_runtime.contracts`), and is forwarded
+    as it arrived, so a field a producer adds reaches the console unchanged. Anything
+    else is dropped, counted per topic, and warned about once per run of bad messages.
     """
-    routes: dict[str, tuple[Channel, str]] = {
-        TOPIC_PLC_EVENTS: (Channel.PLC, "event"),
-        TOPIC_ALARM_CHANGES: (Channel.ALARMS, "change"),
+    routes = {
+        route.topic: route
+        for route in (
+            _Route(TOPIC_PLC_EVENTS, Channel.PLC, "event", PlcEventMessage.parse),
+            _Route(
+                TOPIC_ALARM_CHANGES, Channel.ALARMS, "change", AlarmChangeMessage.parse
+            ),
+        )
     }
 
     def open_client() -> Client:
@@ -176,11 +218,10 @@ async def run_mqtt_events(
         await subscribe_all(client, [(topic, EVENT_QOS) for topic in routes])
         async for message in client.messages:
             route = routes.get(str(message.topic))
-            payload = decode_json_object(message.payload)
-            if route is None or payload is None:
+            if route is None:
                 logger.debug("Ignored MQTT message on %s", message.topic)
                 continue
-            hub.publish(route[0], route[1], payload)
+            route.forward(hub, message.payload)
 
     session: MqttSession[Client] = MqttSession(
         open_client,
