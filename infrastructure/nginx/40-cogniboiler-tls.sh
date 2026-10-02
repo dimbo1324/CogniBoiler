@@ -13,7 +13,8 @@ mkdir -p /tmp/tls
 printf '%s\n' "$WEB_TLS_CERT" > /tmp/tls/cert.pem
 printf '%s\n' "$WEB_TLS_KEY" > /tmp/tls/key.pem
 
-cat > /etc/nginx/conf.d/tls.conf <<'CONF'
+mkdir -p /tmp/cogniboiler-nginx
+cat > /tmp/cogniboiler-nginx/tls.conf <<'CONF'
 server {
     listen 8443 ssl;
     http2 on;
@@ -21,8 +22,10 @@ server {
     ssl_certificate /tmp/tls/cert.pem;
     ssl_certificate_key /tmp/tls/key.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
     ssl_prefer_server_ciphers off;
-    add_header Strict-Transport-Security "max-age=31536000" always;
+    ssl_session_tickets off;
+    add_header Strict-Transport-Security $cogniboiler_hsts always;
     include /etc/nginx/cogniboiler/site.inc;
 }
 CONF
