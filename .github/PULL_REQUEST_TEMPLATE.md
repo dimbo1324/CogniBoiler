@@ -13,7 +13,5 @@ Closes #
 
 ## Checklist
 - [ ] Code works locally
-- [ ] Tests pass (`pytest`)
-- [ ] Linter passes (`ruff check .`)
-- [ ] Type check passes (`mypy .`)
+- [ ] `python dev_tools_scripts_runner.py quality-gate` is green
 - [ ] Documentation updated (if needed)

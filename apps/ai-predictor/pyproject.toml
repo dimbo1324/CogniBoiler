@@ -3,19 +3,9 @@ name = "ai-predictor"
 version = "0.1.0"
 description = "AI/ML inference service: anomaly detection, efficiency advisor, predictive maintenance"
 requires-python = ">=3.14"
-dependencies = [
-    "torch>=2.2.0",
-    "numpy>=1.26.0",
-    "pandas>=2.2.0",
-    "scikit-learn>=1.4.0",
-    "influxdb-client>=1.40.0",
-    "apscheduler>=3.10.0",
-    "mlflow>=2.11.0",
-    "pydantic>=2.6.0",
-    "structlog>=24.0.0",
-    "grpcio>=1.62.0",
-    "protobuf>=4.25.0",
-]
+# Deferred (owner decision 2026-09-14): not a workspace member, so nothing here is locked
+# or audited. Its dependencies are chosen, pinned and locked when the AI stage reopens.
+dependencies = []
 
 [build-system]
 requires = ["hatchling"]
