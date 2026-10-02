@@ -1,14 +1,23 @@
-# Topic rights per account; anything not granted is refused. Each service publishes only
-# its own contract topics (see docs/architecture/overview.md) and reads only what it uses.
+# Topic rights per account; anything not granted is refused. Each service publishes exactly
+# its own contract topics (the topic table in docs/architecture/overview.md) and reads only
+# what it uses. A read right must cover the subscription filter the service sends, so the
+# three wildcard filters still in code (alert-manager `alerts/#`, historian and opcua-server
+# `sensors/#`, historian `status/+`) keep wildcard read rights until those subscriptions
+# name their topics.
 
 user physics-engine
-topic write sensors/#
-topic readwrite status/physics-engine
+topic write sensors/plant
+topic write sensors/boiler
+topic write sensors/turbine
+topic write sensors/system/heartbeat
+topic write status/physics-engine
 
 user plc-controller
-topic write alerts/#
+topic write alerts/warning
+topic write alerts/critical
+topic write alerts/snapshot
 topic write plc/events
-topic readwrite status/plc-controller
+topic write status/plc-controller
 
 user alert-manager
 topic read alerts/#

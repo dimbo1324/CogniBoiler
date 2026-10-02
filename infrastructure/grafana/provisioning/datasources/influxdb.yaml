@@ -18,7 +18,6 @@ datasources:
       version: Flux
       organization: ${INFLUXDB_ORG}
       defaultBucket: ${INFLUXDB_BUCKET}
-      tlsSkipVerify: true
     secureJsonData:
       token: ${INFLUXDB_ADMIN_TOKEN}
-    editable: true
+    editable: false

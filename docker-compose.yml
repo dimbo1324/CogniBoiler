@@ -6,10 +6,23 @@
 # Images are built locally as cogniboiler/<service>:dev. To run a published release
 # instead, set COGNIBOILER_REGISTRY=ghcr.io/dimbo1324/cogniboiler and COGNIBOILER_TAG to
 # the release (v1.0.0) and start with `stack up --no-build`: Compose pulls the images.
+# Third-party images are pinned by digest; the tag in front of it is for readers.
 # InfluxDB and PostgreSQL read their credentials only on first start: after regenerating
 # secrets, recreate the volumes with `stack down --volumes`.
 # The Python services also write JSON log files into ./logs (LOG_DIR, rotated by size);
 # Docker keeps at most 3 × 10 MB of each container's own output.
+#
+# Networks: each container joins only the networks of the services it talks to, so the
+# gRPC ports of physics-engine (actuators) and plc-controller are reachable only from their
+# callers — plc-controller, api-gateway and, for PLC reads, opcua-server — and from the
+# broker and Prometheus, which share a network with them for MQTT and /metrics.
+#   plant      physics-engine, plc-controller, api-gateway, mosquitto, prometheus
+#   control    plc-controller, api-gateway, opcua-server
+#   services   historian, alert-manager, opcua-server, api-gateway, mosquitto, prometheus
+#   postgres   postgresql, migrate, alert-manager, api-gateway
+#   influx     influxdb, historian, api-gateway, grafana
+#   edge       web (nginx), api-gateway
+#   dashboards grafana, prometheus
 name: cogniboiler
 
 x-docker-logs: &docker-logs
@@ -18,10 +31,37 @@ x-docker-logs: &docker-logs
     max-size: "10m"
     max-file: "3"
 
+x-healthcheck: &healthcheck
+  interval: 10s
+  timeout: 5s
+  retries: 5
+  start_period: 20s
+
+# Every container: no privilege gained through a setuid binary, bounded processes and
+# memory (generous limits: they stop a runaway, they do not tune).
+x-infra: &infra
+  restart: unless-stopped
+  logging: *docker-logs
+  security_opt: ["no-new-privileges:true"]
+
+# The broker and the databases start as root to set file ownership, then drop to their own
+# user: exactly the capabilities for that.
+x-infra-root-start: &infra-root-start
+  <<: *infra
+  cap_drop: [ALL]
+  cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER]
+
+# Images that run unprivileged from the start: no capabilities, read-only root.
 x-service: &service
   restart: unless-stopped
   profiles: ["core", "full"]
   logging: *docker-logs
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  read_only: true
+  tmpfs: ["/tmp"]
+  pids_limit: 512
+  mem_limit: 1g
 
 x-python-service: &python-service
   <<: *service
@@ -32,8 +72,8 @@ services:
   # Every client has its own account and topic rights; the accounts are written from .env
   # on each start by start-broker.sh.
   mosquitto:
-    logging: *docker-logs
-    image: eclipse-mosquitto:2.0
+    <<: *infra-root-start
+    image: eclipse-mosquitto:2.0.22@sha256:199ea8ef2e35ec2b1b37e59cfd1dbae538ed4dfa4a2251a121a52215a6248a21
     profiles: ["infra", "core", "full"]
     entrypoint: ["/bin/sh", "/cogniboiler/start-broker.sh"]
     ports:
@@ -51,17 +91,17 @@ services:
       - ./infrastructure/docker/mosquitto/acl:/cogniboiler/acl:ro
       - ./infrastructure/docker/mosquitto/start-broker.sh:/cogniboiler/start-broker.sh:ro
       - mosquitto_data:/mosquitto/data
-      - mosquitto_log:/mosquitto/log
-    restart: unless-stopped
+    networks: [plant, services]
+    pids_limit: 128
+    mem_limit: 256m
     healthcheck:
-      test: ["CMD-SHELL", "mosquitto_sub -u monitor -P \"$$MQTT_MONITOR_PASSWORD\" -t '$$SYS/broker/uptime' -C 1 -i healthcheck -W 3"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      <<: *healthcheck
+      # The monitor account's password is in a file start-broker.sh writes, not on argv.
+      test: ["CMD", "env", "XDG_CONFIG_HOME=/run/cogniboiler-health", "mosquitto_sub", "-t", "$$SYS/broker/uptime", "-C", "1", "-i", "healthcheck", "-W", "3"]
 
   influxdb:
-    logging: *docker-logs
-    image: influxdb:2.7
+    <<: *infra-root-start
+    image: influxdb:2.7.12@sha256:b8d940ca9376f85118260f5b6bd236b8a00b1749c3350c5578d4cde8e27f31f2
     profiles: ["infra", "core", "observability", "full"]
     ports:
       - "127.0.0.1:8086:8086"
@@ -72,20 +112,21 @@ services:
       DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_ORG:?run dev-secrets}
       DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_BUCKET:?run dev-secrets}
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_ADMIN_TOKEN:?run dev-secrets}
-      DOCKER_INFLUXDB_INIT_RETENTION: 90d
+      # The raw bucket keeps 7 days; the historian enforces it and adds sensors_1m.
+      DOCKER_INFLUXDB_INIT_RETENTION: 7d
     volumes:
       - influxdb_data:/var/lib/influxdb2
       - influxdb_config:/etc/influxdb2
-    restart: unless-stopped
+    networks: [influx]
+    pids_limit: 512
+    mem_limit: 2g
     healthcheck:
+      <<: *healthcheck
       test: ["CMD", "influx", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   postgresql:
-    logging: *docker-logs
-    image: postgres:16-alpine
+    <<: *infra-root-start
+    image: postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
     profiles: ["infra", "core", "full"]
     ports:
       - "127.0.0.1:5432:5432"
@@ -95,23 +136,34 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:?run dev-secrets}
     volumes:
       - postgresql_data:/var/lib/postgresql/data
-    restart: unless-stopped
+    networks: [postgres]
+    pids_limit: 512
+    mem_limit: 1g
     healthcheck:
+      <<: *healthcheck
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   grafana:
-    logging: *docker-logs
-    image: grafana/grafana:10.4.0
+    <<: *infra
+    image: grafana/grafana:13.2.3@sha256:b28bae15e219c998fb0e0424ed724930cc61b1f61fb404d47c862f9a23f9e572
     profiles: ["observability", "full"]
     ports:
       - "127.0.0.1:3000:3000"
+    # No sign-up, no anonymous access, and nothing fetched from grafana.com: the demo runs
+    # offline. The datasources and dashboards are provisioned read-only.
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?run dev-secrets}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?run dev-secrets}
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_SECURITY_COOKIE_SAMESITE: strict
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_PLUGINS_PUBLIC_KEY_RETRIEVAL_DISABLED: "true"
       INFLUXDB_ORG: ${INFLUXDB_ORG:?run dev-secrets}
       INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:?run dev-secrets}
       INFLUXDB_ADMIN_TOKEN: ${INFLUXDB_ADMIN_TOKEN:?run dev-secrets}
@@ -119,20 +171,24 @@ services:
       - grafana_data:/var/lib/grafana
       - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./infrastructure/grafana/dashboards:/etc/grafana/dashboards:ro
+    networks: [influx, dashboards]
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs: ["/tmp"]
+    pids_limit: 512
+    mem_limit: 1g
     depends_on:
       influxdb:
         condition: service_healthy
-    restart: unless-stopped
     healthcheck:
+      <<: *healthcheck
       test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:3000/api/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   migrate:
     <<: *python-service
     build: { context: ., target: api-gateway }
     image: ${COGNIBOILER_REGISTRY:-cogniboiler}/api-gateway:${COGNIBOILER_TAG:-dev}
+    networks: [postgres]
     # The only service that connects as the owner of the tables: it migrates the schema and
     # gives the application roles their passwords.
     command: ["sh", "-c", "python -m alembic -c apps/api-gateway/alembic.ini upgrade head && python -m api_gateway.db_roles"]
@@ -150,6 +206,7 @@ services:
     <<: *python-service
     build: { context: ., target: physics-engine }
     image: ${COGNIBOILER_REGISTRY:-cogniboiler}/physics-engine:${COGNIBOILER_TAG:-dev}
+    networks: [plant]
     command: ["python", "-m", "physics_engine", "--mqtt-host", "mosquitto", "--grpc-host", "0.0.0.0", "--grpc-port", "50052", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     environment:
       LOG_DIR: /app/logs
@@ -159,16 +216,14 @@ services:
       mosquitto:
         condition: service_healthy
     healthcheck:
+      <<: *healthcheck
       test: ["CMD", "python", "-c", "import grpc, cogniboiler_pb2 as p, cogniboiler_pb2_grpc as g; assert g.PhysicsServiceStub(grpc.insecure_channel('127.0.0.1:50052')).Health(p.Empty(), timeout=3).status == 'running'"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
 
   plc-controller:
     <<: *python-service
     build: { context: ., target: plc-controller }
     image: ${COGNIBOILER_REGISTRY:-cogniboiler}/plc-controller:${COGNIBOILER_TAG:-dev}
+    networks: [plant, control]
     command: ["python", "-m", "plc_controller", "--host", "0.0.0.0", "--port", "50051", "--physics-target", "physics-engine:50052", "--mqtt-host", "mosquitto", "--mqtt-port", "1883", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     environment:
       LOG_DIR: /app/logs
@@ -180,16 +235,14 @@ services:
       physics-engine:
         condition: service_healthy
     healthcheck:
+      <<: *healthcheck
       test: ["CMD", "python", "-c", "import grpc, cogniboiler_pb2 as p, cogniboiler_pb2_grpc as g; g.PLCServiceStub(grpc.insecure_channel('localhost:50051')).Health(p.Empty(), timeout=3)"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
 
   historian:
     <<: *python-service
     build: { context: ., target: historian }
     image: ${COGNIBOILER_REGISTRY:-cogniboiler}/historian:${COGNIBOILER_TAG:-dev}
+    networks: [services, influx]
     command: ["python", "-m", "historian", "--mqtt-host", "mosquitto", "--influx-url", "http://influxdb:8086", "--influx-org", "${INFLUXDB_ORG:?run dev-secrets}", "--influx-bucket", "${INFLUXDB_BUCKET:?run dev-secrets}", "--batch-size", "50", "--flush-interval-s", "2.0", "--liveness-file", "/tmp/cogniboiler-liveness", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     environment:
       LOG_DIR: /app/logs
@@ -202,16 +255,14 @@ services:
       influxdb:
         condition: service_healthy
     healthcheck:
+      <<: *healthcheck
       test: ["CMD", "python", "-m", "cogniboiler_runtime.liveness", "/tmp/cogniboiler-liveness"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
 
   alert-manager:
     <<: *python-service
     build: { context: ., target: alert-manager }
     image: ${COGNIBOILER_REGISTRY:-cogniboiler}/alert-manager:${COGNIBOILER_TAG:-dev}
+    networks: [services, postgres]
     command: ["python", "-m", "alert_manager", "--mqtt-host", "mosquitto", "--mqtt-port", "1883", "--grpc-port", "50053", "--liveness-file", "/tmp/cogniboiler-liveness", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     environment:
       LOG_DIR: /app/logs
@@ -224,11 +275,8 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
+      <<: *healthcheck
       test: ["CMD", "python", "-m", "cogniboiler_runtime.liveness", "/tmp/cogniboiler-liveness"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
 
   opcua-server:
     <<: *python-service
@@ -236,6 +284,7 @@ services:
     # The certificate from dev-secrets names this host; OPC UA clients compare the two.
     hostname: opcua-server
     image: ${COGNIBOILER_REGISTRY:-cogniboiler}/opcua-server:${COGNIBOILER_TAG:-dev}
+    networks: [control, services]
     command: ["python", "-m", "opcua_server", "--mqtt-host", "mosquitto", "--plc-target", "plc-controller:50051", "--alarm-target", "alert-manager:50053", "--gateway-url", "http://api-gateway:8000", "--opc-port", "4840", "--metrics-port", "9100", "--metrics-host", "0.0.0.0"]
     ports:
       - "127.0.0.1:4840:4840"
@@ -251,16 +300,14 @@ services:
       plc-controller:
         condition: service_healthy
     healthcheck:
+      <<: *healthcheck
       test: ["CMD", "python", "-c", "import socket; socket.create_connection(('localhost', 4840), timeout=3).close()"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
 
   api-gateway:
     <<: *python-service
     build: { context: ., target: api-gateway }
     image: ${COGNIBOILER_REGISTRY:-cogniboiler}/api-gateway:${COGNIBOILER_TAG:-dev}
+    networks: [plant, control, services, postgres, influx, edge]
     # Reached only through the web service (nginx) and from inside the network: no host
     # port. It trusts X-Forwarded-For only from private addresses, which on this network
     # means nginx or another service of the stack.
@@ -300,11 +347,8 @@ services:
       alert-manager:
         condition: service_healthy
     healthcheck:
+      <<: *healthcheck
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
 
   # The console and the gateway's public routes on one origin: HTTP on 8080 and, with the
   # certificate from .env, HTTPS on 8443. The only way in from the host besides tools.
@@ -315,6 +359,7 @@ services:
       additional_contexts:
         nginx: ./infrastructure/nginx
     image: ${COGNIBOILER_REGISTRY:-cogniboiler}/web:${COGNIBOILER_TAG:-dev}
+    networks: [edge]
     ports:
       - "127.0.0.1:8080:8080"
       - "127.0.0.1:8443:8443"
@@ -325,15 +370,13 @@ services:
       api-gateway:
         condition: service_healthy
     healthcheck:
+      <<: *healthcheck
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   # Service metrics for the Platform dashboard.
   prometheus:
-    logging: *docker-logs
-    image: prom/prometheus:v3.8.0
+    <<: *infra
+    image: prom/prometheus:v3.8.0@sha256:d936808bdea528155c0154a922cd42fd75716b8bb7ba302641350f9f3eaeba09
     profiles: ["observability", "full"]
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=7d"]
     ports:
@@ -341,18 +384,28 @@ services:
     volumes:
       - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
-    restart: unless-stopped
+    networks: [plant, services, dashboards]
+    cap_drop: [ALL]
+    read_only: true
+    pids_limit: 512
+    mem_limit: 1g
     healthcheck:
+      <<: *healthcheck
       test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:9090/-/healthy"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
 volumes:
   mosquitto_data:
-  mosquitto_log:
   influxdb_data:
   influxdb_config:
   postgresql_data:
   grafana_data:
   prometheus_data:
+
+networks:
+  plant:
+  control:
+  services:
+  postgres:
+  influx:
+  edge:
+  dashboards:

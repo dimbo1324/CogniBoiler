@@ -27,6 +27,13 @@ account opcua-server MQTT_OPCUA_SERVER_PASSWORD
 account monitor MQTT_MONITOR_PASSWORD
 
 cp /cogniboiler/acl "$auth/acl"
+
+# The healthcheck's credentials, read by mosquitto_sub from $XDG_CONFIG_HOME/mosquitto_sub,
+# so the password is never on a command line inside the container.
+health=/run/cogniboiler-health
+mkdir -p "$health"
+chmod 0700 "$health"
+printf -- '-u monitor\n-P %s\n' "$MQTT_MONITOR_PASSWORD" > "$health/mosquitto_sub"
 chown -R mosquitto:mosquitto "$auth"
 chmod 0700 "$auth"
 chmod 0600 "$passwd" "$auth/acl"

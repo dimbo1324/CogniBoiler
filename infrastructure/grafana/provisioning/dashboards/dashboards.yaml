@@ -5,7 +5,8 @@ providers:
     orgId: 1
     folder: CogniBoiler
     type: file
-    disableDeletion: false
-    editable: true
+    # The JSON files are the source; changes made in the UI cannot be saved over them.
+    disableDeletion: true
+    allowUiUpdates: false
     options:
       path: /etc/grafana/dashboards
