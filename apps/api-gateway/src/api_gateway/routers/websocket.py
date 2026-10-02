@@ -31,7 +31,7 @@ import time
 from contextlib import suppress
 from typing import Any
 
-from cogniboiler_runtime import decode_json_object
+from cogniboiler_runtime import decode_json_object, now_ms
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
@@ -83,7 +83,7 @@ async def _audit_refusal(websocket: WebSocket, code: str, started: float) -> Non
             request_body_hash=None,
             response_status=401,
             duration_ms=int((time.perf_counter() - started) * 1000),
-            timestamp_ms=int(time.time() * 1000),
+            timestamp_ms=now_ms(),
             detail=None,
             outcome=f"refused: {code}",
         ),
@@ -164,7 +164,7 @@ class _Connection:
             elif kind == "auth":
                 await self._renew(message.get("access_token"))
             elif kind == "ping":
-                self._reply({"type": "pong", "ts_ms": int(time.time() * 1000)})
+                self._reply({"type": "pong", "ts_ms": now_ms()})
             else:
                 self._reply(
                     {
@@ -186,9 +186,8 @@ class _Connection:
     async def guard(self) -> None:
         """Close on token expiry, a closed session or a blocked account."""
         while True:
-            now_ms = int(time.time() * 1000)
             wait_s = min(
-                max((self.user.token_expires_at_ms - now_ms) / 1000.0, 0.0),
+                max((self.user.token_expires_at_ms - now_ms()) / 1000.0, 0.0),
                 REVALIDATE_INTERVAL_S,
             )
             await asyncio.sleep(wait_s)
@@ -196,7 +195,7 @@ class _Connection:
                 raise _CloseConnectionError(
                     CLOSE_TRY_AGAIN_LATER, "client too slow; reload state"
                 )
-            if int(time.time() * 1000) >= self.user.token_expires_at_ms:
+            if now_ms() >= self.user.token_expires_at_ms:
                 raise _CloseConnectionError(CLOSE_UNAUTHORIZED, "token expired")
             await self._revalidate()
 

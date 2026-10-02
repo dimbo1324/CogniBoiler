@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import re
-import time
 from functools import partial
 
-from cogniboiler_runtime import MILLISECONDS_PER_DAY
+from cogniboiler_runtime import MILLISECONDS_PER_DAY, now_ms
 from fastapi import APIRouter, Query
 
 from api_gateway.auth.rbac import ViewerUser
@@ -29,7 +28,7 @@ _FLUX_METADATA = frozenset(
 
 def resolve_range(start_ms: int | None, end_ms: int | None) -> tuple[int, int]:
     """A bounded time range: the last 15 minutes by default, at most 90 days."""
-    current_ms = int(time.time() * 1000)
+    current_ms = now_ms()
     end = end_ms if end_ms is not None else current_ms
     start = start_ms if start_ms is not None else end - DEFAULT_HISTORY_SPAN_MS
     if start >= end:

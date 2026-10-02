@@ -7,8 +7,7 @@ from dataclasses import dataclass
 
 import cogniboiler_pb2 as pb2
 import cogniboiler_pb2_grpc as pb2_grpc
-import grpc.aio
-from cogniboiler_observability import client_interceptors
+from cogniboiler_observability import observed_channel
 
 
 @dataclass
@@ -36,12 +35,14 @@ class AlarmGatewayConfig:
 
 
 # The telemetry stream has no deadline, and a paused plant sends nothing on it: without
-# pings a frozen engine or a silently dropped link would stall it for good. gRPC servers
-# refuse pings more often than every 5 minutes unless told otherwise, so 6 minutes; any
-# number of pings may go out while the stream is quiet.
+# pings a frozen engine or a silently dropped link would stall it for good. PhysicsService
+# accepts pings every 5 s with or without data, so the gateway pings every 30 s and drops
+# a link that has not answered within 5 s; any number of pings may go out while the
+# stream is quiet.
 PHYSICS_CHANNEL_OPTIONS: tuple[tuple[str, int], ...] = (
-    ("grpc.keepalive_time_ms", 360_000),
-    ("grpc.keepalive_timeout_ms", 20_000),
+    ("grpc.keepalive_time_ms", 30_000),
+    ("grpc.keepalive_timeout_ms", 5_000),
+    ("grpc.keepalive_permit_without_calls", 1),
     ("grpc.http2.max_pings_without_data", 0),
 )
 
@@ -56,11 +57,7 @@ class PhysicsGatewayClient:
 
     def __init__(self, config: PhysicsGatewayConfig) -> None:
         self.config = config
-        self._channel = grpc.aio.insecure_channel(
-            config.target,
-            options=PHYSICS_CHANNEL_OPTIONS,
-            interceptors=client_interceptors(),
-        )
+        self._channel = observed_channel(config.target, options=PHYSICS_CHANNEL_OPTIONS)
         self._stub = pb2_grpc.PhysicsServiceStub(self._channel)
 
     async def close(self) -> None:
@@ -145,9 +142,7 @@ class PLCGatewayClient:
 
     def __init__(self, config: PLCGatewayConfig) -> None:
         self.config = config
-        self._channel = grpc.aio.insecure_channel(
-            config.target, interceptors=client_interceptors()
-        )
+        self._channel = observed_channel(config.target)
         self._stub = pb2_grpc.PLCServiceStub(self._channel)
 
     async def close(self) -> None:
@@ -197,9 +192,7 @@ class AlarmGatewayClient:
 
     def __init__(self, config: AlarmGatewayConfig) -> None:
         self.config = config
-        self._channel = grpc.aio.insecure_channel(
-            config.target, interceptors=client_interceptors()
-        )
+        self._channel = observed_channel(config.target)
         self._stub = pb2_grpc.AlarmServiceStub(self._channel)
 
     async def close(self) -> None:

@@ -5,11 +5,8 @@ from __future__ import annotations
 import re
 
 import pytest
-from api_gateway.historian_query import (
-    build_history_query,
-    build_kpi_query,
-    flux_string,
-)
+from api_gateway.historian_query import build_history_query, build_kpi_query
+from cogniboiler_runtime import flux_string
 
 
 def test_range_bounds_are_integer_nanoseconds() -> None:
@@ -100,39 +97,6 @@ class TestNamesCannotLeaveTheirLiteral:
         # Four sources, each with its bucket still inside its own literal.
         assert kpi.count("from(bucket:") == 4
         assert kpi.count(flux_string('sensors"')) == 4
-
-    def test_the_escape_is_the_flux_spelling_of_a_string(self) -> None:
-        quote, backslash = '"', chr(92)
-        assert flux_string("sensors") == quote + "sensors" + quote
-        assert (
-            flux_string("a" + quote + "b")
-            == quote + "a" + backslash + quote + "b" + quote
-        )
-        assert flux_string("line" + chr(10)) == quote + "line" + backslash + "n" + quote
-        # Non-ASCII stays readable rather than turning into escapes.
-        assert flux_string("датчик") == quote + "датчик" + quote
-
-    @pytest.mark.parametrize(
-        ("value", "literal"),
-        [
-            ("sensors", '"sensors"'),
-            ('a"b', '"a\\"b"'),
-            ("a\\b", '"a\\\\b"'),
-            ("a${r._value}b", '"a\\${r._value}b"'),
-            ("cost $5", '"cost $5"'),
-            ("a\nb\rc\td", '"a\\nb\\rc\\td"'),
-        ],
-    )
-    def test_a_flux_literal_escapes_what_flux_would_read(
-        self, value: str, literal: str
-    ) -> None:
-        assert flux_string(value) == literal
-
-    @pytest.mark.parametrize("value", ["a\x01", "a\x00", "a\x7f", "a\x1bb"])
-    def test_other_control_characters_are_refused(self, value: str) -> None:
-        # Flux has no \uXXXX escape, which is what json.dumps writes for them.
-        with pytest.raises(ValueError, match="control character"):
-            flux_string(value)
 
     def test_an_interpolation_in_a_bucket_name_stays_text(self) -> None:
         flux = build_history_query(

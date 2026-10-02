@@ -18,6 +18,7 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Literal
 
+from cogniboiler_runtime import now_ms
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 from sqlalchemy import text
@@ -90,7 +91,7 @@ async def check_readiness(app: FastAPI) -> ReadinessResponse:
     return ReadinessResponse(
         status=status,
         components=list(components),
-        checked_at_ms=int(time.time() * 1000),
+        checked_at_ms=now_ms(),
     )
 
 

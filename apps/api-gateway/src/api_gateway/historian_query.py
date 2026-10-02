@@ -10,14 +10,18 @@ from __future__ import annotations
 
 import asyncio
 import math
-import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC
 from typing import Any, Protocol, cast
 
-from cogniboiler_runtime import MILLISECONDS_PER_DAY
+from cogniboiler_runtime import (
+    MILLISECONDS_PER_DAY,
+    NANOSECONDS_PER_MILLISECOND,
+    flux_string,
+    now_ms,
+)
 from influxdb_client.client.influxdb_client import InfluxDBClient as _InfluxDBClient
 
 
@@ -69,7 +73,6 @@ def _new_influx_client(
     return cast(InfluxDBClientLike, client)
 
 
-NANOSECONDS_PER_MILLISECOND = 1_000_000
 AGGREGATE_WINDOW_S = 60
 # Raw data answers ranges of up to a day; longer or older ranges read the aggregates.
 MAX_RAW_SPAN_MS = MILLISECONDS_PER_DAY
@@ -135,38 +138,6 @@ def choose_source(
     if start_ms >= raw_horizon_ms and end_ms - start_ms <= MAX_RAW_SPAN_MS:
         return HistorySource(config.bucket, aggregated=False)
     return HistorySource(config.aggregate_bucket, aggregated=True)
-
-
-_FLUX_ESCAPES: dict[str, str] = {
-    "\\": "\\\\",
-    '"': '\\"',
-    "\n": "\\n",
-    "\r": "\\r",
-    "\t": "\\t",
-}
-
-
-def flux_string(value: str) -> str:
-    """A Flux string literal, quoted and escaped.
-
-    Every name that reaches a query — a bucket from the environment, a measurement
-    and the field names from a request — goes through this. The routes validate them
-    too, but the guarantee belongs with the code that builds the query: a caller
-    added later cannot forget a check it never had to make. Flux reads `${...}` in a
-    string as an expression and knows only the escapes below; any other control
-    character is refused. The historian's `flux_string` is the same function.
-    """
-    parts: list[str] = []
-    for index, char in enumerate(value):
-        if char in _FLUX_ESCAPES:
-            parts.append(_FLUX_ESCAPES[char])
-        elif char == "$" and value[index + 1 : index + 2] == "{":
-            parts.append("\\$")
-        elif ord(char) < 0x20 or ord(char) == 0x7F:
-            raise ValueError(f"control character {char!r} in a Flux string")
-        else:
-            parts.append(char)
-    return '"' + "".join(parts) + '"'
 
 
 def _flux_range(start_ms: int, end_ms: int) -> str:
@@ -251,10 +222,6 @@ def build_kpi_query(
     )
 
 
-def _now_ms() -> int:
-    return int(time.time() * 1000)
-
-
 class HistorianQueryClient:
     """Query helper for historical telemetry stored in InfluxDB.
 
@@ -309,7 +276,7 @@ class HistorianQueryClient:
         fields: Sequence[str] = (),
     ) -> HistoryResult:
         """Rows of one measurement; the aggregates are never finer than a minute."""
-        source = choose_source(self.config, start_ms, end_ms, _now_ms())
+        source = choose_source(self.config, start_ms, end_ms, now_ms())
         if source.aggregated:
             window_s = max(window_s, AGGREGATE_WINDOW_S)
         flux = build_history_query(
@@ -328,7 +295,7 @@ class HistorianQueryClient:
         self, *, start_ms: int, end_ms: int
     ) -> tuple[HistorySource, dict[tuple[str, str], float]]:
         """KPI inputs over a range, keyed by (field, stat)."""
-        source = choose_source(self.config, start_ms, end_ms, _now_ms())
+        source = choose_source(self.config, start_ms, end_ms, now_ms())
         flux = build_kpi_query(
             bucket=source.bucket,
             start_ms=start_ms,

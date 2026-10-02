@@ -10,10 +10,10 @@ cleared faults are also recorded in scenario_runs with the user who caused them.
 from __future__ import annotations
 
 import logging
-import time
 
 import cogniboiler_pb2 as pb2
 import grpc
+from cogniboiler_runtime import now_ms
 from fastapi import APIRouter, Path, Query, Request
 from sqlalchemy import desc, func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -75,7 +75,7 @@ async def _record_runs(
     faults: list[pb2.FaultMsg] | None = None,
 ) -> None:
     """Store who changed the run; a failure is logged, the action already happened."""
-    now_ms = int(time.time() * 1000)
+    at_ms = now_ms()
     rows = [
         ScenarioRun(
             kind=kind,
@@ -87,7 +87,7 @@ async def _record_runs(
             simulation_time_s=status.simulation_time_s,
             user_id=user.id,
             username=user.username,
-            at_ms=now_ms,
+            at_ms=at_ms,
         )
         for item in (faults if faults is not None else [None])
     ]

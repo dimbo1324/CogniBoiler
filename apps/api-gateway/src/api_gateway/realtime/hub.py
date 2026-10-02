@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from cogniboiler_runtime import now_ms
+
 from api_gateway.observability import WEBSOCKET_DROPPED_FRAMES
 
 
@@ -133,7 +135,7 @@ class RealtimeHub:
                 "type": "data",
                 "channel": channel.value,
                 "kind": kind,
-                "ts_ms": int(time.time() * 1000),
+                "ts_ms": now_ms(),
                 "data": data,
             }
         )

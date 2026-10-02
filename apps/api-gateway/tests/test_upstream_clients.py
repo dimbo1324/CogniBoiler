@@ -18,7 +18,7 @@ import grpc
 import grpc.aio
 import pytest
 import pytest_asyncio
-from api_gateway import clients, historian_query
+from api_gateway import historian_query
 from api_gateway.clients import (
     AlarmGatewayClient,
     AlarmGatewayConfig,
@@ -199,14 +199,22 @@ class TestPhysicsClient:
             opened.append(options)
             return real_channel(target, **options)
 
-        monkeypatch.setattr(clients.grpc.aio, "insecure_channel", channel)
+        monkeypatch.setattr(grpc.aio, "insecure_channel", channel)
         client = PhysicsGatewayClient(PhysicsGatewayConfig(target="127.0.0.1:1"))
         await client.close()
         settings = dict(opened[0]["options"])
-        # gRPC servers refuse pings more often than every 5 minutes by default.
-        assert settings["grpc.keepalive_time_ms"] >= 300_000
-        assert 0 < settings["grpc.keepalive_timeout_ms"] <= 60_000
-        assert settings["grpc.http2.max_pings_without_data"] == 0
+        # PhysicsService accepts pings every 5 s with or without data; pinging more
+        # often on a paused plant's idle stream would earn GOAWAY "too_many_pings".
+        plant_min_ping_interval_ms = 5_000
+        assert settings == {
+            "grpc.keepalive_time_ms": 30_000,
+            "grpc.keepalive_timeout_ms": 5_000,
+            "grpc.keepalive_permit_without_calls": 1,
+            # Without it grpc-core stops pinging after two pings without data.
+            "grpc.http2.max_pings_without_data": 0,
+        }
+        assert settings["grpc.keepalive_time_ms"] >= plant_min_ping_interval_ms
+        assert len(opened[0]["interceptors"]) == 2
 
     async def test_every_call_reaches_the_service(self, upstreams: Upstreams) -> None:
         client = PhysicsGatewayClient(PhysicsGatewayConfig(target=upstreams.target))
@@ -367,7 +375,7 @@ def influx(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeInflux]:
         return fake
 
     monkeypatch.setattr(historian_query, "_new_influx_client", new_client)
-    monkeypatch.setattr(historian_query, "_now_ms", lambda: 30 * DAY_MS)
+    monkeypatch.setattr(historian_query, "now_ms", lambda: 30 * DAY_MS)
     yield fake
 
 

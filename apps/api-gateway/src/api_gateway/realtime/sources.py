@@ -27,6 +27,7 @@ from cogniboiler_runtime import (
     decode_json_object,
     subscribe_all,
 )
+from cogniboiler_runtime.topics import TOPIC_ALARM_CHANGES, TOPIC_PLC_EVENTS
 from pydantic import BaseModel
 
 from api_gateway.clients import PhysicsGatewayClient, PLCGatewayClient
@@ -37,8 +38,6 @@ from api_gateway.realtime.hub import Channel, RealtimeHub
 logger = logging.getLogger(__name__)
 
 RECONNECT_DELAY_S = 3.0
-TOPIC_PLC_EVENTS = "plc/events"
-TOPIC_ALARM_CHANGES = "alarms/changes"
 # Both topics are published at QoS 1 and matter to the operator's screen.
 EVENT_QOS = 1
 
