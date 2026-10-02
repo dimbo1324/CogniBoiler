@@ -13,6 +13,7 @@ itself to ``uv run`` when it is started by another interpreter.
 from __future__ import annotations
 
 import argparse
+import functools
 import shutil
 import sys
 from pathlib import Path
@@ -108,7 +109,7 @@ def encode(root: Path, config: dict[str, Any]) -> None:
         if not source.is_file():
             raise MediaError(f"{source.name} was not captured")
         attempt, data = first_that_fits(
-            attempts, lambda chosen, path=source: encode_png(path, chosen), budget
+            attempts, functools.partial(encode_png, source), budget
         )
         (out / str(shot["target"])).write_bytes(data)
         ok(

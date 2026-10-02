@@ -11,7 +11,7 @@ import platform
 import sys
 from pathlib import Path
 
-from scripts._toolkit.config import load_config, repo_root
+from scripts._toolkit.config import ScriptConfigError, load_config, repo_root
 from scripts._toolkit.console import fail, heading, info, ok, step, warn
 from scripts._toolkit.processes import TIMED_OUT, capture, find_tool
 
@@ -40,7 +40,10 @@ def _check_tools(
             label = "required" if required else "optional"
             warn(f"{name:<9} MISSING ({label}) — needed for {entry['needed_for']}")
             continue
-        version_args = [str(arg) for arg in entry["version_args"]]  # type: ignore[union-attr]
+        raw_args = entry["version_args"]
+        if not isinstance(raw_args, list):
+            raise ScriptConfigError(f"tools.json: {name}.version_args must be a list")
+        version_args = [str(arg) for arg in raw_args]
         code, output = capture([name, *version_args], root)
         if code == TIMED_OUT:
             warn(f"{name:<9} did not answer in time ({resolved})")

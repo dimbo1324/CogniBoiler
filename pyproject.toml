@@ -68,7 +68,7 @@ exclude = [
   "(^|[\\/])tests([\\/]|$)",
 ]
 explicit_package_bases = true
-files = ["apps", "shared"]
+files = ["apps", "shared", "scripts", "dev_tools_scripts_runner.py"]
 # The workspace packages are installed editable, through a .pth import hook mypy cannot
 # follow: without this they resolve to Any and every call into them goes unchecked.
 mypy_path = ["shared/observability/src", "shared/runtime/src"]

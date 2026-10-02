@@ -192,8 +192,8 @@ def main(argv: list[str]) -> int:
     if args.list:
         heading(f"restore — backups in {display_path(base, root)}")
         folders = backup_folders(base)
-        for folder in folders:
-            info(folder.name)
+        for listed in folders:
+            info(listed.name)
         if not folders:
             info("none")
         return 0

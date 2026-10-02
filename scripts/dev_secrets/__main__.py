@@ -7,6 +7,7 @@ so the output is safe to paste anywhere.
 from __future__ import annotations
 
 import argparse
+import functools
 import secrets
 import sys
 from collections.abc import Callable
@@ -128,8 +129,8 @@ def build_generators(
         "rsa_public_pem": lambda: rsa_part(1),
     }
     for profile in profiles:
-        makers[f"cert:{profile}"] = lambda p=profile: certificate_part(p, 0)
-        makers[f"key:{profile}"] = lambda p=profile: certificate_part(p, 1)
+        makers[f"cert:{profile}"] = functools.partial(certificate_part, profile, 0)
+        makers[f"key:{profile}"] = functools.partial(certificate_part, profile, 1)
     unknown = sorted(set(kinds.values()) - makers.keys())
     if unknown:
         raise EnvFileError(f"unknown generator kind(s) in secrets.json: {unknown}")
