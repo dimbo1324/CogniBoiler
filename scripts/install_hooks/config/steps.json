@@ -3,7 +3,7 @@
   "steps": [
     {
       "label": "pre-commit install --install-hooks",
-      "argv": ["uv", "run", "--no-sync", "pre-commit", "install", "--install-hooks"],
+      "argv": ["uv", "run", "--no-sync", "python", "-m", "pre_commit", "install", "--install-hooks"],
       "required": true
     }
   ]

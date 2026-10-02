@@ -16,9 +16,18 @@ class InstallHooksTest(unittest.TestCase):
         with mock.patch.object(install_hooks, "run_steps", return_value=0) as run_steps:
             self.assertEqual(install_hooks.main([]), 0)
         (step,) = run_steps.call_args.args[0]
-        self.assertEqual(step["argv"][:3], ["uv", "run", "--no-sync"])
         self.assertEqual(
-            step["argv"][-3:], ["pre-commit", "install", "--install-hooks"]
+            step["argv"],
+            [
+                "uv",
+                "run",
+                "--no-sync",
+                "python",
+                "-m",
+                "pre_commit",
+                "install",
+                "--install-hooks",
+            ],
         )
 
 
