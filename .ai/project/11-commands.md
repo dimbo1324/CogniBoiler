@@ -12,8 +12,7 @@ python dev_tools_scripts_runner.py <name>   # run one; `help` prints the manuals
 ```
 
 The orchestrator is stdlib-only on any Python 3.14; a script needing a project package
-hands itself to `uv run`. With no arguments and no terminal it runs `quality-gate`, so an
-agent or CI can call it safely.
+hands itself to `uv run`. With no arguments and no terminal it runs `quality-gate`.
 
 | Script | Purpose |
 |---|---|
@@ -33,6 +32,7 @@ agent or CI can call it safely.
 | `install-hooks` | the pre-commit hook, once per clone |
 | `clean-caches` (`--apply`) | **deletes files**; a dry run unless `--apply` |
 | `selftest` | the scripts' own tests |
+| `test-names` | unique test module names |
 
 **Standing duty — keep the scripts true.** A task that changes how the project is built,
 checked, formatted, run or cleaned updates the matching script in the same task, and runs

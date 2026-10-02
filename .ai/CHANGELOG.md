@@ -6,6 +6,30 @@ History of changes to the AI assistant rule system (`.ai/`, `CLAUDE.md`, `AGENTS
 
 Format: date, what changed, why, who decided. Newest first.
 
+## 2026-10-01 — The command rules after the audit fixes
+
+**What changed.** `project/11-commands.md` lists the new gate check `test-names`; one
+sentence that explained why the bare orchestrator runs `quality-gate` was dropped to keep
+`AGENTS.md` inside its budget (1 byte to spare now). `project/14-command-reference.md`
+(extended tier, so only its essence reaches `AGENTS.md`) describes the transactional
+`restore` with its manifest check and `--force`, the database step of `smoke` and
+`--skip-database`, owner-only `.env` and backups, the seven Compose networks, container
+hardening, digest-pinned images, Grafana 13 with its alert rules, the pinned `/docs`
+assets, the host-run `--host`/`--grpc-host` defaults, the required `DATABASE_URL` and the
+SIGTERM shutdown. `.claude/agents/cogniboiler-physics-control.md` and its mirror
+`.codex/agents/physics-control.toml` replace a stale debt note (an `xfail` and PID code in
+physics, both long gone) with the current debt: Д17 and the E-Stop latch that does not
+survive a PLC restart. `.claude/settings.json` narrows the allowed `docker compose config`
+to `--no-interpolate`/`--services` (the unrestricted form rendered every `.env` value into
+the transcript) and adds deny entries; none was removed.
+
+**Why.** Facts that changed in the audit remediation of 2026-09-27…2026-10-01 (owner
+instruction of 2026-09-27); stale facts and a new routine job are corrections
+`universal/08-rules-evolution.md` allows without approval. Tightening a permission is not a
+loosening.
+
+**Decided by.** Agent, as part of the owner-requested audit remediation.
+
 ## 2026-09-26 — `readme-media` in the commands module, Д17 in the command reference
 
 **What changed.** `project/11-commands.md` lists `readme-media` (the README's screenshots

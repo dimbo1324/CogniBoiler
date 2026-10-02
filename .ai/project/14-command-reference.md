@@ -24,8 +24,17 @@ own container, so no password or token reaches a command line; the folder holds
 `postgres.sql`, `influxdb/` and a manifest, and `backups/` is untracked. `restore` replaces
 the live data and asks first (`--yes` skips the question): it stops api-gateway,
 alert-manager, historian and opcua-server, restores both databases and starts them again —
-run `smoke` afterwards. The InfluxDB restore is `--full`, so the backup's tokens must match
-the `.env` the stack runs with; a backup and a `dev-secrets` rerun do not mix.
+run `smoke` afterwards. The PostgreSQL restore is one transaction: a failing step rolls it
+back, skips the rest and restarts the services. A folder without its manifest, or one that
+names another project, is refused unless `--force` is given. The InfluxDB restore is
+`--full`, so the backup's tokens must match the `.env` the stack runs with; a backup and a
+`dev-secrets` rerun do not mix. `.env` and backups are written for their owner only (0600,
+0700) on POSIX.
+
+`smoke` ends with a database step: inside the PostgreSQL container, in a transaction that
+is rolled back, it proves the gateway role cannot update, delete or truncate `audit_log`
+and that the triggers refuse even the owner. `--skip-database` leaves it out (a stack that
+is not the local `cogniboiler` project).
 
 The gateway seeds demo users `admin`, `engineer`, `operator` and `viewer` with the
 `DEMO_*_PASSWORD` values from `.env`. A one-shot `migrate` service applies Alembic before
@@ -39,20 +48,32 @@ and the console; `observability` is Prometheus, Grafana and InfluxDB; `full` is 
 target per Python service, `apps/web/Dockerfile` for the console. With
 `COGNIBOILER_REGISTRY=ghcr.io/dimbo1324/cogniboiler` and `COGNIBOILER_TAG=vX.Y.Z`,
 `stack up --no-build` pulls a published release instead of building. CI publishes the
-images on `main` and on tags `v*`, and a tag `v*` also gets a GitHub release.
+images on `main` and on tags `v*` — pushed by digest, scanned, then tagged — and a tag `v*`
+also gets a GitHub release. Base and third-party images are pinned by digest, so the first
+`stack up` after a pin changes needs the internet once.
+
+Seven Compose networks keep each container next to what it talks to; only plc-controller,
+the gateway, the broker and Prometheus share `plant` with physics-engine. Every container
+runs with `no-new-privileges` and memory and process limits; the services, the console,
+Grafana and Prometheus drop every capability and run on a read-only root with a `tmpfs`
+`/tmp`. The physics healthcheck requires the runtime status `running`.
+`infrastructure/checks/compose_exposure.py` (CI) and the scripts' tests check that every
+published port binds 127.0.0.1, no gRPC port is published and every long-running service
+has a healthcheck. Each asyncio service stops on SIGTERM through `run_service` and logs
+`Stopping on SIGTERM`.
 
 | Component | Host port | Notes |
 |---|---|---|
 | Mosquitto (MQTT) | 1883 | one account per service (`MQTT_<SERVICE>_PASSWORD` in `.env`) and a topic ACL; no anonymous clients, no WebSocket listener |
 | InfluxDB 2 | 8086 | org and raw bucket (7 days) from `.env`; `sensors_1m` one-minute aggregates (90 days), set up by the historian |
 | PostgreSQL 16 | 5432 | users, roles, sessions, append-only audit log, scenario runs; alarm lifecycle tables owned by alert-manager; the services connect as `cogniboiler_gateway` and `cogniboiler_alarms`, only `migrate` as the owner |
-| Grafana | 3000 | provisioned datasources InfluxDB (uid `influxdb`) and Prometheus (uid `prometheus`); dashboards Process, Efficiency and emissions, Alarms, Platform |
+| Grafana 13 | 3000 | read-only provisioned datasources InfluxDB (uid `influxdb`) and Prometheus (uid `prometheus`); dashboards Process, Efficiency and emissions, Alarms, Platform; alert rules for a failed audit write and a reused refresh token; no calls to grafana.com |
 | Prometheus | 9090 | profiles `observability` and `full`; scrapes `/metrics` of every service, 7 days |
-| physics-engine gRPC | — | `PhysicsService` on :50052 inside the Compose network only: publishing it would open a path to the valves around the PLC |
-| plc-controller gRPC | — | `PLCService` on :50051 inside the Compose network only |
-| alert-manager gRPC | — | `AlarmService` on :50053 inside the Compose network only |
+| physics-engine gRPC | — | `PhysicsService` on :50052 inside the `plant` network only: publishing it would open a path to the valves around the PLC; it authenticates no caller |
+| plc-controller gRPC | — | `PLCService` on :50051 inside the `plant` and `control` networks only; it authenticates no caller |
+| alert-manager gRPC | — | `AlarmService` on :50053 inside the `services` network only |
 | opcua-server | 4840 | `opc.tcp://localhost:4840/cogniboiler`; endpoints `None` (anonymous read; a password only encrypted with the server certificate) and `Basic256Sha256/SignAndEncrypt`; methods need a gateway user |
-| web (nginx) | 8080 / 8443 | the console and the gateway's `/api`, `/auth`, `/health`, `/ready`, `/ws`, `/docs`; HTTPS with the self-signed `WEB_TLS_*` certificate |
+| web (nginx) | 8080 / 8443 | the console and the gateway's `/api`, `/auth`, `/health`, `/ready`, `/ws`, `/docs`; HTTPS with the self-signed `WEB_TLS_*` certificate; strict CSP without `unsafe-inline`; `/docs` and `/redoc` load pinned CDN files with SRI and need the internet |
 | api-gateway | — | :8000 inside the network only (and its `/metrics`); reach it through nginx |
 | web console | 5173 (dev) | Vite dev server on 127.0.0.1 proxies `/api`, `/auth`, `/health` and `/ws` to the gateway |
 
@@ -73,7 +94,7 @@ Every service logs one JSON object per line (`timestamp` in UTC, `level`, `servi
 `logger`, `event`, `correlation_id`); `LOG_FORMAT=console` gives readable lines and
 `LOG_LEVEL` the threshold. `LOG_DIR` adds a JSON file `<LOG_DIR>/<service>.log`, rotated by
 size (`LOG_FILE_MAX_BYTES`, `LOG_FILE_BACKUPS`): the Compose stack sets it and mounts the
-repository's `logs/`, which `stack up` creates; from the host, run a service with
+repository's `logs/`, which `stack up` creates (mode 1777 on POSIX); from the host, run a service with
 `LOG_DIR=logs` to write there too. Each serves Prometheus metrics: the gateway at `/metrics` on its
 own port, the others on `--metrics-port` (host defaults 9101 physics, 9102 PLC, 9103
 historian, 9104 alert-manager, 9105 OPC UA, bound to 127.0.0.1; 9100 on all interfaces in
@@ -81,7 +102,10 @@ Compose). A caller's `X-Correlation-ID` (or a new id) follows a request through 
 metadata and comes back in the response header.
 
 A host-run service signs in to the broker with `MQTT_USERNAME` (default: its name) and
-`MQTT_PASSWORD` from its environment; the gateway reads `.env` for its settings. A host-run
+`MQTT_PASSWORD` from its environment; the gateway reads `.env` for its settings and needs
+`DATABASE_URL` (there is no default). Host runs listen on 127.0.0.1 unless told otherwise:
+physics-engine `--grpc-host`, plc-controller and the gateway `--host`; Compose passes
+`0.0.0.0` inside its private networks. A host-run
 gateway listens on :8000, so point the console at it with `GATEWAY_URL=http://127.0.0.1:8000`. alert-manager refuses to
 start until the migrations have created its tables (`stack up --infra-only` runs `migrate`
 only with the full stack; from the host, apply `alembic upgrade head` first).
