@@ -14,8 +14,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -136,6 +136,8 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
+!.env.example
 .envrc
 .venv
 env/
@@ -354,7 +356,7 @@ out/
 Session.vim
 Sessionx.vim
 .netrwhist
-tags
+/tags
 [._]*.un~
 
 # Emacs
@@ -434,8 +436,9 @@ certs/*.key
 .claude/settings.local.json
 .codex/config.local.toml
 
-# Dependency audit reports (audit-deps)
+# Dependency audit reports (audit-deps) and image scan reports (CI Trivy)
 audit-reports/
+image-scan/
 
 # Database backups (backup / restore)
 backups/
