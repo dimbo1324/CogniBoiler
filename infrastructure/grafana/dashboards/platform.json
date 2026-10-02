@@ -1,7 +1,7 @@
 {
   "uid": "cogniboiler-platform",
   "title": "Platform",
-  "description": "Service health and load from Prometheus (requests, latency, step and scan times, gRPC, MQTT, historian writes, alarms), then availability and data flow recorded in InfluxDB.",
+  "description": "Service health and load from Prometheus (requests, latency, step and scan times, gRPC, MQTT, historian writes, alarms), then availability and data flow recorded in InfluxDB, and the security and failure signals.",
   "tags": [
     "cogniboiler",
     "platform"
@@ -1038,6 +1038,365 @@
         "type": "influxdb",
         "uid": "influxdb"
       }
+    },
+    {
+      "type": "row",
+      "title": "Security and failure signals (Prometheus)",
+      "id": 111,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 61
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Security signals in the last hour",
+      "description": "Red above zero. Audit records that could not be stored (the action already happened), and replayed refresh tokens (a stolen-token signal). Both also have a Grafana alert rule.",
+      "id": 112,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 62
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(gateway_audit_write_failures_total[1h])) or vector(0)",
+          "legendFormat": "audit write failures"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(gateway_refresh_rejections_total{code=\"auth.refresh_reused\"}[1h])) or vector(0)",
+          "legendFormat": "refresh tokens reused"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Plant link and PLC losses",
+      "description": "The PLC's plant state stream (red when down), and alarm or event messages the PLC dropped in the last hour.",
+      "id": 113,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 62
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "plant link up"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "green",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "min(plc_plant_link_up)",
+          "legendFormat": "plant link up"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(plc_publish_dropped_total[1h])) or vector(0)",
+          "legendFormat": "PLC messages dropped"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Refusals and failures per minute",
+      "description": "Sign-in refusals by reason, refused refreshes by code, physics commands refused, alarm messages rejected and snapshot keys without a condition.",
+      "id": 114,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 66
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (reason) (rate(gateway_login_failures_total[5m])) * 60",
+          "legendFormat": "sign-in refused: {{reason}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (code) (rate(gateway_refresh_rejections_total[5m])) * 60",
+          "legendFormat": "refresh refused: {{code}}"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (rpc) (rate(physics_commands_refused_total[5m])) * 60",
+          "legendFormat": "physics refused: {{rpc}}"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(alarm_messages_rejected_total[5m])) * 60",
+          "legendFormat": "alarm messages rejected"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(alarm_snapshot_unmatched_keys_total[5m])) * 60",
+          "legendFormat": "snapshot keys unmatched"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Service faults per minute",
+      "description": "PLC scans broken by a fault, failed physics steps, failed gateway calls to upstream services, and WebSocket closes by code.",
+      "id": 115,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 66
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(plc_scan_failures_total[5m])) * 60",
+          "legendFormat": "PLC scan failures"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(physics_runtime_failures_total[5m])) * 60",
+          "legendFormat": "physics step failures"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (service, code) (rate(gateway_upstream_failures_total[5m])) * 60",
+          "legendFormat": "upstream {{service}}: {{code}}"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (code) (rate(gateway_websocket_closes_total[5m])) * 60",
+          "legendFormat": "WebSocket close {{code}}"
+        }
+      ]
     }
   ]
 }

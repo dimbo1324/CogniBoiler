@@ -1,0 +1,69 @@
+apiVersion: 1
+
+# Security signals from the gateway, evaluated on the Prometheus datasource. They show in
+# Grafana's alert list; no contact point is provisioned, so nothing is sent anywhere.
+groups:
+  - orgId: 1
+    name: Security signals
+    folder: CogniBoiler
+    interval: 1m
+    rules:
+      - uid: cogniboiler-audit-write-failures
+        title: Audit records could not be stored
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: sum(increase(gateway_audit_write_failures_total[1h])) or vector(0)
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: The gateway could not store an audit record in the last hour.
+          description: >-
+            The action itself went through; its record is only in the gateway's error log
+            (gateway_audit_write_failures_total). Check PostgreSQL and the gateway log.
+        labels:
+          severity: critical
+
+      - uid: cogniboiler-refresh-token-reuse
+        title: A refresh token was replayed
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: sum(rate(gateway_refresh_rejections_total{code="auth.refresh_reused"}[5m])) or vector(0)
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: A rotated refresh token was used again in the last 5 minutes.
+          description: >-
+            A replayed refresh token is a stolen-token signal; the gateway revoked that
+            session family. Look up the audit log for auth.refresh_reused.
+        labels:
+          severity: warning
