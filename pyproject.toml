@@ -1,12 +1,11 @@
 [project]
 authors = [{name = "dimbo1324", email = "dimaprihodko180@gmail.com"}]
 dependencies = []
-description = "AI-Driven Digital Twin Platform for steam boiler and turbine"
+description = "Digital twin of a 300 MW gas-fired steam unit: boiler, turbine and a virtual PLC"
 keywords = [
   "digital-twin",
   "industrial-iot",
   "scada",
-  "machine-learning",
   "opc-ua",
 ]
 license = {file = "LICENSE"}
