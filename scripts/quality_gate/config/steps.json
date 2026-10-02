@@ -1,12 +1,12 @@
 {
-  "_comment": "The gate CI runs verbatim. uv sync --locked comes first: every later step runs with --no-sync against exactly what uv.lock declares, and a lock file that drifted from pyproject.toml fails here by name. Steps with requires_path are skipped locally when that path is absent and fail under CI.",
+  "_comment": "The gate CI runs verbatim. uv sync --locked comes first: every later step runs with --no-sync against exactly what uv.lock declares, and a lock file that drifted from pyproject.toml fails here by name. Steps with requires_path are skipped locally when that path is absent and fail under CI. The pytest step measures line coverage of every service and shared package ([tool.coverage.run] source in pyproject.toml) and fails below the floor in --cov-fail-under; --quick has no test step, so it stays fast.",
   "steps": [
     { "label": "environment matches uv.lock", "argv": ["uv", "sync", "--all-packages", "--locked"], "required": true },
     { "label": "ruff format --check", "argv": ["uv", "run", "--no-sync", "python", "-m", "ruff", "format", "--check", "."], "required": true },
     { "label": "ruff check", "argv": ["uv", "run", "--no-sync", "python", "-m", "ruff", "check", "."], "required": true },
     { "label": "mypy (strict)", "argv": ["uv", "run", "--no-sync", "python", "-m", "mypy"], "required": true },
     { "label": "pytest module names are unique", "argv": ["python", "-m", "scripts.check_test_names"], "required": true },
-    { "label": "service test suites (pytest)", "argv": ["uv", "run", "--no-sync", "python", "-m", "pytest", "-q", "--no-cov"], "required": true },
+    { "label": "service test suites (pytest)", "argv": ["uv", "run", "--no-sync", "python", "-m", "pytest", "-q", "--cov", "--cov-report=term-missing", "--cov-fail-under=95"], "required": true },
     { "label": "protobuf stubs match shared/proto", "argv": ["uv", "run", "--no-sync", "python", "-m", "scripts.generate_proto", "--check"], "required": true },
     { "label": "OpenAPI schema and console types match the gateway", "argv": ["uv", "run", "--no-sync", "python", "-m", "scripts.generate_openapi", "--check"], "required": true },
     { "label": "AGENTS.md in sync with .ai/", "argv": ["python", "-m", "scripts.sync_agents", "--check"], "required": true },

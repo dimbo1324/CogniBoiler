@@ -8,6 +8,7 @@ Run with:  python -m unittest discover -s scripts -t .
 
 from __future__ import annotations
 
+import tomllib
 import unittest
 from typing import Any
 from unittest import mock
@@ -77,6 +78,53 @@ class StepListTest(unittest.TestCase):
         assert step is not None
         self.assertEqual(step["argv"][:3], ["uv", "run", "--no-sync"])
         self.assertIn("error", step["argv"])
+
+
+class CoverageFloorTest(unittest.TestCase):
+    """Coverage was measured by nobody: the gate passed --no-cov, and the bare --cov in
+    the root addopts turned any --cov=<pkg> into "measure everything"."""
+
+    def setUp(self) -> None:
+        step = _find(CONFIG["steps"], "pytest")
+        assert step is not None
+        self.argv: list[str] = list(step["argv"])
+        pyproject = gate.repo_root() / "pyproject.toml"
+        self.settings = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+
+    def test_the_test_step_measures_coverage(self) -> None:
+        self.assertNotIn("--no-cov", self.argv)
+        self.assertIn("--cov", self.argv)
+
+    def test_the_test_step_enforces_a_floor_of_at_least_95_percent(self) -> None:
+        floors = [
+            float(arg.split("=", 1)[1])
+            for arg in self.argv
+            if arg.startswith("--cov-fail-under=")
+        ]
+        self.assertEqual(len(floors), 1, self.argv)
+        self.assertGreaterEqual(floors[0], 95.0)
+
+    def test_the_measured_code_is_every_service_and_shared_package(self) -> None:
+        sources = self.settings["tool"]["coverage"]["run"]["source"]
+        self.assertEqual(
+            set(sources),
+            {
+                "physics_engine",
+                "plc_controller",
+                "api_gateway",
+                "historian",
+                "alert_manager",
+                "opcua_server",
+                "cogniboiler_observability",
+                "cogniboiler_runtime",
+            },
+        )
+
+    def test_an_explicit_cov_option_is_not_overridden_by_the_defaults(self) -> None:
+        addopts = str(
+            self.settings["tool"]["pytest"]["ini_options"].get("addopts", "")
+        ).split()
+        self.assertNotIn("--cov", addopts)
 
 
 class MainTest(unittest.TestCase):

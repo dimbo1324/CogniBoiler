@@ -83,6 +83,25 @@ ignore_errors = true
 module = ["cogniboiler_pb2", "cogniboiler_pb2_grpc"]
 
 [tool.pytest.ini_options]
-addopts = "--cov --cov-report=term-missing"
+# No --cov here: a bare --cov in addopts made any --cov=<pkg> on the command line mean
+# "measure everything". The gate's test step measures coverage and enforces its floor.
 asyncio_mode = "auto"
 testpaths = ["apps", "shared/observability/tests", "shared/runtime/tests"]
+
+[tool.coverage.run]
+# What a bare --cov measures: every service and shared package, never-imported modules
+# included. An explicit --cov=<pkg> replaces this list.
+source = [
+  "physics_engine",
+  "plc_controller",
+  "api_gateway",
+  "historian",
+  "alert_manager",
+  "opcua_server",
+  "cogniboiler_observability",
+  "cogniboiler_runtime",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
