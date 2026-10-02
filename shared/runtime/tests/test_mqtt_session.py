@@ -19,6 +19,7 @@ from cogniboiler_runtime.mqtt import (
     consume,
     reconnect_jitter,
     subscribe_all,
+    unsubscribe_all,
 )
 
 type Work = Callable[[FakeClient], Awaitable[None]]
@@ -265,6 +266,18 @@ class TestSubscribeAll:
 
         with pytest.raises(PermissionError):
             await subscribe_all(Refusing(), (("alerts/#", 1),))
+
+
+class TestUnsubscribeAll:
+    async def test_every_retired_filter_is_dropped_in_order(self) -> None:
+        dropped: list[str] = []
+
+        class Unsubscribing:
+            async def unsubscribe(self, topic: str) -> None:
+                dropped.append(topic)
+
+        await unsubscribe_all(Unsubscribing(), ("sensors/#", "status/+"))
+        assert dropped == ["sensors/#", "status/+"]
 
 
 class Delivery:

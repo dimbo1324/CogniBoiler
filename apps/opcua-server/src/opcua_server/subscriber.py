@@ -12,7 +12,6 @@ Topic contract:
                                simulation, instrument qualities
     sensors/boiler           ← BoilerStateMsg  (measured)
     sensors/turbine          ← TurbineStateMsg (measured)
-    sensors/system/heartbeat ← UTF-8 timestamp (skipped)
     alarms/changes           ← JSON alarm change: the alarm projection refreshes at once;
                                one that does not parse as the contract is skipped
 
@@ -41,7 +40,6 @@ from cogniboiler_observability import MQTT_RECEIVED
 from cogniboiler_runtime import DEFAULT_RECONNECT_DELAY_S, MqttSession, consume
 from cogniboiler_runtime.contracts import AlarmChangeMessage, ContractError
 from cogniboiler_runtime.topics import (
-    FILTER_SENSORS,
     TOPIC_ALARM_CHANGES,
     TOPIC_BOILER,
     TOPIC_HEARTBEAT,
@@ -63,7 +61,9 @@ from opcua_server.server import QUALITY_GOOD, CogniBoilerOPCServer
 logger = logging.getLogger(__name__)
 
 SUBSCRIPTIONS: tuple[tuple[str, int], ...] = (
-    (FILTER_SENSORS, 0),
+    (TOPIC_PLANT, 0),
+    (TOPIC_BOILER, 0),
+    (TOPIC_TURBINE, 0),
     (TOPIC_ALARM_CHANGES, 1),
 )
 RECONNECT_DELAY_S: float = DEFAULT_RECONNECT_DELAY_S

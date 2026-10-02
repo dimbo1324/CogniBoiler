@@ -63,6 +63,23 @@ async def subscribe_all(
         await client.subscribe(topic, qos=qos)
 
 
+class SupportsUnsubscribe(Protocol):
+    """The part of an MQTT client `unsubscribe_all` needs."""
+
+    async def unsubscribe(self, topic: str) -> object: ...
+
+
+async def unsubscribe_all(client: SupportsUnsubscribe, filters: Sequence[str]) -> None:
+    """Drop filters a persistent session may still hold from an older release.
+
+    The broker keeps a persistent session's subscriptions across reconnects and
+    restarts; a wildcard left there next to the exact topics that replaced it would
+    deliver every message twice.
+    """
+    for topic in filters:
+        await client.unsubscribe(topic)
+
+
 class SupportsMessage(Protocol):
     """The part of a delivered MQTT message `consume` reads."""
 

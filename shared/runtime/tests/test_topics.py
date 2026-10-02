@@ -5,7 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from alert_manager.subscriber import SUBSCRIPTIONS as ALERT_MANAGER_SUBSCRIPTIONS
 from cogniboiler_runtime import topics
+from historian.subscriber import SUBSCRIPTIONS as HISTORIAN_SUBSCRIPTIONS
+from opcua_server.subscriber import SUBSCRIPTIONS as OPCUA_SUBSCRIPTIONS
 
 ACL = Path(__file__).parents[3] / "infrastructure" / "docker" / "mosquitto" / "acl"
 
@@ -27,17 +30,15 @@ PUBLISHES: dict[str, tuple[str, ...]] = {
     ),
     "alert-manager": (topics.TOPIC_ALARM_CHANGES,),
 }
+# What each service subscribes to, read from its code where the list is a constant (the
+# gateway builds its two routes inside the realtime source).
 SUBSCRIBES: dict[str, tuple[str, ...]] = {
-    "alert-manager": (topics.FILTER_ALERTS,),
-    "historian": (
-        topics.FILTER_SENSORS,
-        topics.TOPIC_ALARM_CHANGES,
-        topics.TOPIC_PLC_EVENTS,
-        topics.FILTER_STATUS,
-    ),
+    "alert-manager": tuple(topic for topic, _ in ALERT_MANAGER_SUBSCRIPTIONS),
+    "historian": tuple(topic for topic, _ in HISTORIAN_SUBSCRIPTIONS),
     "api-gateway": (topics.TOPIC_PLC_EVENTS, topics.TOPIC_ALARM_CHANGES),
-    "opcua-server": (topics.FILTER_SENSORS, topics.TOPIC_ALARM_CHANGES),
+    "opcua-server": tuple(topic for topic, _ in OPCUA_SUBSCRIPTIONS),
 }
+WILDCARDS = ("#", "+")
 
 
 def grants() -> dict[str, list[tuple[str, str]]]:
@@ -150,3 +151,22 @@ def test_the_acl_lets_each_subscriber_read_what_it_subscribes_to(
     ]
     for topic_filter in filters:
         assert any(covers(pattern, topic_filter) for pattern in readable), topic_filter
+    # Exact topics both ways: a wildcard read right would hand a topic added later under
+    # the same prefix to this account without any ACL review.
+    assert sorted(readable) == sorted(filters)
+    assert not any(level in WILDCARDS for f in filters for level in f.split("/"))
+
+
+def test_an_account_that_subscribes_to_nothing_reads_nothing() -> None:
+    for account, granted in grants().items():
+        if account in SUBSCRIBES or account == "monitor":
+            continue
+        assert [access for access, _ in granted if access != "write"] == [], account
+
+
+def test_the_healthcheck_account_reads_only_the_broker_statistics() -> None:
+    assert grants()["monitor"] == [("read", "$SYS/#")]
+
+
+def test_every_service_account_is_listed_here() -> None:
+    assert set(grants()) == set(PUBLISHES) | set(SUBSCRIBES) | {"monitor"}

@@ -12,10 +12,10 @@ Topic contract:
     sensors/plant            ← PlantStatusMsg  (protobuf): plant status, KPIs, labels
     sensors/boiler           ← BoilerStateMsg  (protobuf)
     sensors/turbine          ← TurbineStateMsg (protobuf)
-    sensors/system/heartbeat ← UTF-8 timestamp (skipped)
     alarms/changes           ← JSON alarm after a state change (alert-manager)
     plc/events               ← JSON PLC event (plc-controller)
-    status/<service>         ← retained online / offline
+    status/physics-engine,   ← retained online / offline
+    status/plc-controller
 
 Boiler and turbine values are tagged with the scenario of the latest plant status;
 scenario loads and fault changes are written as simulation events. The session is
@@ -38,6 +38,7 @@ from cogniboiler_runtime import (
     MqttSession,
     consume,
     decode_json_object,
+    unsubscribe_all,
 )
 from cogniboiler_runtime.topics import (
     FILTER_SENSORS,
@@ -48,6 +49,8 @@ from cogniboiler_runtime.topics import (
     TOPIC_HEARTBEAT,
     TOPIC_PLANT,
     TOPIC_PLC_EVENTS,
+    TOPIC_STATUS_PHYSICS_ENGINE,
+    TOPIC_STATUS_PLC_CONTROLLER,
     TOPIC_TURBINE,
 )
 from google.protobuf.message import DecodeError
@@ -71,11 +74,16 @@ from historian.writer import (
 logger = logging.getLogger(__name__)
 
 SUBSCRIPTIONS: tuple[tuple[str, int], ...] = (
-    (FILTER_SENSORS, 0),
+    (TOPIC_PLANT, 0),
+    (TOPIC_BOILER, 0),
+    (TOPIC_TURBINE, 0),
     (TOPIC_ALARM_CHANGES, 1),
     (TOPIC_PLC_EVENTS, 1),
-    (FILTER_STATUS, 1),
+    (TOPIC_STATUS_PHYSICS_ENGINE, 1),
+    (TOPIC_STATUS_PLC_CONTROLLER, 1),
 )
+# What this persistent session subscribed to before it named its topics.
+RETIRED_FILTERS: tuple[str, ...] = (FILTER_SENSORS, FILTER_STATUS)
 RECONNECT_DELAY_S: float = DEFAULT_RECONNECT_DELAY_S
 MAX_JSON_BYTES: int = 64 * 1024
 INCOMING_QUEUE_LIMIT: int = 10_000
@@ -261,6 +269,7 @@ class HistorianSubscriber:
         )
 
     async def _consume(self, client: Client) -> None:
+        await unsubscribe_all(client, RETIRED_FILTERS)
         await consume(client, SUBSCRIPTIONS, self._handle_message)
 
     async def run(self) -> None:

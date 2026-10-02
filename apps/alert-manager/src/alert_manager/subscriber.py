@@ -19,8 +19,18 @@ from typing import Protocol
 
 from aiomqtt import Client
 from cogniboiler_observability import MQTT_RECEIVED
-from cogniboiler_runtime import DEFAULT_RECONNECT_DELAY_S, MqttSession, subscribe_all
-from cogniboiler_runtime.topics import FILTER_ALERTS, TOPIC_ALERT_SNAPSHOT
+from cogniboiler_runtime import (
+    DEFAULT_RECONNECT_DELAY_S,
+    MqttSession,
+    subscribe_all,
+    unsubscribe_all,
+)
+from cogniboiler_runtime.topics import (
+    FILTER_ALERTS,
+    TOPIC_ALERT_CRITICAL,
+    TOPIC_ALERT_SNAPSHOT,
+    TOPIC_ALERT_WARNING,
+)
 from sqlalchemy.exc import (
     DBAPIError,
     InterfaceError,
@@ -44,7 +54,13 @@ RECONNECT_DELAY_S: float = DEFAULT_RECONNECT_DELAY_S
 STORE_RETRY_DELAY_S: float = 1.0
 STORE_RETRY_MAX_DELAY_S: float = 30.0
 INCOMING_QUEUE_LIMIT: int = 10_000
-SUBSCRIPTIONS: tuple[tuple[str, int], ...] = ((FILTER_ALERTS, 1),)
+SUBSCRIPTIONS: tuple[tuple[str, int], ...] = (
+    (TOPIC_ALERT_WARNING, 1),
+    (TOPIC_ALERT_CRITICAL, 1),
+    (TOPIC_ALERT_SNAPSHOT, 1),
+)
+# What this persistent session subscribed to before it named its topics.
+RETIRED_FILTERS: tuple[str, ...] = (FILTER_ALERTS,)
 STALL_LIMIT_S: float = 60.0
 
 
@@ -203,10 +219,11 @@ class AlertSubscriber:
         The session is persistent and the subscription is QoS 1, so conditions published
         while the alert manager was away are delivered once it is back.
         """
+        await unsubscribe_all(client, RETIRED_FILTERS)
         await subscribe_all(client, SUBSCRIPTIONS)
         logger.info(
             "AlertManager subscribed to %s on %s:%d",
-            FILTER_ALERTS,
+            ", ".join(topic for topic, _ in SUBSCRIPTIONS),
             self._host,
             self._port,
         )

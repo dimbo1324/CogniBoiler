@@ -744,7 +744,12 @@ class TestBridge:
             await until(lambda: len(connections) >= 2)
         finally:
             task.cancel()
-        assert subscriptions[:2] == [("sensors/#", 0), ("alarms/changes", 1)]
+        assert subscriptions[:4] == [
+            ("sensors/plant", 0),
+            ("sensors/boiler", 0),
+            ("sensors/turbine", 0),
+            ("alarms/changes", 1),
+        ]
         assert connections[0]["username"] == "opcua-server"
         assert bridge.stats["received"] >= 1
         assert opc.updates == []

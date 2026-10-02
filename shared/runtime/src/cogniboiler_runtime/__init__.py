@@ -26,6 +26,7 @@ from cogniboiler_runtime.mqtt import (
     consume,
     reconnect_jitter,
     subscribe_all,
+    unsubscribe_all,
 )
 from cogniboiler_runtime.mqtt_queue import (
     DEFAULT_QUEUE_LIMIT,
@@ -72,4 +73,5 @@ __all__ = [
     "run_service",
     "run_until_signalled",
     "subscribe_all",
+    "unsubscribe_all",
 ]

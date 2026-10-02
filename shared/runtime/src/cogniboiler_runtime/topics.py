@@ -2,10 +2,11 @@
 
 Topics are a contract: a publisher and every subscriber must agree on the exact string,
 and a change updates all of them in one task. Six services used to spell the strings
-out themselves, and the wildcard filters were literals inside subscription lists; here
-each topic has one name every publisher and subscriber imports, and the filters are
-derived from the prefixes they cover. The broker's ACL
-(`infrastructure/docker/mosquitto/acl`) grants these same topics per account.
+out themselves; here each topic has one name every publisher and subscriber imports.
+Every service subscribes to exact topics, and the broker's ACL
+(`infrastructure/docker/mosquitto/acl`) grants these same topics per account, without
+wildcards. The `FILTER_*` wildcards are what services subscribed to before; persistent
+sessions unsubscribe them on connect.
 """
 
 from __future__ import annotations

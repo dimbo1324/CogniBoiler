@@ -288,6 +288,9 @@ class FakeBroker:
     async def subscribe(self, topic: str, qos: int) -> None:
         FakeBroker.subscriptions.append((topic, qos))
 
+    async def unsubscribe(self, topic: str) -> None:
+        FakeBroker.subscriptions.append((topic, -1))
+
     @property
     def messages(self) -> AsyncIterator[SimpleNamespace]:
         pending, FakeBroker.deliveries = FakeBroker.deliveries, []
@@ -515,7 +518,14 @@ class TestSubscriber:
             "not_bytes": 1,
             "failed": 0,
         }
-        assert broker.subscriptions[0] == ("alerts/#", 1)
+        # The wildcard a persistent session may still hold from an older release
+        # goes first; then exactly the three topics of the contract.
+        assert broker.subscriptions[:4] == [
+            ("alerts/#", -1),
+            ("alerts/warning", 1),
+            ("alerts/critical", 1),
+            ("alerts/snapshot", 1),
+        ]
         assert broker.connections[0]["clean_session"] is False
         assert broker.connections[0]["identifier"] == "alert-manager"
         assert (

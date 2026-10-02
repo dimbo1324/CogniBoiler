@@ -1,9 +1,8 @@
 # Topic rights per account; anything not granted is refused. Each service publishes exactly
-# its own contract topics (the topic table in docs/architecture/overview.md) and reads only
-# what it uses. A read right must cover the subscription filter the service sends, so the
-# three wildcard filters still in code (alert-manager `alerts/#`, historian and opcua-server
-# `sensors/#`, historian `status/+`) keep wildcard read rights until those subscriptions
-# name their topics.
+# its own contract topics (the topic table in docs/architecture/overview.md) and reads
+# exactly the topics it subscribes to, without wildcards: a topic added later gets no
+# rights until it is added here. shared/runtime/tests/test_topics.py checks both against
+# the code.
 
 user physics-engine
 topic write sensors/plant
@@ -20,21 +19,28 @@ topic write plc/events
 topic write status/plc-controller
 
 user alert-manager
-topic read alerts/#
+topic read alerts/warning
+topic read alerts/critical
+topic read alerts/snapshot
 topic write alarms/changes
 
 user historian
-topic read sensors/#
+topic read sensors/plant
+topic read sensors/boiler
+topic read sensors/turbine
 topic read alarms/changes
 topic read plc/events
-topic read status/+
+topic read status/physics-engine
+topic read status/plc-controller
 
 user api-gateway
 topic read plc/events
 topic read alarms/changes
 
 user opcua-server
-topic read sensors/#
+topic read sensors/plant
+topic read sensors/boiler
+topic read sensors/turbine
 topic read alarms/changes
 
 # The container healthcheck reads the broker's own statistics.

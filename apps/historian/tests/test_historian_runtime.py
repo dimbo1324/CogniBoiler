@@ -434,6 +434,9 @@ class FakeBroker:
     async def subscribe(self, topic: str, qos: int) -> None:
         FakeBroker.subscriptions.append((topic, qos))
 
+    async def unsubscribe(self, topic: str) -> None:
+        FakeBroker.subscriptions.append((topic, -1))
+
     @property
     def messages(self) -> AsyncIterator[SimpleNamespace]:
         pending, FakeBroker.deliveries = FakeBroker.deliveries, []
@@ -485,11 +488,18 @@ class TestSubscriberSession:
                         await asyncio.sleep(0.001)
             finally:
                 task.cancel()
-        assert broker.subscriptions[:4] == [
-            ("sensors/#", 0),
+        # The wildcards a persistent session may still hold from an older release go
+        # first; then exactly the topics the historian records.
+        assert broker.subscriptions[:9] == [
+            ("sensors/#", -1),
+            ("status/+", -1),
+            ("sensors/plant", 0),
+            ("sensors/boiler", 0),
+            ("sensors/turbine", 0),
             ("alarms/changes", 1),
             ("plc/events", 1),
-            ("status/+", 1),
+            ("status/physics-engine", 1),
+            ("status/plc-controller", 1),
         ]
         options = broker.connections[0]
         assert (options["clean_session"], options["identifier"]) == (False, "historian")
