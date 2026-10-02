@@ -46,6 +46,7 @@ class ArgumentTest(unittest.TestCase):
         with (
             mock.patch.object(smoke, "load_env", return_value={}),
             mock.patch.object(smoke, "run_checks", return_value=Report()) as checks,
+            mock.patch.object(smoke, "check_append_only", return_value=[]),
             contextlib.redirect_stdout(io.StringIO()),
         ):
             self.assertEqual(smoke.main(["--history-wait-s", "0"]), 0)
