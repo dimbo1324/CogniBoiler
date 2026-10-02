@@ -13,8 +13,8 @@
       "ru": "Запустить полный quality gate проекта."
     },
     "description": {
-      "en": "Checks that the environment matches uv.lock, then runs ruff format --check, ruff check, strict mypy, every service test suite, the AGENTS.md sync check, the developer scripts' own tests, and the frontend lint/typecheck/test/build. Every section runs even after an earlier one fails, so one run names every problem. CI runs exactly this, so a green run here means the same thing it means there. Frontend sections are skipped with a notice when apps/web/node_modules is absent, and fail instead when the CI variable is set. --quick skips the test suites and the frontend build: the minimum before a push, never before a merge.",
-      "ru": "Проверяет, что окружение совпадает с uv.lock, затем запускает ruff format --check, ruff check, строгий mypy, тесты всех сервисов, проверку синхронности AGENTS.md, тесты самих скриптов и lint/typecheck/test/build фронтенда. Все секции выполняются, даже если предыдущая упала, поэтому один прогон называет все проблемы. CI запускает ровно это, поэтому зелёный прогон здесь значит то же, что и там. Секции фронтенда пропускаются с уведомлением без apps/web/node_modules и падают, если задана переменная CI. --quick пропускает тесты и сборку фронтенда: минимум перед push, но не перед слиянием."
+      "en": "Checks that the environment matches uv.lock, then runs ruff format --check, ruff check, strict mypy, the check that no two pytest modules share a name, every service test suite, the AGENTS.md sync check, the developer scripts' own tests, and the frontend lint/typecheck/test/build. Every section runs even after an earlier one fails, so one run names every problem. CI runs exactly this, so a green run here means the same thing it means there. Frontend sections are skipped with a notice when apps/web/node_modules is absent, and fail instead when the CI variable is set. --quick skips the test suites and the frontend build: the minimum before a push, never before a merge.",
+      "ru": "Проверяет, что окружение совпадает с uv.lock, затем запускает ruff format --check, ruff check, строгий mypy, проверку уникальности имён модулей pytest, тесты всех сервисов, проверку синхронности AGENTS.md, тесты самих скриптов и lint/typecheck/test/build фронтенда. Все секции выполняются, даже если предыдущая упала, поэтому один прогон называет все проблемы. CI запускает ровно это, поэтому зелёный прогон здесь значит то же, что и там. Секции фронтенда пропускаются с уведомлением без apps/web/node_modules и падают, если задана переменная CI. --quick пропускает тесты и сборку фронтенда: минимум перед push, но не перед слиянием."
     },
     "examples": [
       "--quick"
@@ -40,6 +40,22 @@
     "examples": [
       "--check"
     ]
+  },
+  {
+    "title": "test-names",
+    "module": "scripts.check_test_names",
+    "category": "quality",
+    "aliases": [],
+    "cadence_ref": "before_merge",
+    "summary": {
+      "en": "Fail when two pytest modules would be imported under one name.",
+      "ru": "Упасть, если два модуля pytest импортируются под одним именем."
+    },
+    "description": {
+      "en": "The service suites share one rootdir and their tests/ folders are not packages, so pytest imports every test module and every helper beside it by its file name: two files of one name stop collection of the whole run, or one silently shadows the other. Reads the test paths from pyproject.toml, computes each module's import name as pytest does and names every clash. Standard library only and fast, so it is a section of the full and the quick gate.",
+      "ru": "Тесты сервисов делят один rootdir, а их папки tests/ не пакеты, поэтому pytest импортирует каждый тестовый модуль и каждый вспомогательный рядом с ним по имени файла: два файла с одним именем останавливают сбор всего прогона, либо один молча заслоняет другой. Читает пути тестов из pyproject.toml, вычисляет имя импорта каждого модуля так же, как pytest, и называет каждое совпадение. Только стандартная библиотека и быстро, поэтому это секция полного и быстрого gate."
+    },
+    "examples": []
   },
   {
     "title": "audit-deps",

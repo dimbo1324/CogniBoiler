@@ -1,0 +1,7 @@
+{
+  "_comment": "The pytest suites share one rootdir and their test directories are not packages, so pytest imports every test module, and every helper module beside it, by its bare name: two files of one name stop collection (or one silently shadows the other). The test paths are read from [tool.pytest.ini_options] testpaths in this pyproject; skip_dirs are never searched; exempt_names may repeat (pytest re-imports a rootless conftest.py for each directory).",
+  "pyproject": "pyproject.toml",
+  "test_dir_name": "tests",
+  "skip_dirs": ["node_modules", "__pycache__", ".venv", ".git", ".mypy_cache", ".pytest_cache", ".ruff_cache", "dist", "build"],
+  "exempt_names": ["__init__.py", "conftest.py"]
+}

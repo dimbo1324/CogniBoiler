@@ -57,6 +57,7 @@ class StepListTest(unittest.TestCase):
             ("ruff", "format", "--check"),
             ("ruff", "check"),
             ("mypy",),
+            ("scripts.check_test_names",),
             ("pytest",),
             ("scripts.generate_proto", "--check"),
             ("scripts.generate_openapi", "--check"),
