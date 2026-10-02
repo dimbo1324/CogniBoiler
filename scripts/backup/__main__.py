@@ -25,7 +25,7 @@ from typing import Any
 
 from scripts._toolkit.compose import compose_argv, exec_sh
 from scripts._toolkit.config import load_config, repo_root
-from scripts._toolkit.console import fail, heading, info, ok, summary
+from scripts._toolkit.console import display_path, fail, heading, info, ok, summary
 from scripts._toolkit.files import make_private_dir
 from scripts._toolkit.processes import NOT_FOUND, run, run_piped
 
@@ -115,7 +115,7 @@ def main(argv: list[str]) -> int:
     base = root / str(args.into or config["backup_dir"])
     target = base / folder_name(moment)
 
-    heading(f"backup — {target.relative_to(root).as_posix()}")
+    heading(f"backup — {display_path(target, root)}")
     try:
         make_private_dir(target)
     except OSError as error:

@@ -406,7 +406,7 @@ def main(argv: list[str]) -> int:
     root = repo_root()
     config = load_config(SCRIPT_DIR, "demo.json")
     base_url = str(args.base_url or config["base_url"])
-    speed = float(args.speed or config["speed_factor"])
+    speed = float(args.speed if args.speed is not None else config["speed_factor"])
     log_dir = root / str(args.log_dir or config["log_dir"])
 
     try:

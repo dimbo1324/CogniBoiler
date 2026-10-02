@@ -208,7 +208,11 @@ def main(argv: list[str]) -> int:
     root = repo_root()
     config = load_config(SCRIPT_DIR, "smoke.json")
     base_url = str(args.base_url or config["base_url"]).rstrip("/")
-    wait_s = float(args.history_wait_s or config["history_wait_s"])
+    wait_s = float(
+        args.history_wait_s
+        if args.history_wait_s is not None
+        else config["history_wait_s"]
+    )
 
     try:
         env = load_env(root, str(config["env_file"]))

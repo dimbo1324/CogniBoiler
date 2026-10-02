@@ -24,7 +24,16 @@ from typing import Any
 
 from scripts._toolkit.compose import compose_argv, exec_sh
 from scripts._toolkit.config import load_config, repo_root
-from scripts._toolkit.console import confirm, fail, heading, info, ok, summary, warn
+from scripts._toolkit.console import (
+    confirm,
+    display_path,
+    fail,
+    heading,
+    info,
+    ok,
+    summary,
+    warn,
+)
 from scripts._toolkit.processes import NOT_FOUND, run, run_piped
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -181,7 +190,7 @@ def main(argv: list[str]) -> int:
     base = root / str(args.into or config["backup_dir"])
 
     if args.list:
-        heading(f"restore — backups in {base.relative_to(root).as_posix()}")
+        heading(f"restore — backups in {display_path(base, root)}")
         folders = backup_folders(base)
         for folder in folders:
             info(folder.name)

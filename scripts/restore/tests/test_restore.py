@@ -188,6 +188,15 @@ class MainTest(unittest.TestCase):
         self.assertEqual(docker.steps, [])
         self.assertFalse(self.asked.call_args.kwargs["assume_yes"])
 
+    def test_backups_outside_the_repository_can_be_listed(self) -> None:
+        with tempfile.TemporaryDirectory() as away:
+            make_backups(Path(away), ["20260920T070638Z"])
+            docker = FakeDocker()
+            code, printed = self._restore(docker, "--list", "--into", away)
+        self.assertEqual(code, 0)
+        self.assertIn("20260920T070638Z", printed)
+        self.assertEqual(docker.steps, [])
+
     def test_a_complete_restore_stops_restores_both_and_starts(self) -> None:
         make_backups(self.backups, ["20260920T070638Z"])
         docker = FakeDocker()

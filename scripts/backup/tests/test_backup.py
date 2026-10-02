@@ -148,7 +148,7 @@ class FakeDocker:
 
 
 class MainTest(unittest.TestCase):
-    def _backup(self, root: Path, docker: FakeDocker | None = None) -> int:
+    def _backup(self, root: Path, docker: FakeDocker | None = None, *argv: str) -> int:
         docker = docker or FakeDocker()
         with (
             mock.patch.object(backup, "repo_root", return_value=root),
@@ -157,7 +157,18 @@ class MainTest(unittest.TestCase):
             contextlib.redirect_stdout(io.StringIO()),
             contextlib.redirect_stderr(io.StringIO()),
         ):
-            return backup.main([])
+            return backup.main(list(argv))
+
+    def test_a_folder_outside_the_repository_is_accepted(self) -> None:
+        # --into invites a custom location; showing it relative to the repository
+        # raised ValueError before any work was done.
+        with (
+            tempfile.TemporaryDirectory() as repo,
+            tempfile.TemporaryDirectory() as away,
+        ):
+            self.assertEqual(self._backup(Path(repo), None, "--into", away), 0)
+            (folder,) = Path(away).iterdir()
+            self.assertTrue((folder / "manifest.json").is_file())
 
     def test_without_docker_nothing_is_left_behind(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

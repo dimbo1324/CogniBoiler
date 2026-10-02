@@ -3,8 +3,16 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 _WIDTH = 78
+
+
+def display_path(path: Path, root: Path) -> str:
+    """``path`` relative to ``root`` when it lies inside it, otherwise whole."""
+    if path.is_relative_to(root):
+        return path.relative_to(root).as_posix()
+    return path.as_posix()
 
 
 def heading(text: str) -> None:

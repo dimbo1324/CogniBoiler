@@ -199,5 +199,22 @@ class ConfigurationTest(unittest.TestCase):
         self.assertGreaterEqual(restart, 1.0)
 
 
+class ArgumentTest(unittest.TestCase):
+    def test_a_speed_of_zero_reaches_the_gateway_instead_of_the_default(self) -> None:
+        # `0 or default` quietly ran the demo at 10x; the gateway is the one that
+        # knows whether 0 is acceptable, and says so.
+        with (
+            mock.patch.object(demo_module, "load_env", return_value={}),
+            mock.patch.object(
+                demo_module, "play", return_value=Demo("http://localhost:8080")
+            ) as played,
+            mock.patch.object(demo_module, "sign_in", return_value="t-1"),
+            mock.patch.object(demo_module, "restore"),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            demo_module.main(["--speed", "0", "--keep-logs-unread"])
+        self.assertEqual(played.call_args.args[3], 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -10,7 +10,9 @@ from __future__ import annotations
 import contextlib
 import io
 import unittest
+from unittest import mock
 
+from scripts.smoke import __main__ as smoke
 from scripts.smoke.__main__ import FRESH_TELEMETRY_S, Report, history_path
 
 
@@ -37,6 +39,17 @@ class HistoryPathTest(unittest.TestCase):
         self.assertIn("measurement=boiler_sensors", path)
         self.assertIn(f"start_ms={1_789_700_000_000 - FRESH_TELEMETRY_S * 1000}", path)
         self.assertNotIn("end_ms", path)
+
+
+class ArgumentTest(unittest.TestCase):
+    def test_a_zero_wait_is_taken_as_given_not_replaced_by_the_default(self) -> None:
+        with (
+            mock.patch.object(smoke, "load_env", return_value={}),
+            mock.patch.object(smoke, "run_checks", return_value=Report()) as checks,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(smoke.main(["--history-wait-s", "0"]), 0)
+        self.assertEqual(checks.call_args.args[3], 0.0)
 
 
 if __name__ == "__main__":
