@@ -49,13 +49,18 @@ Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 
 ## 4. Wave C — platform, scripts, shared helpers adopted
 
-[ ] C1 platform: Compose network segmentation, InfluxDB tokens, container hardening,
++ C1 platform: Compose network segmentation, InfluxDB tokens, container hardening,
     nginx, Mosquitto, Grafana, CI and supply chain (PLAT, ARCH-01 safe part, ARCH-06/12)
-[ ] C2 developer scripts, coverage floor, audit-table check in smoke (SCR, TST-15/16/25/27,
++ C2 developer scripts, coverage floor, audit-table check in smoke (SCR, TST-15/16/25/27,
     ARCH-03)
-[ ] C3 plc-controller, alert-manager, historian adopt the shared helpers (DUP-02/03/05/09,
++ C3 plc-controller, alert-manager, historian adopt the shared helpers (DUP-02/03/05/09,
     ARCH-08, HIST-08, ALM-06)
-[ ] Wave C merged; full gate green; merged into local `main`
++ Wave C merged; full gate green; merged into local `main` — live stack on seven networks,
+  read-only roots, Grafana 13: every container healthy, `smoke` 19/19 (six new append-only
+  audit checks), `demo` 15/15 clean, `console-e2e` 22/22, Prometheus 7/7 targets up, no ACL
+  denials, no `too_many_pings`, every service logs "Stopping on SIGTERM"; coverage 98.89 %
+  of lines against the new 95 % floor (1915 tests). The InfluxDB read-only token (T3) is an
+  owner decision: it needs a new way to hand out a secret
 
 ## 5. Wave D — tests of the invariants and test hygiene
 
