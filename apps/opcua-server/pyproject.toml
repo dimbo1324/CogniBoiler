@@ -10,6 +10,7 @@ dependencies = [
     "aiomqtt>=2.5.1",
     "protobuf>=6.31.1",
     "grpcio>=1.75.1",
+    "cryptography>=50.0.1",
 ]
 
 [build-system]

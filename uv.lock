@@ -839,6 +839,7 @@ dependencies = [
     { name = "asyncua" },
     { name = "cogniboiler-observability" },
     { name = "cogniboiler-runtime" },
+    { name = "cryptography" },
     { name = "grpcio" },
     { name = "protobuf" },
 ]
@@ -849,6 +850,7 @@ requires-dist = [
     { name = "asyncua", specifier = ">=2.0.1" },
     { name = "cogniboiler-observability", editable = "shared/observability" },
     { name = "cogniboiler-runtime", editable = "shared/runtime" },
+    { name = "cryptography", specifier = ">=50.0.1" },
     { name = "grpcio", specifier = ">=1.75.1" },
     { name = "protobuf", specifier = ">=6.31.1" },
 ]
