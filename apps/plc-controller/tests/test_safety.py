@@ -265,135 +265,77 @@ class TestSafetyInterlockNominal:
 
 
 class TestEmergencyScenarios:
-    # ── Scenario 1: High pressure trip ────────────────────────────────────────
+    # ── Scenarios 1-6, 8 and 11: one limit trips, with its valve response ────
 
-    def test_scenario_1_high_pressure_trips(self) -> None:
-        """P > 185 bar -> TRIP."""
+    @pytest.mark.parametrize(
+        ("overrides", "parameters", "fuel", "steam", "feedwater"),
+        [
+            # 190 bar, above trip_high 185 bar: relieve through the turbine.
+            ({"pressure": 190.0e5}, ["pressure_pa"], 0.0, 1.0, None),
+            # 10 bar, below trip_low 20 bar.
+            ({"pressure": 10.0e5}, ["pressure_pa"], 0.0, 0.0, None),
+            # 0.2 m, below trip_low 0.5 m: the fuel permissive drops as well.
+            (
+                {"water_level": 0.2},
+                ["water_level_m", "fuel_permissive"],
+                0.0,
+                0.0,
+                None,
+            ),
+            # 7.9 m, above trip_high 7.8 m: carry-over, the feed stops too.
+            ({"water_level": 7.9}, ["water_level_m"], 0.0, 0.0, 0.0),
+            # 650 K, above trip_high 648 K (near the critical point).
+            ({"water_temp": 650.0}, ["water_temp_k"], 0.0, 0.0, None),
+            # 1750 K, above trip_high 1700 K.
+            ({"flue_gas_temp": 1750.0}, ["flue_gas_temp_k"], 0.0, 0.0, None),
+            # Turbine inlet 2 K above its trip, armed on line.
+            (
+                {"steam_temp": STEAM_TEMP_LIMITS.trip_high + 2.0},
+                ["steam_temp_k"],
+                0.0,
+                0.0,
+                None,
+            ),
+        ],
+        ids=[
+            "1-pressure-high",
+            "2-pressure-low",
+            "3-8-drum-dry",
+            "4-drum-overflow",
+            "5-water-temp-high",
+            "6-flue-gas-high",
+            "11-steam-temp-high",
+        ],
+    )
+    def test_each_trip_latches_with_its_valve_response(
+        self,
+        overrides: dict[str, float],
+        parameters: list[str],
+        fuel: float,
+        steam: float,
+        feedwater: float | None,
+    ) -> None:
         interlock = make_interlock()
+        values: dict[str, float] = {
+            "pressure": NOMINAL_PRESSURE,
+            "water_level": NOMINAL_LEVEL,
+            "water_temp": NOMINAL_WATER_TEMP,
+            "flue_gas_temp": NOMINAL_FLUE_TEMP,
+        }
         status = interlock.check(
-            pressure=190.0e5,  # 190 bar — above trip_high 185 bar
-            water_level=NOMINAL_LEVEL,
-            water_temp=NOMINAL_WATER_TEMP,
-            flue_gas_temp=NOMINAL_FLUE_TEMP,
-            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
+            **(values | overrides),
             dt=1.0,
-        )
-        assert status.level == SafetyLevel.TRIP
-        assert status.safe is False
-
-    def test_scenario_1_high_pressure_closes_fuel_valve(self) -> None:
-        interlock = make_interlock()
-        status = interlock.check(
-            pressure=190.0e5,
-            water_level=NOMINAL_LEVEL,
-            water_temp=NOMINAL_WATER_TEMP,
-            flue_gas_temp=NOMINAL_FLUE_TEMP,
             sensor_qualities=TRIP_INSTRUMENTS_GOOD,
-            dt=1.0,
         )
-        assert status.fuel_valve_override == pytest.approx(0.0)
-
-    def test_scenario_1_high_pressure_opens_steam_valve(self) -> None:
-        interlock = make_interlock()
-        status = interlock.check(
-            pressure=190.0e5,
-            water_level=NOMINAL_LEVEL,
-            water_temp=NOMINAL_WATER_TEMP,
-            flue_gas_temp=NOMINAL_FLUE_TEMP,
-            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
-            dt=1.0,
+        assert (status.level, status.safe) == (SafetyLevel.TRIP, False)
+        assert [event.parameter for event in status.events] == parameters
+        assert all(event.level == SafetyLevel.TRIP for event in status.events)
+        assert status.fuel_valve_override == pytest.approx(fuel)
+        assert status.steam_valve_override == pytest.approx(steam)
+        assert status.feedwater_valve_override == (
+            None if feedwater is None else pytest.approx(feedwater)
         )
-        assert status.steam_valve_override == pytest.approx(1.0)
-
-    # ── Scenario 2: Low pressure trip ─────────────────────────────────────────
-
-    def test_scenario_2_low_pressure_trips(self) -> None:
-        """P < 20 bar -> TRIP."""
-        interlock = make_interlock()
-        status = interlock.check(
-            pressure=10.0e5,  # 10 bar — below trip_low 20 bar
-            water_level=NOMINAL_LEVEL,
-            water_temp=NOMINAL_WATER_TEMP,
-            flue_gas_temp=NOMINAL_FLUE_TEMP,
-            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
-            dt=1.0,
-        )
-        assert status.level == SafetyLevel.TRIP
-
-    # ── Scenario 3: Drum dry trip ──────────────────────────────────────────────
-
-    def test_scenario_3_drum_dry_trips(self) -> None:
-        """Water level < 0.5 m -> TRIP."""
-        interlock = make_interlock()
-        status = interlock.check(
-            pressure=NOMINAL_PRESSURE,
-            water_level=0.2,  # 0.2 m — below trip_low 0.5 m
-            water_temp=NOMINAL_WATER_TEMP,
-            flue_gas_temp=NOMINAL_FLUE_TEMP,
-            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
-            dt=1.0,
-        )
-        assert status.level == SafetyLevel.TRIP
-
-    def test_scenario_3_drum_dry_overrides_fuel_to_zero(self) -> None:
-        interlock = make_interlock()
-        status = interlock.check(
-            pressure=NOMINAL_PRESSURE,
-            water_level=0.2,
-            water_temp=NOMINAL_WATER_TEMP,
-            flue_gas_temp=NOMINAL_FLUE_TEMP,
-            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
-            dt=1.0,
-        )
-        assert status.fuel_valve_override == pytest.approx(0.0)
-
-    # ── Scenario 4: Drum overflow trip ────────────────────────────────────────
-
-    def test_scenario_4_drum_overflow_trips(self) -> None:
-        """Water level > 7.8 m -> TRIP."""
-        interlock = make_interlock()
-        status = interlock.check(
-            pressure=NOMINAL_PRESSURE,
-            water_level=7.9,  # above trip_high 7.8 m
-            water_temp=NOMINAL_WATER_TEMP,
-            flue_gas_temp=NOMINAL_FLUE_TEMP,
-            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
-            dt=1.0,
-        )
-        assert status.level == SafetyLevel.TRIP
-        # Carry-over into the turbine: the feed stops along with the fuel.
-        assert status.feedwater_valve_override == pytest.approx(0.0)
-        assert status.fuel_valve_override == pytest.approx(0.0)
-
-    # ── Scenario 5: High water temp trip ──────────────────────────────────────
-
-    def test_scenario_5_high_water_temp_trips(self) -> None:
-        """T_water > 648 K -> TRIP (above critical point)."""
-        interlock = make_interlock()
-        status = interlock.check(
-            pressure=NOMINAL_PRESSURE,
-            water_level=NOMINAL_LEVEL,
-            water_temp=650.0,  # above trip_high 648 K
-            flue_gas_temp=NOMINAL_FLUE_TEMP,
-            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
-            dt=1.0,
-        )
-        assert status.level == SafetyLevel.TRIP
-
-    # ── Scenario 6: High flue gas temp trip ───────────────────────────────────
-
-    def test_scenario_6_high_flue_gas_temp_trips(self) -> None:
-        """T_flue > 1700 K -> TRIP."""
-        interlock = make_interlock()
-        status = interlock.check(
-            pressure=NOMINAL_PRESSURE,
-            water_level=NOMINAL_LEVEL,
-            water_temp=NOMINAL_WATER_TEMP,
-            flue_gas_temp=1750.0,  # above trip_high 1700 K
-            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
-            dt=1.0,
-        )
-        assert status.level == SafetyLevel.TRIP
+        assert interlock.emergency_stop.is_active
 
     # ── Scenario 7: Pressure rate of change trip ──────────────────────────────
 
@@ -429,37 +371,6 @@ class TestEmergencyScenarios:
     def test_scenario_8_fuel_permitted_at_normal_level(self) -> None:
         interlock = make_interlock()
         assert interlock.fuel_permitted(water_level=NOMINAL_LEVEL)
-
-    def test_scenario_8_dry_drum_with_fuel_attempt_trips(self) -> None:
-        """Checking with dry drum level -> TRIP regardless of pressure."""
-        interlock = make_interlock()
-        status = interlock.check(
-            pressure=NOMINAL_PRESSURE,
-            water_level=0.3,  # below trip_low — fuel permissive denied
-            water_temp=NOMINAL_WATER_TEMP,
-            flue_gas_temp=NOMINAL_FLUE_TEMP,
-            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
-            dt=1.0,
-        )
-        assert status.level == SafetyLevel.TRIP
-        assert status.fuel_valve_override == pytest.approx(0.0)
-
-    # ── Scenario 11: High steam temperature trip ──────────────────────────────
-
-    def test_scenario_11_high_steam_temperature_trips(self) -> None:
-        """Turbine inlet above 580 °C -> TRIP (armed on line)."""
-        interlock = make_interlock()
-        status = interlock.check(
-            pressure=NOMINAL_PRESSURE,
-            water_level=NOMINAL_LEVEL,
-            water_temp=NOMINAL_WATER_TEMP,
-            flue_gas_temp=NOMINAL_FLUE_TEMP,
-            dt=1.0,
-            steam_temp=STEAM_TEMP_LIMITS.trip_high + 2.0,
-            sensor_qualities=TRIP_INSTRUMENTS_GOOD,
-        )
-        assert status.level == SafetyLevel.TRIP
-        assert status.steam_valve_override == pytest.approx(0.0)
 
     # ── Scenario 9: E-stop locks system ──────────────────────────────────────
 
