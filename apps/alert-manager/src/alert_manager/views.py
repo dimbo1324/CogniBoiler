@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Any
+
+from cogniboiler_runtime.contracts import AlarmRecord, AlarmTransitionRecord
 
 from alert_manager.lifecycle import OPEN_STATES, UNACKNOWLEDGED_STATES, AlarmState
 from alert_manager.models import AlarmEvent, AlarmTransition
@@ -67,10 +69,33 @@ class AlarmView:
             updated_at_ms=row.updated_at_ms,
         )
 
+    def to_record(self) -> AlarmRecord:
+        """The alarm as the alarms/changes contract carries it."""
+        return AlarmRecord(
+            id=self.id,
+            key=self.key,
+            source_service=self.source_service,
+            parameter=self.parameter,
+            severity=self.severity,
+            direction=self.direction,
+            unit=self.unit,
+            state=self.state.value,
+            message=self.message,
+            action=self.action,
+            topic=self.topic,
+            value=self.value,
+            threshold=self.threshold,
+            raised_at_ms=self.raised_at_ms,
+            cleared_at_ms=self.cleared_at_ms,
+            acknowledged_at_ms=self.acknowledged_at_ms,
+            acknowledged_by=self.acknowledged_by,
+            ack_comment=self.ack_comment,
+            occurrence_count=self.occurrence_count,
+            updated_at_ms=self.updated_at_ms,
+        )
+
     def to_dict(self) -> dict[str, Any]:
-        data = asdict(self)
-        data["state"] = self.state.value
-        return data
+        return self.to_record().to_payload()
 
 
 @dataclass(frozen=True)
@@ -99,8 +124,18 @@ class TransitionView:
             value=row.value,
         )
 
+    def to_record(self) -> AlarmTransitionRecord:
+        """The transition as the alarms/changes contract carries it."""
+        return AlarmTransitionRecord(
+            id=self.id,
+            alarm_id=self.alarm_id,
+            from_state=self.from_state.value if self.from_state else None,
+            to_state=self.to_state.value,
+            at_ms=self.at_ms,
+            actor=self.actor,
+            comment=self.comment,
+            value=self.value,
+        )
+
     def to_dict(self) -> dict[str, Any]:
-        data = asdict(self)
-        data["from_state"] = self.from_state.value if self.from_state else None
-        data["to_state"] = self.to_state.value
-        return data
+        return self.to_record().to_payload()

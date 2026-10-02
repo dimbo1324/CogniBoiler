@@ -15,7 +15,6 @@ messages, never unbounded memory.
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -31,6 +30,11 @@ from cogniboiler_runtime import (
     QueuedMessage,
     QueuedMqttPublisher,
     now_ms,
+)
+from cogniboiler_runtime.contracts import (
+    AlarmConditionMessage,
+    AlarmSnapshotMessage,
+    PlcEventMessage,
 )
 from cogniboiler_runtime.topics import (
     TOPIC_ALERT_CRITICAL,
@@ -88,47 +92,41 @@ def alarm_topic(transition: AlarmTransition) -> str:
 def alarm_payload(transition: AlarmTransition) -> bytes:
     condition = transition.condition
     rule = condition.rule
-    return json.dumps(
-        {
-            "alarm_id": f"{rule.key}:{transition.timestamp_ms}",
-            "key": rule.key,
-            "state": "active" if transition.active else "cleared",
-            "source_service": SOURCE_SERVICE,
-            "severity": rule.severity.value,
-            "parameter": rule.parameter,
-            "direction": rule.direction.value,
-            "unit": rule.unit,
-            "value": condition.value,
-            "threshold": rule.threshold,
-            "action": rule.action,
-            "message": condition.message,
-            "raised_at_ms": condition.since_ms,
-            "timestamp_ms": transition.timestamp_ms,
-        }
-    ).encode("utf-8")
+    return AlarmConditionMessage(
+        alarm_id=f"{rule.key}:{transition.timestamp_ms}",
+        key=rule.key,
+        state="active" if transition.active else "cleared",
+        source_service=SOURCE_SERVICE,
+        severity=rule.severity.value,
+        parameter=rule.parameter,
+        direction=rule.direction.value,
+        unit=rule.unit,
+        value=condition.value,
+        threshold=rule.threshold,
+        action=rule.action,
+        message=condition.message,
+        raised_at_ms=condition.since_ms,
+        timestamp_ms=transition.timestamp_ms,
+    ).encode()
 
 
 def snapshot_payload(active: Sequence[AlarmCondition], timestamp_ms: int) -> bytes:
-    return json.dumps(
-        {
-            "source_service": SOURCE_SERVICE,
-            "active_keys": [condition.key for condition in active],
-            "timestamp_ms": timestamp_ms,
-        }
-    ).encode("utf-8")
+    return AlarmSnapshotMessage(
+        source_service=SOURCE_SERVICE,
+        active_keys=tuple(condition.key for condition in active),
+        timestamp_ms=timestamp_ms,
+    ).encode()
 
 
 def event_payload(event: PlcEvent) -> bytes:
-    return json.dumps(
-        {
-            "event_id": f"{event.kind.value}:{event.timestamp_ms}",
-            "kind": event.kind.value,
-            "source_service": SOURCE_SERVICE,
-            "operator_id": event.operator_id,
-            "detail": dict(event.detail),
-            "timestamp_ms": event.timestamp_ms,
-        }
-    ).encode("utf-8")
+    return PlcEventMessage(
+        event_id=f"{event.kind.value}:{event.timestamp_ms}",
+        kind=event.kind.value,
+        source_service=SOURCE_SERVICE,
+        operator_id=event.operator_id,
+        detail=event.detail,
+        timestamp_ms=event.timestamp_ms,
+    ).encode()
 
 
 class PlcPublisher:
