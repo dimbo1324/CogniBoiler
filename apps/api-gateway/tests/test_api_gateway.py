@@ -337,6 +337,22 @@ class TestStatusEndpoint:
 # ─── 7. Commands endpoints ────────────────────────────────────────────────────
 
 
+VALVE = "/api/v1/commands/valve"
+SETPOINT = "/api/v1/commands/setpoint"
+
+
+def valves(**overrides: float) -> dict[str, float]:
+    return {"fuel_valve": 0.5, "feedwater_valve": 0.5, "steam_valve": 0.5} | overrides
+
+
+def setpoints(**overrides: float) -> dict[str, float]:
+    return {
+        "pressure_pa": 140e5,
+        "water_level_m": 4.8,
+        "steam_temp_k": 811.0,
+    } | overrides
+
+
 class TestCommandsEndpoints:
     @pytest.mark.asyncio
     async def test_valve_requires_auth(self, client: AsyncClient) -> None:
@@ -383,29 +399,6 @@ class TestCommandsEndpoints:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_valve_above_max_returns_422(
-        self, client: AsyncClient, operator_tokens: dict[str, str]
-    ) -> None:
-        # Pydantic rejects valve > 1.0
-        response = await client.post(
-            "/api/v1/commands/valve",
-            json={"fuel_valve": 1.5, "feedwater_valve": 0.5, "steam_valve": 0.5},
-            headers={"Authorization": f"Bearer {operator_tokens['access']}"},
-        )
-        assert response.status_code == 422
-
-    @pytest.mark.asyncio
-    async def test_valve_below_min_returns_422(
-        self, client: AsyncClient, operator_tokens: dict[str, str]
-    ) -> None:
-        response = await client.post(
-            "/api/v1/commands/valve",
-            json={"fuel_valve": -0.1, "feedwater_valve": 0.5, "steam_valve": 0.5},
-            headers={"Authorization": f"Bearer {operator_tokens['access']}"},
-        )
-        assert response.status_code == 422
-
-    @pytest.mark.asyncio
     async def test_setpoint_operator_is_forbidden(
         self, client: AsyncClient, operator_tokens: dict[str, str]
     ) -> None:
@@ -437,34 +430,37 @@ class TestCommandsEndpoints:
         assert response.status_code == 200
         assert response.json()["accepted"] is True
 
-    @pytest.mark.asyncio
-    async def test_setpoint_pressure_too_high_returns_422(
-        self, client: AsyncClient, engineer_tokens: dict[str, str]
+    @pytest.mark.parametrize(
+        ("path", "role", "body"),
+        [
+            (VALVE, "operator", valves(fuel_valve=1.5)),
+            (VALVE, "operator", valves(fuel_valve=-0.1)),
+            (VALVE, "operator", valves(feedwater_valve=1.01)),
+            (VALVE, "operator", valves(steam_valve=-0.01)),
+            (SETPOINT, "engineer", setpoints(pressure_pa=200e5)),
+            (SETPOINT, "engineer", setpoints(pressure_pa=10e5)),
+        ],
+        ids=[
+            "fuel-above-max",
+            "fuel-below-min",
+            "feedwater-above-max",
+            "steam-below-min",
+            "pressure-above-185-bar",
+            "pressure-below-min",
+        ],
+    )
+    async def test_a_value_outside_its_bounds_is_422(
+        self,
+        client: AsyncClient,
+        operator_tokens: dict[str, str],
+        engineer_tokens: dict[str, str],
+        path: str,
+        role: str,
+        body: dict[str, float],
     ) -> None:
-        # 200 bar exceeds the safe maximum of 185 bar
+        tokens = {"operator": operator_tokens, "engineer": engineer_tokens}[role]
         response = await client.post(
-            "/api/v1/commands/setpoint",
-            json={
-                "pressure_pa": 200e5,
-                "water_level_m": 4.8,
-                "steam_temp_k": 811.0,
-            },
-            headers={"Authorization": f"Bearer {engineer_tokens['access']}"},
-        )
-        assert response.status_code == 422
-
-    @pytest.mark.asyncio
-    async def test_setpoint_pressure_too_low_returns_422(
-        self, client: AsyncClient, engineer_tokens: dict[str, str]
-    ) -> None:
-        response = await client.post(
-            "/api/v1/commands/setpoint",
-            json={
-                "pressure_pa": 10e5,
-                "water_level_m": 4.8,
-                "steam_temp_k": 811.0,
-            },
-            headers={"Authorization": f"Bearer {engineer_tokens['access']}"},
+            path, json=body, headers={"Authorization": f"Bearer {tokens['access']}"}
         )
         assert response.status_code == 422
 
