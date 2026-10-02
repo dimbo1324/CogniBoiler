@@ -27,7 +27,8 @@
       "Bash(uv run --no-sync mypy:*)",
       "Bash(docker compose ps:*)",
       "Bash(docker compose logs:*)",
-      "Bash(docker compose config:*)",
+      "Bash(docker compose config --no-interpolate:*)",
+      "Bash(docker compose config --services:*)",
       "Bash(pnpm --dir apps/web install:*)",
       "Bash(pnpm --dir apps/web run lint:*)",
       "Bash(pnpm --dir apps/web run typecheck:*)",
@@ -49,7 +50,16 @@
       "Bash(docker volume prune*)",
       "Bash(docker system prune*)",
       "Bash(python dev_tools_scripts_runner.py stack down --volumes*)",
-      "Bash(uv publish*)"
+      "Bash(uv publish*)",
+      "Bash(docker compose * down -v*)",
+      "Bash(docker compose * down --volumes*)",
+      "Bash(git push * +*)",
+      "Bash(git push * -f*)",
+      "Bash(git push * --force*)",
+      "Bash(git clean -*f*)",
+      "Bash(git clean * -*f*)",
+      "Bash(git checkout -- .*)",
+      "Bash(git restore .*)"
     ]
   }
 }
