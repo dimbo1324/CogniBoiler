@@ -3,6 +3,11 @@
 Every check runs even after one fails, and each names the data path it proves. The only
 write is a setpoint update with nominal values, which the PLC accepts idempotently.
 Credentials are read from .env, the same file the stack was started with.
+
+The last step reads PostgreSQL directly, through docker compose: the gateway role must be
+refused any rewrite of the audit log, and the append-only triggers must refuse even the
+owner (audit_log.py; everything there is rolled back). ``--skip-database`` leaves it out
+for a gateway that is not this machine's Compose stack.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ from scripts._toolkit.gateway import (
     load_env,
     sign_in,
 )
+from scripts.smoke.audit_log import check_append_only
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -203,6 +209,12 @@ def main(argv: list[str]) -> int:
         type=float,
         help="how long to wait for the first telemetry in InfluxDB",
     )
+    parser.add_argument(
+        "--skip-database",
+        action="store_true",
+        help="do not check the audit log on PostgreSQL through docker compose "
+        "(for a gateway that is not this machine's Compose stack)",
+    )
     args = parser.parse_args(argv)
 
     root = repo_root()
@@ -226,6 +238,14 @@ def main(argv: list[str]) -> int:
     except GatewayUnreachableError as error:
         report = Report()
         report.record("gateway reachable", False, str(error))
+
+    if args.skip_database:
+        report.rows.append(("audit log append-only on PostgreSQL", "skipped"))
+    else:
+        for outcome in check_append_only(config, root):
+            report.record(
+                f"audit log append-only: {outcome.name}", outcome.passed, outcome.detail
+            )
 
     summary("smoke", report.rows)
     return 1 if report.failed else 0

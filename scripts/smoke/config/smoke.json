@@ -1,8 +1,13 @@
 {
-  "_comment": "Users are the demo accounts the gateway seeds from DEMO_*_PASSWORD. The setpoints are the PLC defaults, so the one write this check makes changes nothing.",
+  "_comment": "Users are the demo accounts the gateway seeds from DEMO_*_PASSWORD. The setpoints are the PLC defaults, so the one write this check makes changes nothing. The audit-log step runs psql in postgres_service through docker compose (project and file as in stack.json) and proves gateway_role cannot rewrite audit_table; it is rolled back.",
   "base_url": "http://localhost:8080",
   "env_file": ".env",
   "history_wait_s": 60,
+  "project_name": "cogniboiler",
+  "compose_file": "docker-compose.yml",
+  "postgres_service": "postgresql",
+  "gateway_role": "cogniboiler_gateway",
+  "audit_table": "audit_log",
   "users": {
     "admin": { "username": "admin", "password_env": "DEMO_ADMIN_PASSWORD" },
     "engineer": { "username": "engineer", "password_env": "DEMO_ENGINEER_PASSWORD" },
