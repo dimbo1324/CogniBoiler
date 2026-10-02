@@ -13,7 +13,7 @@ from typing import Any, Protocol
 import cogniboiler_pb2 as pb2
 import cogniboiler_pb2_grpc as pb2_grpc
 import grpc.aio
-from cogniboiler_observability import client_interceptors
+from cogniboiler_observability import observed_channel
 
 TIMEOUT_S = 3.0
 OPEN_ALARMS_LISTED = 200
@@ -29,15 +29,11 @@ class _AlarmReader(Protocol):
     async def ListAlarms(self, request: Any, *, timeout: float) -> Any: ...  # noqa: N802
 
 
-def _channel(target: str) -> grpc.aio.Channel:
-    return grpc.aio.insecure_channel(target, interceptors=client_interceptors())
-
-
 class PLCStatusClient:
     """PLCService status for the PLC folder; the OPC UA server never commands the PLC."""
 
     def __init__(self, target: str) -> None:
-        self._channel = _channel(target)
+        self._channel: grpc.aio.Channel = observed_channel(target)
         self._stub: _PlcStatusReader = pb2_grpc.PLCServiceStub(self._channel)
 
     async def close(self) -> None:
@@ -54,7 +50,7 @@ class AlarmReadClient:
     """Open alarms from AlarmService for the Alarms folder."""
 
     def __init__(self, target: str) -> None:
-        self._channel = _channel(target)
+        self._channel: grpc.aio.Channel = observed_channel(target)
         self._stub: _AlarmReader = pb2_grpc.AlarmServiceStub(self._channel)
 
     async def close(self) -> None:

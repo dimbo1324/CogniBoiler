@@ -37,7 +37,15 @@ from collections.abc import Callable
 import cogniboiler_pb2 as pb
 from aiomqtt import Client
 from cogniboiler_observability import MQTT_RECEIVED
-from cogniboiler_runtime import MqttSession, subscribe_all
+from cogniboiler_runtime import DEFAULT_RECONNECT_DELAY_S, MqttSession, consume
+from cogniboiler_runtime.topics import (
+    FILTER_SENSORS,
+    TOPIC_ALARM_CHANGES,
+    TOPIC_BOILER,
+    TOPIC_HEARTBEAT,
+    TOPIC_PLANT,
+    TOPIC_TURBINE,
+)
 from google.protobuf.message import DecodeError
 
 from opcua_server.address_space import BOILER_FIELD_TO_NODEID, TURBINE_FIELD_TO_NODEID
@@ -52,17 +60,11 @@ from opcua_server.server import QUALITY_GOOD, CogniBoilerOPCServer
 
 logger = logging.getLogger(__name__)
 
-TOPIC_BOILER: str = "sensors/boiler"
-TOPIC_TURBINE: str = "sensors/turbine"
-TOPIC_PLANT: str = "sensors/plant"
-TOPIC_HEARTBEAT: str = "sensors/system/heartbeat"
-TOPIC_ALARM_CHANGES: str = "alarms/changes"
-
 SUBSCRIPTIONS: tuple[tuple[str, int], ...] = (
-    ("sensors/#", 0),
+    (FILTER_SENSORS, 0),
     (TOPIC_ALARM_CHANGES, 1),
 )
-RECONNECT_DELAY_S: float = 5.0
+RECONNECT_DELAY_S: float = DEFAULT_RECONNECT_DELAY_S
 MIN_FLUSH_INTERVAL_S: float = 0.05
 
 SKIP_UNKNOWN_TOPIC = "unknown_topic"
@@ -250,9 +252,7 @@ class MQTTOPCBridge:
         )
 
     async def _consume(self, client: Client) -> None:
-        await subscribe_all(client, SUBSCRIPTIONS)
-        async for message in client.messages:
-            await self._handle_message(str(message.topic), message.payload)
+        await consume(client, SUBSCRIPTIONS, self._handle_message)
 
     async def run(self) -> None:
         """Project what the plant publishes onto the address space, session after session."""

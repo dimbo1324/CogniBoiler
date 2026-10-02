@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import cogniboiler_pb2 as pb
 import pytest
+from cogniboiler_runtime.topics import TOPIC_BOILER, TOPIC_HEARTBEAT, TOPIC_TURBINE
 from google.protobuf.descriptor import FieldDescriptor
 from opcua_server.address_space import (
     ALL_VARIABLES,
@@ -30,12 +31,7 @@ from opcua_server.address_space import (
     VARIABLES_BY_NODE_ID,
 )
 from opcua_server.projection import alarm_updates, plant_updates, plc_updates
-from opcua_server.subscriber import (
-    TOPIC_BOILER,
-    TOPIC_HEARTBEAT,
-    TOPIC_TURBINE,
-    MQTTOPCBridge,
-)
+from opcua_server.subscriber import MQTTOPCBridge
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
