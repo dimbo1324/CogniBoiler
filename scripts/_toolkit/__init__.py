@@ -4,11 +4,13 @@ Scripts depend on this; scripts never depend on each other. The dependency point
 way, which is what keeps every script individually readable, editable, and deletable.
 
   processes.py  find/require tools, run and capture commands, portably
-  config.py     load a script's own config/*.json, and the repository root
+  config.py     load a script's own config/*.json, the repository root, safe paths
   console.py    headings, steps, results, and the confirm prompt
   terminal.py   output that cannot crash on a legacy console code page
   envfile.py    read and merge dotenv files without losing a set value
   files.py      write secret files whole and private to their owner
+  compose.py    the docker compose command lines of the Docker-facing scripts
+  gateway.py    the API gateway client of smoke and demo, and their .env loading
   reexec.py     hand a script to ``uv run`` when it needs a project package
   steps.py      run a declared list of commands and summarise it
 
