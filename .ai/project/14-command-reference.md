@@ -122,7 +122,7 @@ stable `code`.
 | `sensors/plant` | protobuf `PlantStatusMsg`, first in each step | physics-engine → historian, opcua-server |
 | `sensors/boiler` | protobuf `BoilerStateMsg` (measured values) | physics-engine → historian, opcua-server |
 | `sensors/turbine` | protobuf `TurbineStateMsg` (measured values) | physics-engine → historian, opcua-server |
-| `sensors/system/heartbeat` | text timestamp | physics-engine → (skipped) |
+| `sensors/system/heartbeat` | text timestamp | physics-engine → nobody subscribes |
 | `alerts/warning`, `alerts/critical` | JSON alarm condition, `state` active/cleared | plc-controller → alert-manager |
 | `alerts/snapshot` | JSON active condition keys, every 10 s | plc-controller → alert-manager |
 | `plc/events` | JSON PLC event | plc-controller → api-gateway (`/ws` plc), historian |

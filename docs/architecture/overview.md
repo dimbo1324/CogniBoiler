@@ -75,14 +75,19 @@ healthcheck); anonymous clients are refused. The ACL in
 `infrastructure/docker/mosquitto/acl` lets each account publish only its own topics below
 and read only what it consumes; a denied publish is dropped. There is no WebSocket
 listener: the browser never speaks MQTT. Every topic name is declared once, in
-`cogniboiler_runtime.topics`, and a test reads the ACL against that module.
+`cogniboiler_runtime.topics`; every subscriber names exact topics, and a test requires each
+account's read rights to equal its subscriptions. The JSON payloads have one typed model
+each in `cogniboiler_runtime.contracts`: the PLC and alert-manager encode through them, and
+a round-trip test parses every producer's output with every consumer's parser. The gateway
+forwards to `/ws` only `plc/events` and `alarms/changes` that match their model and counts
+the rest in `gateway_realtime_messages_rejected_total{topic}`.
 
 | Topic | Payload | Publisher → subscribers |
 |---|---|---|
 | `sensors/plant` | protobuf `PlantStatusMsg`: emissions, condenser, health, faults, instrument qualities, simulation status, valves, performance; published first in each step | physics-engine → historian, opcua-server |
 | `sensors/boiler` | protobuf `BoilerStateMsg` (measured) | physics-engine → historian, opcua-server |
 | `sensors/turbine` | protobuf `TurbineStateMsg` (measured) | physics-engine → historian, opcua-server |
-| `sensors/system/heartbeat` | text timestamp | physics-engine → (skipped by subscribers) |
+| `sensors/system/heartbeat` | text timestamp | physics-engine → nobody subscribes |
 | `alerts/warning`, `alerts/critical` | JSON condition: `key`, `state` (`active`/`cleared`), `source_service`, `severity`, `parameter`, `direction`, `unit`, `value`, `threshold`, `action`, `message`, `raised_at_ms`, `timestamp_ms`, `alarm_id` | plc-controller → alert-manager |
 | `alerts/snapshot` | JSON `source_service`, `active_keys`, `timestamp_ms` (on connect and every 10 s) | plc-controller → alert-manager |
 | `plc/events` | JSON PLC event: `event_id`, `kind`, `source_service`, `operator_id`, `detail`, `timestamp_ms` | plc-controller → api-gateway (WebSocket `plc`), historian |
