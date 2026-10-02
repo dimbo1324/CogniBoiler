@@ -176,8 +176,13 @@ class TestUserCRUD:
         db_session.add(user)
         await db_session.commit()
         await db_session.refresh(user)
-        assert user.id is not None
-        assert user.username == "operator1"
+        stored = (
+            await db_session.execute(
+                text("SELECT username, is_active FROM users WHERE id = :id"),
+                {"id": user.id},
+            )
+        ).one()
+        assert tuple(stored) == ("operator1", True)
 
     @pytest.mark.asyncio
     async def test_user_is_active_default(self, db_session: AsyncSession) -> None:
@@ -220,8 +225,13 @@ class TestRoleCRUD:
         db_session.add(role)
         await db_session.commit()
         await db_session.refresh(role)
-        assert role.id is not None
-        assert role.name == "viewer"
+        stored = (
+            await db_session.execute(
+                text("SELECT name, description FROM roles WHERE id = :id"),
+                {"id": role.id},
+            )
+        ).one()
+        assert tuple(stored) == ("viewer", "Read-only access")
 
     @pytest.mark.asyncio
     async def test_role_name_unique(self, db_session: AsyncSession) -> None:

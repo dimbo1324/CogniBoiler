@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import cogniboiler_pb2 as pb
 import pytest
+from cogniboiler_runtime import now_ms
 from cogniboiler_runtime.topics import (
     TOPIC_BOILER,
     TOPIC_HEARTBEAT,
@@ -110,9 +111,12 @@ class TestBoilerStateToProto:
         msg = boiler_state_to_proto(boiler_state)
         assert msg.quality == pb.SensorQuality.GOOD
 
-    def test_timestamp_is_positive(self, boiler_state: BoilerState) -> None:
+    def test_timestamp_is_the_moment_of_conversion(
+        self, boiler_state: BoilerState
+    ) -> None:
+        before = now_ms()
         msg = boiler_state_to_proto(boiler_state)
-        assert msg.timestamp_ms > 0
+        assert before <= msg.timestamp_ms <= now_ms()
 
     def test_serializes_and_roundtrips(self, boiler_state: BoilerState) -> None:
         """Serialize -> bytes -> deserialize -> same pressure."""
@@ -147,9 +151,12 @@ class TestTurbineStateToProto:
         msg = turbine_state_to_proto(turbine_state)
         assert msg.exhaust_pressure_pa == pytest.approx(turbine_state.exhaust_pressure)
 
-    def test_timestamp_is_positive(self, turbine_state: TurbineState) -> None:
+    def test_timestamp_is_the_moment_of_conversion(
+        self, turbine_state: TurbineState
+    ) -> None:
+        before = now_ms()
         msg = turbine_state_to_proto(turbine_state)
-        assert msg.timestamp_ms > 0
+        assert before <= msg.timestamp_ms <= now_ms()
 
     def test_serializes_and_roundtrips(self, turbine_state: TurbineState) -> None:
         msg = turbine_state_to_proto(turbine_state)
