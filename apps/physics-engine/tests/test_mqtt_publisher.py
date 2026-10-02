@@ -16,20 +16,19 @@ from unittest.mock import AsyncMock, MagicMock
 
 import cogniboiler_pb2 as pb
 import pytest
+from cogniboiler_runtime.topics import (
+    TOPIC_BOILER,
+    TOPIC_HEARTBEAT,
+    TOPIC_PLANT,
+    TOPIC_TURBINE,
+)
 from physics_engine.constants import (
     MAX_STEAM_FLOW,
     PRESSURE_NOMINAL,
     TEMP_STEAM_NOMINAL,
 )
 from physics_engine.models import BoilerParameters, BoilerState
-from physics_engine.mqtt_publisher import (
-    TOPIC_BOILER,
-    TOPIC_HEARTBEAT,
-    TOPIC_PLANT,
-    TOPIC_TURBINE,
-    MQTTConfig,
-    MQTTPublisher,
-)
+from physics_engine.mqtt_publisher import MQTTConfig, MQTTPublisher
 from physics_engine.plant import PlantSimulator, PlantSnapshot
 from physics_engine.proto_mapping import boiler_state_to_proto, turbine_state_to_proto
 from physics_engine.runtime import RunState, SimulationStatus

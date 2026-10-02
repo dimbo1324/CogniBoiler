@@ -31,6 +31,13 @@ from aiomqtt import Client, Will
 from aiomqtt import MqttError as AioMqttError
 from cogniboiler_observability import MQTT_PUBLISH_ERRORS, MQTT_PUBLISHED
 from cogniboiler_runtime import DEFAULT_RECONNECT_DELAY_S, MqttSession, now_ms
+from cogniboiler_runtime.topics import (
+    TOPIC_BOILER,
+    TOPIC_HEARTBEAT,
+    TOPIC_PLANT,
+    TOPIC_STATUS_PHYSICS_ENGINE,
+    TOPIC_TURBINE,
+)
 
 from physics_engine.plant import PlantSnapshot
 from physics_engine.proto_mapping import (
@@ -52,14 +59,6 @@ RECONNECT_DELAY_S: float = DEFAULT_RECONNECT_DELAY_S
 # A clean stop disconnects politely, and the broker then drops the will: "offline" has to
 # be said explicitly, but a link that is already gone must not hold the shutdown up.
 OFFLINE_ANNOUNCE_TIMEOUT_S: float = 2.0
-
-# ─── Topic constants ──────────────────────────────────────────────────────────
-
-TOPIC_BOILER: str = "sensors/boiler"
-TOPIC_TURBINE: str = "sensors/turbine"
-TOPIC_PLANT: str = "sensors/plant"
-TOPIC_HEARTBEAT: str = "sensors/system/heartbeat"
-TOPIC_AVAILABILITY: str = "status/physics-engine"
 
 
 # ─── Publisher config ─────────────────────────────────────────────────────────
@@ -139,7 +138,9 @@ class MQTTPublisher:
 
     async def publish_availability(self, client: Client, status: str) -> None:
         """Publish retained availability state for broker-side liveness tracking."""
-        await self._publish(client, TOPIC_AVAILABILITY, status, qos=1, retain=True)
+        await self._publish(
+            client, TOPIC_STATUS_PHYSICS_ENGINE, status, qos=1, retain=True
+        )
 
     async def publish_snapshot(
         self,
@@ -183,7 +184,9 @@ class MQTTPublisher:
             identifier=self.config.client_id,  # aiomqtt uses 'identifier'
             username=self.config.username,
             password=self.config.password,
-            will=Will(TOPIC_AVAILABILITY, payload="offline", qos=1, retain=True),
+            will=Will(
+                TOPIC_STATUS_PHYSICS_ENGINE, payload="offline", qos=1, retain=True
+            ),
         )
 
     # ─── Mirror of the live runtime ───────────────────────────────────────────

@@ -11,20 +11,21 @@ from typing import Any
 import cogniboiler_pb2 as pb
 import pytest
 from aiomqtt import MqttError
+from cogniboiler_runtime.topics import (
+    TOPIC_BOILER,
+    TOPIC_HEARTBEAT,
+    TOPIC_PLANT,
+    TOPIC_TURBINE,
+)
+from cogniboiler_runtime.topics import (
+    TOPIC_STATUS_PHYSICS_ENGINE as TOPIC_AVAILABILITY,
+)
 from physics_engine import __main__ as entry
 from physics_engine import mqtt_publisher
 from physics_engine.boiler import BoilerBalance, PlantDivergedError
 from physics_engine.faults import FaultKind, FaultSpec
 from physics_engine.metrics import observe_runtime
-from physics_engine.mqtt_publisher import (
-    TOPIC_AVAILABILITY,
-    TOPIC_BOILER,
-    TOPIC_HEARTBEAT,
-    TOPIC_PLANT,
-    TOPIC_TURBINE,
-    MQTTConfig,
-    MQTTPublisher,
-)
+from physics_engine.mqtt_publisher import MQTTConfig, MQTTPublisher
 from physics_engine.plant import PlantConfig, PlantSimulator
 from physics_engine.runtime import PhysicsRuntime, PhysicsRuntimeConfig
 from physics_engine.scenarios import ScenarioName
