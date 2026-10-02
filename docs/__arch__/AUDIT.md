@@ -3801,3 +3801,239 @@ These items were accepted earlier by owner decisions. The auditors re-checked th
 - I3 is pinned on both sides: tests show engineers can and operators cannot reset, reserved PID/SAFETY sources are refused, and a reset with an active cause is refused with blockers.
 - I11 is implemented cleanly: every OPC UA method goes through the gateway with the session's own token, refused sessions map to `BadUserAccessDenied`, and the end-to-end tests prove both the anonymous refusal and the gateway path.
 - Valve bounds are validated twice (PLC `commands.py:137-154` and plant `plant.py:271-274`), including NaN, as the domain rules require; every mutating REST route carries a typed role dependency.
+
+## 10. Remediation status
+
+Fixed on 2026-09-27 … 2026-10-02 by parallel agents in four waves, each merged into the local
+`main` after a green full gate and a check on the live stack (decision log, 2026-09-27).
+"Commits" are the remediation commits whose message names the finding (up to four shown).
+"Owner decision" and the decision-log entries Q9–Q16 name what is left for the owner.
+
+**Totals:** fixed 188 · partial 26 · owner decision 10 · not done 0 (of 224).
+
+| ID | Status | Commits | Note |
+|---|---|---|---|
+| GW-AUTH-01 | partial | `87f6dce` | steps 1 and 3 done (no digest for password requests); keyed HMAC and rotating the demo passwords are owner decisions (Q14, Q16) |
+| GW-AUTH-02 | fixed | `1d21ab5` |  |
+| GW-AUTH-03 | partial | `be28b48` | the error no longer carries the statement; sending a SCRAM verifier instead of the password was not done |
+| GW-AUTH-04 | fixed | `1e51924` |  |
+| GW-AUTH-05 | fixed | `34a3519` |  |
+| GW-AUTH-06 | fixed | `59eeeec`, `5e36dc5` |  |
+| GW-AUTH-07 | fixed | `dbefb94` |  |
+| GW-AUTH-08 | fixed | `40342a3` |  |
+| GW-AUTH-09 | fixed | `34a3519` |  |
+| GW-AUTH-10 | partial | `9433bd8`, `a1cb509` | IPv6 counted per /64, OPC UA forwards its client address; narrowing --forwarded-allow-ips is an owner decision (Q14) |
+| GW-AUTH-11 | fixed | `c7d25e0` |  |
+| GW-AUTH-12 | fixed | `5e6737c` |  |
+| GW-AUTH-13 | fixed | `02a9574`, `0d1ced6` |  |
+| GW-AUTH-14 | fixed | `34a3519`, `5488aa2` |  |
+| GW-AUTH-15 | fixed | `89c9eb4` |  |
+| GW-AUTH-16 | fixed | `1d21ab5`, `1e51924`, `34a3519`, `5488aa2` … |  |
+| GW-API-01 | fixed | `ad72860` |  |
+| GW-API-02 | fixed | `e7ba39f` |  |
+| GW-API-03 | fixed | `ed7b737` |  |
+| GW-API-04 | fixed | `e018402` |  |
+| GW-API-05 | fixed | `68bcb44` |  |
+| GW-API-06 | partial | `68bcb44`, `ed7b737` | uvicorn frame and queue limits and a connection cap; nginx limit_conn is an owner decision (Q14) |
+| GW-API-07 | fixed | `c706d8e` |  |
+| GW-API-08 | owner decision |  | same as PLAT-02 (Q11) |
+| GW-API-09 | fixed | `a8a2ee2` |  |
+| GW-API-10 | fixed | `ec51fbf` |  |
+| GW-API-11 | fixed | `3002855`, `33a5019` |  |
+| GW-API-12 | fixed | `e018402` |  |
+| GW-API-13 | fixed | `ef98cbb` |  |
+| GW-API-14 | fixed | `563ef12` |  |
+| GW-API-15 | fixed | `e018402`, `ec51fbf` |  |
+| GW-API-16 | fixed | `ed7b737` |  |
+| GW-API-17 | fixed | `fdb1f1b` |  |
+| GW-API-18 | fixed | `8120a17` |  |
+| GW-API-19 | fixed | `1eb93c3`, `ade6cfc` |  |
+| GW-API-20 | fixed | `238c460`, `563ef12`, `a8a2ee2`, `ad72860` … |  |
+| PHY-01 | fixed | `d02a401` |  |
+| PHY-02 | partial | `220eba8`, `5a44d17`, `88e1f9a` | metrics, refusal when degraded and the healthcheck done; ending the process on a dead loop is an owner decision (Q14) |
+| PHY-03 | fixed | `086a9fd` |  |
+| PHY-04 | fixed | `bde9e01` |  |
+| PHY-05 | partial | `220eba8`, `d385173`, `ecab511` | binds 127.0.0.1 on a host run; caller authentication is an owner decision (Q10) |
+| PHY-06 | fixed | `ecab511` |  |
+| PHY-07 | partial | `7adac8a` | finite-state guard and config validation done; an upper bound on step_s is an owner decision (Q14) |
+| PHY-08 | fixed | `ecab511` |  |
+| PHY-09 | fixed | `ecab511` |  |
+| PHY-10 | fixed | `60d3749` |  |
+| PHY-11 | fixed | `e052ef8` |  |
+| PHY-12 | fixed | `2f25735`, `70e08ac` |  |
+| PHY-13 | fixed | `5e19840`, `8120a17`, `bde9e01` |  |
+| PHY-14 | fixed | `70e08ac` |  |
+| PHY-15 | partial | `b5123d4` | internal rename done; the contract change is an owner decision (Q12) |
+| PHY-16 | fixed | `7cce9be`, `e052ef8`, `ecab511` |  |
+| PHY-17 | fixed | `5a44d17`, `88e1f9a` |  |
+| PLC-01 | fixed | `7304e61` |  |
+| PLC-02 | fixed | `19006b0` |  |
+| PLC-03 | partial | `806f013` | start-up warning and a test pinning today's behaviour; the fix is an owner decision (Q9) |
+| PLC-04 | fixed | `dd0aae0` |  |
+| PLC-05 | fixed | `dd0aae0` |  |
+| PLC-06 | partial | `77d2e89`, `8a5fe08` | binds 127.0.0.1 on a host run; caller authentication is an owner decision (Q10) |
+| PLC-07 | fixed | `aadd278` |  |
+| PLC-08 | fixed | `093cf49`, `ecab511` |  |
+| PLC-09 | fixed | `6db4781` |  |
+| PLC-10 | fixed | `1a39b67` |  |
+| PLC-11 | fixed | `92061f3` |  |
+| PLC-12 | partial | `a6f0f0e` | conversions, modes and constants unified; sensor ids in the proto are a contract change (Q12) |
+| PLC-13 | fixed | `e19347b` |  |
+| PLC-14 | fixed | `52e1c09` |  |
+| PLC-15 | partial | `c4836bc` | non-finite interval refused, bounds and a stream cap; removing the RPC is an owner decision (Q12) |
+| PLC-16 | fixed | `ac205ab` |  |
+| PLC-17 | partial | `c0c7e71` | policy written down, an unreported trip sensor warns; tripping on a failed non-trip sensor is an owner decision (Q14) |
+| PLC-18 | fixed | `36452a0` |  |
+| HIST-01 | fixed | `3002855`, `bd3c790` |  |
+| HIST-02 | owner decision |  | same as PLAT-02 (Q11) |
+| HIST-03 | fixed | `1a73672`, `858e9b2` |  |
+| HIST-04 | fixed | `aea835f` |  |
+| HIST-05 | fixed | `edd9947` |  |
+| HIST-06 | fixed | `4b8f08e` |  |
+| HIST-07 | fixed | `791e083`, `aea835f` |  |
+| HIST-08 | fixed | `31d7172`, `3b95a42`, `55a7fd2`, `75fb0dd` … |  |
+| HIST-09 | fixed | `db12c28` |  |
+| HIST-10 | fixed | `085ccce`, `4b8f08e`, `791e083`, `80f3a22` … |  |
+| ALM-01 | partial | `899ccba` | transient-error retry, bounded queue and the unmatched-key counter; raising a lost alarm from the snapshot is an owner decision (Q14) |
+| ALM-02 | partial | `3f223c5` | empty operator refused and the caller logged; caller authentication is an owner decision (Q10) |
+| ALM-03 | fixed | `2d8804a` |  |
+| ALM-04 | fixed | `3002855`, `8c14663` |  |
+| ALM-05 | fixed | `4089de1`, `55a7fd2` |  |
+| ALM-06 | fixed | `51f3ee2`, `55a7fd2` |  |
+| ALM-07 | fixed | `3f223c5`, `ec51fbf` |  |
+| ALM-08 | fixed | `5e6737c` |  |
+| ALM-09 | fixed | `024af05`, `8c14663` |  |
+| ALM-10 | fixed | `085ccce`, `0ee38f2`, `3f223c5`, `4089de1` … |  |
+| ALM-11 | partial | `a6c9bfb` | reads split into queries.py; the legacy payload format stays |
+| OPC-01 | fixed | `d71377b` |  |
+| OPC-02 | fixed | `d71377b` |  |
+| OPC-03 | fixed | `2bd5bbd` |  |
+| OPC-04 | fixed | `a1cb509` |  |
+| OPC-05 | fixed | `933cc21` |  |
+| OPC-06 | fixed | `933cc21` |  |
+| OPC-07 | fixed | `7426ae1` |  |
+| OPC-08 | fixed | `8f04f68` |  |
+| OPC-09 | fixed | `3cc4805` |  |
+| OPC-10 | fixed | `8f04f68` |  |
+| OPC-11 | fixed | `7426ae1` |  |
+| OPC-12 | fixed | `f150862` |  |
+| OPC-13 | fixed | `7ec98f7` |  |
+| OPC-14 | fixed | `f150862` |  |
+| OPC-15 | fixed | `a1cb509`, `a3a04a5` |  |
+| OPC-16 | fixed | `933cc21` |  |
+| OPC-17 | fixed | `144c0a8`, `2bd5bbd`, `8f04f68`, `933cc21` … |  |
+| OPC-18 | partial | `10c63e1`, `8f04f68` | two helpers unified; the certificate builder copy in scripts stays (scripts import no package) |
+| OPC-19 | fixed | `10c63e1` |  |
+| OPC-20 | fixed | `144c0a8` |  |
+| WEB-01 | fixed | `37670fe` |  |
+| WEB-02 | fixed | `e42b640` |  |
+| WEB-03 | fixed | `7bd5e75` |  |
+| WEB-04 | fixed | `e42b640` |  |
+| WEB-05 | fixed | `3fbabcf` |  |
+| WEB-06 | fixed | `72a3b9b` |  |
+| WEB-07 | fixed | `e42b640` |  |
+| WEB-08 | fixed | `82c3190` |  |
+| WEB-09 | fixed | `155f865` |  |
+| WEB-10 | fixed | `7bd5e75` |  |
+| WEB-11 | fixed | `7bd5e75` |  |
+| WEB-12 | fixed | `50d90c2` |  |
+| WEB-13 | fixed | `37670fe`, `39cdda0` |  |
+| WEB-14 | fixed | `e235c1b` |  |
+| WEB-15 | fixed | `82c3190` |  |
+| WEB-16 | fixed | `3a4493e` |  |
+| WEB-17 | fixed | `7bd5e75`, `82c3190`, `e42b640` |  |
+| WEB-18 | partial | `e9cc63f` | three display bugs fixed; behaviour while the live channel is down is an owner decision (Q14) |
+| WEB-19 | fixed | `0576789` |  |
+| WEB-20 | fixed | `d5f86d6` |  |
+| PLAT-01 | fixed | `420afa7` |  |
+| PLAT-02 | owner decision |  | a read-only InfluxDB token needs a new way to hand out a secret (Q11) |
+| PLAT-03 | fixed | `0576789` |  |
+| PLAT-04 | fixed | `8f275d1` |  |
+| PLAT-05 | fixed | `6514ca3` |  |
+| PLAT-06 | partial | `420afa7`, `6514ca3`, `8f275d1` | actions by SHA and images by digest; no Dependabot (it works through pull requests) |
+| PLAT-07 | fixed | `8f275d1` |  |
+| PLAT-08 | fixed | `4f18869`, `b353f52` |  |
+| PLAT-09 | fixed | `310d188` |  |
+| PLAT-10 | fixed | `8f275d1`, `fc4ad0b` |  |
+| PLAT-11 | fixed | `0576789` |  |
+| PLAT-12 | fixed | `3e01695` |  |
+| PLAT-13 | fixed | `68a03fa`, `f8c2059` |  |
+| PLAT-14 | fixed | `6514ca3` |  |
+| PLAT-15 | partial | `8f275d1` | healthcheck and infra anchors; per-service LOG_DIR and the image CMDs stay |
+| PLAT-16 | owner decision |  | Docker secrets and *_FILE settings (Q15) |
+| PLAT-17 | fixed | `3543b78`, `9667a73` |  |
+| PLAT-18 | fixed | `9667a73` |  |
+| PLAT-19 | fixed | `8f275d1`, `bae6ba6`, `ea1ed3e` |  |
+| SHR-01 | fixed | `a498082` |  |
+| SHR-02 | fixed | `5e36dc5` |  |
+| SHR-03 | fixed | `a498082` |  |
+| SHR-04 | fixed | `0f7051a` |  |
+| SHR-05 | fixed | `a498082` |  |
+| SHR-06 | fixed | `f44cd0e` |  |
+| SHR-07 | owner decision |  | contract change: enum zero values (Q12) |
+| SHR-08 | fixed | `4f25508` |  |
+| SHR-09 | fixed | `0f7051a`, `a498082`, `f44cd0e` |  |
+| SCR-01 | fixed | `4f18869` |  |
+| SCR-02 | fixed | `6dd5eb1` |  |
+| SCR-03 | fixed | `ef1c06a` |  |
+| SCR-04 | fixed | `eb7bb71` |  |
+| SCR-05 | fixed | `7feaa76` |  |
+| SCR-06 | fixed | `b353f52` |  |
+| SCR-07 | fixed | `40f2c1d` |  |
+| SCR-08 | fixed | `df1112c` |  |
+| SCR-09 | fixed | `e3d7957` |  |
+| SCR-10 | fixed | `2ac88ce` |  |
+| SCR-11 | fixed | `26d0ca1` |  |
+| SCR-12 | fixed | `8221662` |  |
+| DUP-01 | fixed | `10c63e1`, `14d72c1`, `55a7fd2`, `7723e71` … |  |
+| DUP-02 | fixed | `14d72c1`, `51f3ee2`, `55a7fd2`, `87895b0` |  |
+| DUP-03 | partial | `10c63e1`, `55a7fd2`, `7723e71`, `858e9b2` … | run_service everywhere; the sys.path insert stays until shared/generated is a package (Q15) |
+| DUP-04 | fixed | `68bcb44` |  |
+| DUP-05 | partial | `3b95a42`, `75fb0dd`, `858e9b2`, `c132f3d` | the consume loop and reconnect delay are shared; client factories stay per service |
+| DUP-06 | partial | `14d72c1`, `888a8d4`, `ad72860`, `f150862` | OutageLog used where messages match; four richer outage logs stay |
+| DUP-07 | fixed | `2b523b4`, `31d7172`, `75fb0dd`, `7723e71` … |  |
+| DUP-08 | fixed | `7426ae1`, `858e9b2`, `9ac74b6`, `b66e607` … |  |
+| DUP-09 | owner decision | `f150862` | shared enum labels would change the gateway's answer to an unknown value (Q12) |
+| DUP-10 | fixed | `14d72c1`, `3002855`, `55a7fd2`, `7426ae1` … |  |
+| TST-01 | fixed | `52e1c09` |  |
+| TST-02 | fixed | `52e1c09` |  |
+| TST-03 | fixed | `52e1c09` |  |
+| TST-04 | fixed | `34a3519` |  |
+| TST-05 | fixed | `dbefb94` |  |
+| TST-06 | fixed | `933cc21` |  |
+| TST-07 | fixed | `52e1c09` |  |
+| TST-08 | fixed | `52e1c09` |  |
+| TST-09 | fixed | `ecab511` |  |
+| TST-10 | fixed | `085ccce`, `33e4963`, `7cce9be`, `ad72860` |  |
+| TST-11 | fixed | `093cf49`, `52e1c09`, `aadd278` |  |
+| TST-12 | fixed | `238c460`, `ad72860`, `e018402` |  |
+| TST-13 | fixed | `ed7b737` |  |
+| TST-14 | fixed | `ec51fbf` |  |
+| TST-15 | fixed | `919d595` |  |
+| TST-16 | fixed | `549ba42`, `ef1c06a` |  |
+| TST-17 | fixed | `7cce9be`, `ecab511`, `ef1c06a` |  |
+| TST-18 | fixed | `3fbabcf` |  |
+| TST-19 | fixed | `bde9e01` |  |
+| TST-20 | fixed | `296fcf4`, `cb9ead9` |  |
+| TST-21 | owner decision | `cb9ead9` | a shared test package needs dev dependencies in every package (Q15) |
+| TST-22 | fixed | `0f4d09e`, `cb9ead9`, `fee83d6` |  |
+| TST-23 | fixed | `085ccce`, `4f60250`, `7cce9be`, `933cc21` |  |
+| TST-24 | fixed | `82c3190` |  |
+| TST-25 | fixed | `68bcb44`, `8a5fe08` |  |
+| TST-26 | fixed | `7cce9be` |  |
+| TST-27 | fixed | `1b8ab1f`, `6dd5eb1` |  |
+| ARCH-01 | partial | `68a03fa`, `8f275d1` | seven networks keep other containers off the plant network; caller authentication is an owner decision (Q10) |
+| ARCH-02 | fixed | `238c460`, `439ddaf`, `f150862` |  |
+| ARCH-03 | fixed | `295b617`, `5e6737c` |  |
+| ARCH-04 | partial | `0ae582d`, `119bac6`, `3837235`, `e7debbc` | one typed model per payload, a round-trip test and gateway validation; the historian keeps its lenient parser, and WebSocket frame models in OpenAPI were not added |
+| ARCH-05 | fixed | `19006b0` |  |
+| ARCH-06 | owner decision |  | same as PLAT-02 (Q11) |
+| ARCH-07 | fixed | `f150862` |  |
+| ARCH-08 | fixed | `31d7172`, `3b95a42`, `51f3ee2`, `55a7fd2` … |  |
+| ARCH-09 | partial |  | the overview drift is corrected; the invariants registry text is an owner decision (Q13) |
+| ARCH-10 | owner decision |  | contract change: units outside SI (Q12) |
+| ARCH-11 | owner decision |  | the gateway aggregates KPI ratios over a range; moving it changes ownership (Q14) |
+| ARCH-12 | fixed | `3e01695` |  |
+| ARCH-13 | fixed | `c0c7e71` |  |
+| ARCH-14 | fixed | `9667a73` |  |
+| ARCH-15 | fixed | `af1542f` |  |

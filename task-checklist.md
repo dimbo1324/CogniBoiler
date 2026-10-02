@@ -64,13 +64,17 @@ Marks: `[ ]` open, `+` done, `-` not done or partially done (with a note).
 
 ## 5. Wave D — tests of the invariants and test hygiene
 
-[ ] D1 invariant tests and contract models (ARCH-02/04/11), test hygiene (TST-10/20-23)
-[ ] Wave D merged; full gate green; merged into local `main`
++ D1 invariant tests and contract models (ARCH-02/04/11), test hygiene (TST-10/20-23) —
+  ARCH-04 partial (the historian keeps its lenient parser), ARCH-11 an owner decision
++ Wave D merged; full gate green; merged into local `main` — live stack with the exact-topic
+  ACL: no broker denials, no alarm processed twice, `smoke` 19/19, `demo` clean,
+  `console-e2e` 22/22; 1994 Python tests at 98.90 % line coverage, 287 console tests
 
 ## 6. Completion
 
-[ ] State documents: overview, invariants proposals for the owner, roadmap progress note,
-    rule modules corrected where stale
-[ ] Live stack: `stack up`, `smoke`, `demo` green with clean logs
-[ ] Every finding accounted for in a closing table; checklist filled; report in Russian
-[ ] Worktrees and merged `fix/audit-…` branches removed; `main` not pushed
++ State documents: overview, invariants proposals for the owner, roadmap progress note,
+    rule modules corrected where stale — the invariants registry itself is unchanged (Q13)
++ Live stack: `stack up`, `smoke`, `demo` green with clean logs
++ Every finding accounted for in a closing table; checklist filled; report in Russian —
+  section 10 of `docs/__arch__/AUDIT.md`: fixed 188, partial 26, owner decision 10
++ Worktrees and merged `fix/audit-…` branches removed; `main` not pushed
