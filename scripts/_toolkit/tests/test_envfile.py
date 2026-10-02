@@ -41,6 +41,42 @@ class ParseTest(unittest.TestCase):
             parse("just words\n")
 
 
+class HandEditTest(unittest.TestCase):
+    """Lines people write by hand, read the way Docker Compose reads them — otherwise
+    the stack starts with one password and smoke signs in with another."""
+
+    def test_a_comment_after_a_quoted_value_ends_it(self) -> None:
+        text = 'PASSWORD="s3cret" # rotated monthly\nNEXT=1\nLAST="x"\n'
+        self.assertEqual(
+            values(parse(text)), {"PASSWORD": "s3cret", "NEXT": "1", "LAST": "x"}
+        )
+
+    def test_a_quoted_multiline_value_may_carry_a_comment_after_it(self) -> None:
+        text = f'KEY="{PEM}"  # the gateway key\nNEXT=1\n'
+        self.assertEqual(values(parse(text)), {"KEY": PEM, "NEXT": "1"})
+
+    def test_text_after_a_closing_quote_that_is_not_a_comment_is_an_error(
+        self,
+    ) -> None:
+        with self.assertRaises(EnvFileError):
+            parse('KEY="a" b\n')
+
+    def test_single_quotes_are_stripped(self) -> None:
+        self.assertEqual(values(parse("KEY='x y'\n")), {"KEY": "x y"})
+
+    def test_a_comment_after_an_unquoted_value_is_dropped(self) -> None:
+        self.assertEqual(values(parse("KEY=x # note\n")), {"KEY": "x"})
+
+    def test_a_hash_inside_an_unquoted_value_is_kept(self) -> None:
+        self.assertEqual(values(parse("KEY=a#b\n")), {"KEY": "a#b"})
+
+    def test_a_value_written_by_format_value_reads_back_unchanged(self) -> None:
+        for value in ("x # y", "it's", "a b", "tab\there", PEM):
+            with self.subTest(value=value):
+                rendered = f"KEY={format_value(value)}\n"
+                self.assertEqual(values(parse(rendered))["KEY"], value)
+
+
 class FormatTest(unittest.TestCase):
     def test_plain_values_stay_unquoted(self) -> None:
         self.assertEqual(format_value("abc-123_xyz"), "abc-123_xyz")

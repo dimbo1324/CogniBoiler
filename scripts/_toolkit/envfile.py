@@ -4,7 +4,9 @@ Shared infrastructure: dev-secrets writes .env with it, smoke reads credentials 
 
 The format is the subset python-dotenv and Docker Compose both read: ``KEY=value`` lines,
 ``#`` comments, blank lines, and double-quoted values that may span lines — a PEM key is
-exactly such a value.
+exactly such a value. Hand edits are read the way Compose reads them: a ``# comment``
+may follow a quoted value, single quotes are stripped, and in an unquoted value a ``#``
+after whitespace starts a comment.
 """
 
 from __future__ import annotations
@@ -15,10 +17,28 @@ from dataclasses import dataclass
 
 _ASSIGNMENT = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 _NEEDS_QUOTES = set(" #'\n\t")
+#: In an unquoted value, as in Compose, a ``#`` starts a comment only after whitespace.
+_INLINE_COMMENT = re.compile(r"\s+#")
+_TRAILER = re.compile(r"\s*(#.*)?")
 
 
 class EnvFileError(ValueError):
     """The file is not in the supported dotenv subset."""
+
+
+def _closing_quote(text: str) -> int:
+    """Index of the first double quote not escaped by a backslash, or -1."""
+    index = text.find('"')
+    while index > 0 and text[index - 1] == "\\":
+        index = text.find('"', index + 1)
+    return index
+
+
+def _only_a_comment_after(key: str, trailer: str) -> None:
+    if not _TRAILER.fullmatch(trailer):
+        raise EnvFileError(
+            f"{key}: only a # comment may follow the closing quote, not {trailer!r}"
+        )
 
 
 @dataclass(frozen=True)
@@ -48,16 +68,23 @@ def parse(text: str) -> list[Entry]:
         if rest.startswith('"'):
             body = rest[1:]
             parts: list[str] = []
-            while not body.endswith('"'):
+            while (end := _closing_quote(body)) < 0:
                 parts.append(body)
                 index += 1
                 if index >= len(lines):
                     raise EnvFileError(f"{key}: quoted value is never closed")
                 body = lines[index]
-            parts.append(body[:-1])
+            parts.append(body[:end])
+            _only_a_comment_after(key, body[end + 1 :])
             value = "\n".join(parts)
+        elif rest.startswith("'"):
+            end = rest.find("'", 1)
+            if end < 0:
+                raise EnvFileError(f"{key}: single-quoted value is never closed")
+            _only_a_comment_after(key, rest[end + 1 :])
+            value = rest[1:end]
         else:
-            value = rest.strip()
+            value = _INLINE_COMMENT.split(rest, maxsplit=1)[0].strip()
         entries.append(Entry(key=key, value=value))
         index += 1
     while entries and entries[-1].key is None and not entries[-1].raw.strip():
