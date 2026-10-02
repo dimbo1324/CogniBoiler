@@ -24,7 +24,13 @@ from cogniboiler_observability import (
     correlation_scope,
     current_correlation_id,
 )
-from opcua_fakes import PASSWORD, GatewayScript, RecordingOPC, gateway_server
+from opcua_fakes import (
+    PASSWORD,
+    GatewayScript,
+    RecordingOPC,
+    alarm_change_bytes,
+    gateway_server,
+)
 from opcua_server import __main__ as entry
 from opcua_server import service, subscriber, upstreams
 from opcua_server.client import AlarmReadClient, PLCStatusClient
@@ -661,8 +667,31 @@ class TestBridge:
     async def test_an_alarm_change_wakes_the_alarm_folder(self) -> None:
         changed = asyncio.Event()
         bridge = MQTTOPCBridge(RecordingOPC(), alarms_changed=changed)  # type: ignore[arg-type]
-        await bridge._handle_message("alarms/changes", b"{}")
+        await bridge._handle_message("alarms/changes", alarm_change_bytes())
         assert changed.is_set()
+        assert bridge.stats == {"received": 1, "mapped": 1, "skipped": 0}
+
+    @pytest.mark.parametrize(
+        "payload",
+        [b"{}", b"not json", b"[]", b'{"alarm": {}, "transition": {}}', b""],
+        ids=["empty-object", "not-json", "array", "hollow", "empty"],
+    )
+    async def test_an_alarm_change_that_breaks_the_contract_is_skipped(
+        self, payload: bytes
+    ) -> None:
+        def skipped() -> float:
+            value = REGISTRY.get_sample_value(
+                "opcua_bridge_skipped_total", {"reason": "malformed"}
+            )
+            return value or 0.0
+
+        before = skipped()
+        changed = asyncio.Event()
+        bridge = MQTTOPCBridge(RecordingOPC(), alarms_changed=changed)  # type: ignore[arg-type]
+        await bridge._handle_message("alarms/changes", payload)
+        assert not changed.is_set()
+        assert bridge.stats == {"received": 1, "mapped": 0, "skipped": 1}
+        assert skipped() == before + 1
 
     async def test_an_unknown_node_is_logged_and_skipped(
         self, caplog: pytest.LogCaptureFixture

@@ -13,7 +13,8 @@ Topic contract:
     sensors/boiler           ← BoilerStateMsg  (measured)
     sensors/turbine          ← TurbineStateMsg (measured)
     sensors/system/heartbeat ← UTF-8 timestamp (skipped)
-    alarms/changes           ← JSON alarm change: the alarm projection refreshes at once
+    alarms/changes           ← JSON alarm change: the alarm projection refreshes at once;
+                               one that does not parse as the contract is skipped
 
 The plant publishes every simulated step, up to fifty times a second at high simulation
 speed. Each topic is applied at most max_update_hz times a second; a message arriving
@@ -38,6 +39,7 @@ import cogniboiler_pb2 as pb
 from aiomqtt import Client
 from cogniboiler_observability import MQTT_RECEIVED
 from cogniboiler_runtime import DEFAULT_RECONNECT_DELAY_S, MqttSession, consume
+from cogniboiler_runtime.contracts import AlarmChangeMessage, ContractError
 from cogniboiler_runtime.topics import (
     FILTER_SENSORS,
     TOPIC_ALARM_CHANGES,
@@ -164,9 +166,7 @@ class MQTTOPCBridge:
         MQTT_RECEIVED.labels(topic).inc()
 
         if topic == TOPIC_ALARM_CHANGES:
-            if self._alarms_changed is not None:
-                self._alarms_changed.set()
-            self._messages_mapped += 1
+            self._alarm_change(raw_payload)
             return
 
         parser = self._parsers.get(topic)
@@ -195,6 +195,20 @@ class MQTTOPCBridge:
             self._pending[topic] = parsed
             return
         await self._apply(topic, parsed, now)
+
+    def _alarm_change(self, raw_payload: object) -> None:
+        """Wake the alarm projection, for a message that is an alarm change at all."""
+        try:
+            if not isinstance(raw_payload, bytes | bytearray):
+                raise ContractError("payload is not bytes")
+            AlarmChangeMessage.parse(raw_payload)
+        except ContractError as exc:
+            self._skip(SKIP_MALFORMED)
+            logger.warning("Alarm change on %s skipped: %s", TOPIC_ALARM_CHANGES, exc)
+            return
+        if self._alarms_changed is not None:
+            self._alarms_changed.set()
+        self._messages_mapped += 1
 
     async def _apply(self, topic: str, parsed: _Parsed, now: float) -> None:
         updates, timestamp_ms = parsed

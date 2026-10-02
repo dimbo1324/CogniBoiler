@@ -11,6 +11,12 @@ from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
+from cogniboiler_runtime.contracts import (
+    AlarmChangeMessage,
+    AlarmRecord,
+    AlarmTransitionRecord,
+)
+
 PASSWORD = "operator-password-1"
 
 
@@ -166,3 +172,42 @@ class RecordingOPC:
 
     def latest(self, node_id: int) -> Any:
         return next(value for nid, value, _ in reversed(self.updates) if nid == node_id)
+
+
+def alarm_change_bytes(at_ms: int = 1_710_000_000_000) -> bytes:
+    """An alarms/changes message as alert-manager publishes it."""
+    return AlarmChangeMessage(
+        alarm=AlarmRecord(
+            id=7,
+            key="plc-controller:water_level_m:low:critical",
+            source_service="plc-controller",
+            parameter="water_level_m",
+            severity="critical",
+            direction="low",
+            unit="m",
+            state="ACTIVE_UNACK",
+            message="Drum level low-low",
+            action="trip",
+            topic="alerts/critical",
+            value=3.1,
+            threshold=3.5,
+            raised_at_ms=at_ms,
+            cleared_at_ms=None,
+            acknowledged_at_ms=None,
+            acknowledged_by=None,
+            ack_comment=None,
+            occurrence_count=1,
+            updated_at_ms=at_ms,
+        ),
+        transition=AlarmTransitionRecord(
+            id=1,
+            alarm_id=7,
+            from_state=None,
+            to_state="ACTIVE_UNACK",
+            at_ms=at_ms,
+            actor="plc-controller",
+            comment=None,
+            value=3.1,
+        ),
+        timestamp_ms=at_ms,
+    ).encode()
