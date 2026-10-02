@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import logging
 import math
-import time
 from collections.abc import Mapping
+
+from cogniboiler_runtime import now_ms
 
 from plc_controller.measurements import (
     SENSOR_DRUM_LEVEL,
@@ -224,7 +225,7 @@ class EmergencyStop:
             SafetyEvent describing this trip.
         """
         event = SafetyEvent(
-            timestamp_ms=int(time.time() * 1000),
+            timestamp_ms=now_ms(),
             parameter=parameter,
             value=value,
             threshold=threshold,
@@ -404,7 +405,7 @@ class SafetyInterlock:
                 else SafetyAction.WARN
             )
             event = SafetyEvent(
-                timestamp_ms=int(time.time() * 1000),
+                timestamp_ms=now_ms(),
                 parameter=parameter,
                 value=value,
                 threshold=threshold,
