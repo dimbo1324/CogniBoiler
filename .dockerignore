@@ -1,27 +1,29 @@
-.git
-.venv
+# The Python images need the workspace manifests, the lock, the service and shared
+# packages, the protobuf stubs and the gateway's migrations — nothing else. Everything is
+# excluded first, so local files (.env, certs/, logs/, backups/, reports, caches) never
+# enter the build context and never invalidate the cached dependency layers.
+*
+
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!apps/physics-engine
+!apps/plc-controller
+!apps/api-gateway
+!apps/historian
+!apps/alert-manager
+!apps/opcua-server
+!shared/observability
+!shared/runtime
+!shared/generated
+
+**/tests
 **/__pycache__
 **/*.py[cod]
-.pytest_cache
-.mypy_cache
-.ruff_cache
-htmlcov
-.coverage
-
-# Secrets never enter an image; services receive them from Compose.
-.env
-certs
-
-# Not needed by the Python services
-**/node_modules
-apps/web
-apps/ai-predictor
-ml
-docs
-.ai
-.claude
-.codex
-.github
-AGENTS.md
-CLAUDE.md
-task-checklist.md
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.env
+**/.env.*
+**/*.log

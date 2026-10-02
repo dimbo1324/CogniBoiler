@@ -6,33 +6,82 @@
 # the gateway, the migrations — no uv, no sources, no development tools, not root.
 # The console has its own image: apps/web/Dockerfile.
 
-ARG UV_IMAGE=ghcr.io/astral-sh/uv:python3.14-bookworm-slim
-ARG PYTHON_IMAGE=python:3.14-slim-bookworm
+# Base images are pinned by digest; the uv image is the last uv release built on bookworm,
+# the same Debian as the runtime. Rebuild on a new digest when the image scan asks for it.
+ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.9.30-python3.14-bookworm-slim@sha256:7cf77f594be8042dab6daa9fe326f90962252268b4f120a7f5dccce4d947e6c1
+ARG PYTHON_IMAGE=python:3.14-slim-bookworm@sha256:82bc3c539b8813ada9d68c63b40158fa002f7f33de9bf3312a3dfdc0620dff56
 
+# The manifests and the lock alone: third-party dependencies are one layer per service that
+# stays cached until uv.lock or a pyproject.toml changes, and uv keeps downloaded wheels in
+# a build cache, so a rebuild after a source change needs no network.
 FROM ${UV_IMAGE} AS build
 ENV UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=never \
     UV_COMPILE_BYTECODE=1
 WORKDIR /app
-COPY . .
+COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY apps/physics-engine/pyproject.toml apps/physics-engine/pyproject.toml
+COPY apps/plc-controller/pyproject.toml apps/plc-controller/pyproject.toml
+COPY apps/api-gateway/pyproject.toml apps/api-gateway/pyproject.toml
+COPY apps/historian/pyproject.toml apps/historian/pyproject.toml
+COPY apps/alert-manager/pyproject.toml apps/alert-manager/pyproject.toml
+COPY apps/opcua-server/pyproject.toml apps/opcua-server/pyproject.toml
+COPY shared/observability/pyproject.toml shared/observability/pyproject.toml
+COPY shared/runtime/pyproject.toml shared/runtime/pyproject.toml
 
 FROM build AS env-physics-engine
-RUN uv sync --frozen --no-dev --no-editable --package physics-engine
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-workspace --package physics-engine
+COPY shared/observability shared/observability
+COPY shared/runtime shared/runtime
+COPY apps/physics-engine apps/physics-engine
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable --package physics-engine
 
 FROM build AS env-plc-controller
-RUN uv sync --frozen --no-dev --no-editable --package plc-controller
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-workspace --package plc-controller
+COPY shared/observability shared/observability
+COPY shared/runtime shared/runtime
+COPY apps/plc-controller apps/plc-controller
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable --package plc-controller
 
 FROM build AS env-api-gateway
-RUN uv sync --frozen --no-dev --no-editable --package api-gateway
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-workspace --package api-gateway
+COPY shared/observability shared/observability
+COPY shared/runtime shared/runtime
+COPY apps/api-gateway apps/api-gateway
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable --package api-gateway
 
 FROM build AS env-historian
-RUN uv sync --frozen --no-dev --no-editable --package historian
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-workspace --package historian
+COPY shared/observability shared/observability
+COPY shared/runtime shared/runtime
+COPY apps/historian apps/historian
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable --package historian
 
 FROM build AS env-alert-manager
-RUN uv sync --frozen --no-dev --no-editable --package alert-manager
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-workspace --package alert-manager
+COPY shared/observability shared/observability
+COPY shared/runtime shared/runtime
+COPY apps/alert-manager apps/alert-manager
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable --package alert-manager
 
 FROM build AS env-opcua-server
-RUN uv sync --frozen --no-dev --no-editable --package opcua-server
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-workspace --package opcua-server
+COPY shared/observability shared/observability
+COPY shared/runtime shared/runtime
+COPY apps/opcua-server apps/opcua-server
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable --package opcua-server
 
 FROM ${PYTHON_IMAGE} AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -47,7 +96,7 @@ RUN apt-get update \
     && python -m pip uninstall --yes --root-user-action=ignore pip \
     && useradd --system --uid 10001 --home-dir /app --shell /usr/sbin/nologin app
 WORKDIR /app
-COPY --from=build /app/shared/generated /app/shared/generated
+COPY shared/generated /app/shared/generated
 LABEL org.opencontainers.image.source="https://github.com/dimbo1324/CogniBoiler" \
       org.opencontainers.image.licenses="Apache-2.0"
 
